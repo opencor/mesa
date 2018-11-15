@@ -37,6 +37,9 @@
 struct gl_context;
 
 
+void GLAPIENTRY
+_mesa_PointSize_no_error(GLfloat size);
+
 extern void GLAPIENTRY
 _mesa_PointSize( GLfloat size );
 
@@ -52,7 +55,7 @@ _mesa_PointParameterf( GLenum pname, GLfloat param );
 extern void GLAPIENTRY
 _mesa_PointParameterfv( GLenum pname, const GLfloat *params );
 
-extern void
+extern void 
 _mesa_init_point( struct gl_context * ctx );
 
 

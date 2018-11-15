@@ -25,7 +25,6 @@
 
 #include "util/u_format.h"
 #include "util/u_math.h"
-#include "util/u_mm.h"
 
 #include "r300_context.h"
 #include "r300_cb.h"
@@ -761,7 +760,7 @@ void r300_emit_query_end(struct r300_context* r300)
             rv530_emit_query_end_double_z(r300, query);
         else
             rv530_emit_query_end_single_z(r300, query);
-    } else
+    } else 
         r300_emit_query_end_frag_pipes(r300, query);
 
     query->begin_emitted = FALSE;
@@ -966,7 +965,7 @@ void r300_emit_vertex_arrays(struct r300_context* r300, int offset,
         }
 
         for (i = 0; i < vertex_array_count; i++) {
-            buf = r300_resource(vbuf[velem[i].vertex_buffer_index].buffer);
+            buf = r300_resource(vbuf[velem[i].vertex_buffer_index].buffer.resource);
             OUT_CS_RELOC(buf);
         }
     } else {
@@ -1018,7 +1017,7 @@ void r300_emit_vertex_arrays(struct r300_context* r300, int offset,
         }
 
         for (i = 0; i < vertex_array_count; i++) {
-            buf = r300_resource(vbuf[velem[i].vertex_buffer_index].buffer);
+            buf = r300_resource(vbuf[velem[i].vertex_buffer_index].buffer.resource);
             OUT_CS_RELOC(buf);
         }
     }
@@ -1381,7 +1380,7 @@ validate:
         struct pipe_resource *buf;
 
         for (; vbuf != last; vbuf++) {
-            buf = vbuf->buffer;
+            buf = vbuf->buffer.resource;
             if (!buf)
                 continue;
 

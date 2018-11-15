@@ -73,7 +73,7 @@ struct lp_rast_state;
 typedef void (*lp_rast_cmd_func)( struct lp_rasterizer_task *,
                                   const union lp_rast_cmd_arg );
 
-
+   
 struct cmd_block {
    uint8_t cmd[CMD_BLOCK_MAX];
    union lp_rast_cmd_arg arg[CMD_BLOCK_MAX];
@@ -98,7 +98,7 @@ struct cmd_bin {
    struct cmd_block *head;
    struct cmd_block *tail;
 };
-
+   
 
 /**
  * This stores bulk data which is used for all memory allocations
@@ -166,7 +166,6 @@ struct lp_scene {
    unsigned resource_reference_size;
 
    boolean alloc_failed;
-   boolean discard;
    /**
     * Number of active tiles in each dimension.
     * This basically the framebuffer size divided by tile size
@@ -254,7 +253,7 @@ lp_scene_alloc_aligned( struct lp_scene *scene, unsigned size,
 		   size + alignment - 1,
 		   block->used, DATA_BLOCK_SIZE,
 		   scene->scene_size, LP_SCENE_MAX_SIZE);
-
+       
    if (block->used + size + alignment - 1 > DATA_BLOCK_SIZE) {
       block = lp_scene_new_data_block( scene );
       if (!block)
@@ -323,7 +322,7 @@ lp_scene_bin_command( struct lp_scene *scene,
       tail->arg[i] = arg;
       tail->count++;
    }
-
+   
    return TRUE;
 }
 
@@ -389,12 +388,11 @@ lp_scene_bin_iter_next( struct lp_scene *scene, int *x, int *y );
 /* Begin/end binning of a scene
  */
 void
-lp_scene_begin_binning( struct lp_scene *scene,
-                        struct pipe_framebuffer_state *fb,
-                        boolean discard );
+lp_scene_begin_binning(struct lp_scene *scene,
+                       struct pipe_framebuffer_state *fb);
 
 void
-lp_scene_end_binning( struct lp_scene *scene );
+lp_scene_end_binning(struct lp_scene *scene);
 
 
 /* Begin/end rasterization of a scene
@@ -403,7 +401,7 @@ void
 lp_scene_begin_rasterization(struct lp_scene *scene);
 
 void
-lp_scene_end_rasterization(struct lp_scene *scene );
+lp_scene_end_rasterization(struct lp_scene *scene);
 
 
 

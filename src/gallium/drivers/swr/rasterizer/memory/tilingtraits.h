@@ -19,16 +19,16 @@
 * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 * IN THE SOFTWARE.
-*
+* 
 * @file tilingtraits.h
-*
+* 
 * @brief Tiling traits.
-*
+* 
 ******************************************************************************/
 #pragma once
 
 #include "core/state.h"
-#include "common/simdintrin.h"
+#include "common/intrin.h"
 
 template<SWR_TILE_MODE mode, int>
 struct TilingTraits

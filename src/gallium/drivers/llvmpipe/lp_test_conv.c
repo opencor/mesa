@@ -211,6 +211,14 @@ test_one(unsigned verbose,
    assert(src_type.length * num_srcs == dst_type.length * num_dsts);
 
    eps = MAX2(lp_const_eps(src_type), lp_const_eps(dst_type));
+   if (dst_type.norm && dst_type.sign && src_type.sign && !src_type.floating) {
+      /*
+       * This is quite inaccurate due to shift being used.
+       * I don't think it's possible to hit such conversions with
+       * llvmpipe though.
+       */
+      eps *= 2;
+   }
 
    context = LLVMContextCreate();
    gallivm = gallivm_create("test_module", context);
@@ -426,7 +434,7 @@ test_some(unsigned verbose, FILE *fp,
 
    for(i = 0; i < n; ++i) {
       src_type = &conv_types[rand() % num_types];
-
+      
       do {
          dst_type = &conv_types[rand() % num_types];
       } while (src_type == dst_type || src_type->norm != dst_type->norm);

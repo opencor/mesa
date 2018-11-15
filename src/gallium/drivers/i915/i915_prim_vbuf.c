@@ -1,5 +1,5 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  *
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /**
@@ -31,8 +31,8 @@
  * lists by hooking into the end of the primitive pipeline and
  * manipulating the vertex_id field in the vertex headers.
  *
- * XXX: work in progress
- *
+ * XXX: work in progress 
+ * 
  * \author José Fonseca <jfonseca@vmware.com>
  * \author Keith Whitwell <keithw@vmware.com>
  */
@@ -323,8 +323,8 @@ i915_vbuf_ensure_index_bounds(struct vbuf_render *render,
 }
 
 static void
-i915_vbuf_render_set_primitive(struct vbuf_render *render,
-                               unsigned prim)
+i915_vbuf_render_set_primitive(struct vbuf_render *render, 
+                               enum pipe_prim_type prim)
 {
    struct i915_vbuf_render *i915_render = i915_vbuf_render(render);
    i915_render->prim = prim;
@@ -610,7 +610,7 @@ draw_calc_nr_indices(uint nr_indices, unsigned type)
    }
 }
 
-static void
+static void 
 i915_vbuf_render_draw_elements(struct vbuf_render *render,
                                const ushort *indices,
                                uint nr_indices)
@@ -636,7 +636,7 @@ i915_vbuf_render_draw_elements(struct vbuf_render *render,
    if (!BEGIN_BATCH(1 + (nr_indices + 1)/2)) {
       FLUSH_BATCH(NULL, I915_FLUSH_ASYNC);
 
-      /* Make sure state is re-emitted after a flush:
+      /* Make sure state is re-emitted after a flush: 
        */
       i915_emit_hardware_state(i915);
       i915->vbo_flushed = 1;
@@ -706,8 +706,8 @@ i915_vbuf_render_create(struct i915_context *i915)
 
    i915_render->base.max_vertex_buffer_bytes = 4*4096;
 
-   /* NOTE: it must be such that state and vertices indices fit in a single
-    * batch buffer. 4096 is one batch buffer and 430 is the max amount of
+   /* NOTE: it must be such that state and vertices indices fit in a single 
+    * batch buffer. 4096 is one batch buffer and 430 is the max amount of 
     * state in dwords. The result is the number of 16-bit indices which can
     * fit in a single batch buffer.
     */
@@ -759,11 +759,11 @@ struct draw_stage *i915_draw_vbuf_stage(struct i915_context *i915)
 {
    struct vbuf_render *render;
    struct draw_stage *stage;
-
+   
    render = i915_vbuf_render_create(i915);
    if (!render)
       return NULL;
-
+   
    stage = draw_vbuf_stage(i915->draw, render);
    if (!stage) {
       render->destroy(render);

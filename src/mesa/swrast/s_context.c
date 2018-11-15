@@ -25,10 +25,13 @@
  *    Keith Whitwell <keithw@vmware.com> Brian Paul
  */
 
+#include "main/errors.h"
 #include "main/imports.h"
 #include "main/bufferobj.h"
 #include "main/mtypes.h"
 #include "main/samplerobj.h"
+#include "main/state.h"
+#include "main/stencil.h"
 #include "main/teximage.h"
 #include "program/prog_parameter.h"
 #include "program/prog_statevars.h"
@@ -61,12 +64,9 @@ _swrast_update_rasterflags( struct gl_context *ctx )
    if (ctx->Depth.Test)                   rasterMask |= DEPTH_BIT;
    if (swrast->_FogEnabled)               rasterMask |= FOG_BIT;
    if (ctx->Scissor.EnableFlags)          rasterMask |= CLIP_BIT;
-   if (ctx->Stencil._Enabled)             rasterMask |= STENCIL_BIT;
+   if (_mesa_stencil_is_enabled(ctx))     rasterMask |= STENCIL_BIT;
    for (i = 0; i < ctx->Const.MaxDrawBuffers; i++) {
-      if (!ctx->Color.ColorMask[i][0] ||
-          !ctx->Color.ColorMask[i][1] ||
-          !ctx->Color.ColorMask[i][2] ||
-          !ctx->Color.ColorMask[i][3]) {
+      if (GET_COLORMASK(ctx->Color.ColorMask, i) != 0xf) {
          rasterMask |= MASKING_BIT;
          break;
       }
@@ -94,10 +94,7 @@ _swrast_update_rasterflags( struct gl_context *ctx )
    }
 
    for (i = 0; i < ctx->Const.MaxDrawBuffers; i++) {
-      if (ctx->Color.ColorMask[i][0] +
-          ctx->Color.ColorMask[i][1] +
-          ctx->Color.ColorMask[i][2] +
-          ctx->Color.ColorMask[i][3] == 0) {
+      if (GET_COLORMASK(ctx->Color.ColorMask, i) == 0) {
          rasterMask |= MULTI_DRAW_BIT; /* all RGBA channels disabled */
          break;
       }
@@ -108,7 +105,7 @@ _swrast_update_rasterflags( struct gl_context *ctx )
       rasterMask |= FRAGPROG_BIT;
    }
 
-   if (ctx->ATIFragmentShader._Enabled) {
+   if (_mesa_ati_fragment_shader_enabled(ctx)) {
       rasterMask |= ATIFRAGSHADER_BIT;
    }
 
@@ -189,7 +186,7 @@ _swrast_update_texture_env( struct gl_context *ctx )
 
    for (i = 0; i < ctx->Const.MaxTextureUnits; i++) {
       const struct gl_tex_env_combine_state *combine =
-         ctx->Texture.Unit[i]._CurrentCombine;
+         ctx->Texture.FixedFuncUnit[i]._CurrentCombine;
       GLuint term;
       for (term = 0; term < combine->_NumArgsRGB; term++) {
          if (combine->SourceRGB[term] == GL_PRIMARY_COLOR) {
@@ -288,7 +285,7 @@ _swrast_update_specular_vertex_add(struct gl_context *ctx)
    swrast->SpecularVertexAdd = (separateSpecular
                                 && ctx->Texture._MaxEnabledTexImageUnit == -1
                                 && !_swrast_use_fragment_program(ctx)
-                                && !ctx->ATIFragmentShader._Enabled);
+                                && !_mesa_ati_fragment_shader_enabled(ctx));
 }
 
 
@@ -503,7 +500,7 @@ _swrast_update_active_attribs(struct gl_context *ctx)
       attribsMask = ctx->FragmentProgram._Current->info.inputs_read;
       attribsMask &= ~VARYING_BIT_POS; /* WPOS is always handled specially */
    }
-   else if (ctx->ATIFragmentShader._Enabled) {
+   else if (_mesa_ati_fragment_shader_enabled(ctx)) {
       attribsMask = VARYING_BIT_COL0 | VARYING_BIT_COL1 |
                     VARYING_BIT_FOGC | VARYING_BITS_TEX_ANY;
    }
@@ -585,7 +582,7 @@ _swrast_validate_derived( struct gl_context *ctx )
                               _NEW_TEXTURE))
          _swrast_update_active_attribs(ctx);
 
-      if (swrast->NewState & (_NEW_FOG |
+      if (swrast->NewState & (_NEW_FOG | 
                               _NEW_PROGRAM |
                               _NEW_LIGHT |
                               _NEW_TEXTURE))
@@ -896,7 +893,7 @@ _swrast_render_start( struct gl_context *ctx )
       swrast->Driver.SpanRenderStart( ctx );
    swrast->PointSpan.end = 0;
 }
-
+ 
 void
 _swrast_render_finish( struct gl_context *ctx )
 {

@@ -118,7 +118,7 @@ lp_build_gather_elem(struct gallivm_state *gallivm,
     */
    if (!aligned) {
       LLVMSetAlignment(res, 1);
-   } else if (!util_is_power_of_two(src_width)) {
+   } else if (!util_is_power_of_two_or_zero(src_width)) {
       /*
        * Full alignment is impossible, assume the caller really meant
        * the individual elements were aligned (e.g. 3x32bit format).
@@ -130,7 +130,7 @@ lp_build_gather_elem(struct gallivm_state *gallivm,
        * this should cover all the 3-channel formats.
        */
       if (((src_width / 24) * 24 == src_width) &&
-           util_is_power_of_two(src_width / 24)) {
+           util_is_power_of_two_or_zero(src_width / 24)) {
           LLVMSetAlignment(res, src_width / 24);
       } else {
          LLVMSetAlignment(res, 1);
@@ -199,7 +199,7 @@ lp_build_gather_elem_vec(struct gallivm_state *gallivm,
     */
    if (!aligned) {
       LLVMSetAlignment(res, 1);
-   } else if (!util_is_power_of_two(src_width)) {
+   } else if (!util_is_power_of_two_or_zero(src_width)) {
       /*
        * Full alignment is impossible, assume the caller really meant
        * the individual elements were aligned (e.g. 3x32bit format).
@@ -211,7 +211,7 @@ lp_build_gather_elem_vec(struct gallivm_state *gallivm,
        * this should cover all the 3-channel formats.
        */
       if (((src_width / 24) * 24 == src_width) &&
-           util_is_power_of_two(src_width / 24)) {
+           util_is_power_of_two_or_zero(src_width / 24)) {
           LLVMSetAlignment(res, src_width / 24);
       } else {
          LLVMSetAlignment(res, 1);
@@ -234,13 +234,39 @@ lp_build_gather_elem_vec(struct gallivm_state *gallivm,
           */
          res = LLVMBuildZExt(gallivm->builder, res, dst_elem_type, "");
 
-         if (vector_justify) {
 #ifdef PIPE_ARCH_BIG_ENDIAN
+         if (vector_justify) {
          res = LLVMBuildShl(gallivm->builder, res,
                             LLVMConstInt(dst_elem_type,
                                          dst_type.width - src_width, 0), "");
-#endif
          }
+         if (src_width == 48) {
+            /* Load 3x16 bit vector.
+             * The sequence of loads on big-endian hardware proceeds as follows.
+             * 16-bit fields are denoted by X, Y, Z, and 0.  In memory, the sequence
+             * of three fields appears in the order X, Y, Z.
+             *
+             * Load 32-bit word: 0.0.X.Y
+             * Load 16-bit halfword: 0.0.0.Z
+             * Rotate left: 0.X.Y.0
+             * Bitwise OR: 0.X.Y.Z
+             *
+             * The order in which we need the fields in the result is 0.Z.Y.X,
+             * the same as on little-endian; permute 16-bit fields accordingly
+             * within 64-bit register:
+             */
+            LLVMValueRef shuffles[4] = {
+               lp_build_const_int32(gallivm, 2),
+               lp_build_const_int32(gallivm, 1),
+               lp_build_const_int32(gallivm, 0),
+               lp_build_const_int32(gallivm, 3),
+            };
+            res = LLVMBuildBitCast(gallivm->builder, res,
+                                   lp_build_vec_type(gallivm, lp_type_uint_vec(16, 4*16)), "");
+            res = LLVMBuildShuffleVector(gallivm->builder, res, res, LLVMConstVector(shuffles, 4), "");
+            res = LLVMBuildBitCast(gallivm->builder, res, dst_elem_type, "");
+         }
+#endif
       }
    }
    return res;

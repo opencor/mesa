@@ -45,7 +45,7 @@ vmw_svga_winsys_surface_map(struct svga_winsys_context *swc,
    struct pb_buffer *pb_buf;
    uint32_t pb_flags;
    struct vmw_winsys_screen *vws = vsrf->screen;
-
+   
    *retry = FALSE;
    assert((flags & (PIPE_TRANSFER_READ | PIPE_TRANSFER_WRITE)) != 0);
    mtx_lock(&vsrf->mutex);
@@ -57,7 +57,7 @@ vmw_svga_winsys_surface_map(struct svga_winsys_context *swc,
       if ((flags & PIPE_TRANSFER_WRITE) ||
           (vsrf->map_mode & PIPE_TRANSFER_WRITE))
          goto out_unlock;
-
+      
       data = vsrf->data;
       goto out_mapped;
    }
@@ -103,7 +103,7 @@ vmw_svga_winsys_surface_map(struct svga_winsys_context *swc,
                                            PIPE_TRANSFER_DONTBLOCK | pb_flags);
          if (data)
             goto out_mapped;
-      }
+      } 
 
       /*
        * Attempt to get a new buffer.
@@ -137,7 +137,7 @@ vmw_svga_winsys_surface_map(struct svga_winsys_context *swc,
        * But tell pipe driver to flush now if already on validate list,
        * Otherwise we'll overwrite previous contents.
        */
-      if (!(flags & PIPE_TRANSFER_UNSYNCHRONIZED) &&
+      if (!(flags & PIPE_TRANSFER_UNSYNCHRONIZED) && 
           p_atomic_read(&vsrf->validated)) {
          *retry = TRUE;
          goto out_unlock;
@@ -176,7 +176,7 @@ vmw_svga_winsys_surface_unmap(struct svga_winsys_context *swc,
    mtx_unlock(&vsrf->mutex);
 }
 
-void
+enum pipe_error
 vmw_svga_winsys_surface_invalidate(struct svga_winsys_context *swc,
                                    struct svga_winsys_surface *surf)
 {
@@ -186,6 +186,7 @@ vmw_svga_winsys_surface_invalidate(struct svga_winsys_context *swc,
     * when guest-backed surface is enabled, that implies DMA is always enabled;
     * hence, surface invalidation is not needed.
     */
+   return PIPE_OK;
 }
 
 void

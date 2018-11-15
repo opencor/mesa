@@ -273,7 +273,7 @@ static void
 cleanup_idct_buffer(struct vl_mpeg12_buffer *buf)
 {
    unsigned i;
-
+   
    assert(buf);
 
    for (i = 0; i < 3; ++i)
@@ -509,8 +509,8 @@ vl_mpeg12_destroy(struct pipe_video_codec *decoder)
    dec->context->delete_vertex_elements_state(dec->context, dec->ves_ycbcr);
    dec->context->delete_vertex_elements_state(dec->context, dec->ves_mv);
 
-   pipe_resource_reference(&dec->quads.buffer, NULL);
-   pipe_resource_reference(&dec->pos.buffer, NULL);
+   pipe_resource_reference(&dec->quads.buffer.resource, NULL);
+   pipe_resource_reference(&dec->pos.buffer.resource, NULL);
 
    pipe_sampler_view_reference(&dec->zscan_linear, NULL);
    pipe_sampler_view_reference(&dec->zscan_normal, NULL);
@@ -730,7 +730,7 @@ vl_mpeg12_decode_bitstream(struct pipe_video_codec *decoder,
    struct vl_mpeg12_decoder *dec = (struct vl_mpeg12_decoder *)decoder;
    struct pipe_mpeg12_picture_desc *desc = (struct pipe_mpeg12_picture_desc *)picture;
    struct vl_mpeg12_buffer *buf;
-
+   
    unsigned i;
 
    assert(dec && target && picture);
@@ -908,20 +908,20 @@ find_format_config(struct vl_mpeg12_decoder *dec, const struct format_config con
 
    for (i = 0; i < num_configs; ++i) {
       if (!screen->is_format_supported(screen, configs[i].zscan_source_format, PIPE_TEXTURE_2D,
-                                       1, PIPE_BIND_SAMPLER_VIEW))
+                                       1, 1, PIPE_BIND_SAMPLER_VIEW))
          continue;
 
       if (configs[i].idct_source_format != PIPE_FORMAT_NONE) {
          if (!screen->is_format_supported(screen, configs[i].idct_source_format, PIPE_TEXTURE_2D,
-                                          1, PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET))
+                                          1, 1, PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET))
             continue;
 
          if (!screen->is_format_supported(screen, configs[i].mc_source_format, PIPE_TEXTURE_3D,
-                                          1, PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET))
+                                          1, 1, PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET))
             continue;
       } else {
          if (!screen->is_format_supported(screen, configs[i].mc_source_format, PIPE_TEXTURE_2D,
-                                          1, PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET))
+                                          1, 1, PIPE_BIND_SAMPLER_VIEW | PIPE_BIND_RENDER_TARGET))
             continue;
       }
       return &configs[i];
@@ -968,7 +968,7 @@ init_idct(struct vl_mpeg12_decoder *dec, const struct format_config* format_conf
    (
       dec->context->screen, PIPE_CAP_MAX_RENDER_TARGETS
    );
-
+   
    max_inst = dec->context->screen->get_shader_param
    (
       dec->context->screen, PIPE_SHADER_FRAGMENT, PIPE_SHADER_CAP_MAX_INSTRUCTIONS
@@ -1056,7 +1056,7 @@ init_mc_source_widthout_idct(struct vl_mpeg12_decoder *dec, const struct format_
       dec->context, &templat,
       formats, 1, 1, PIPE_USAGE_DEFAULT
    );
-
+      
    return dec->mc_source != NULL;
 }
 

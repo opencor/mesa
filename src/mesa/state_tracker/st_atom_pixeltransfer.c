@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /* Authors:
@@ -84,8 +84,8 @@ load_color_map_texture(struct gl_context *ctx, struct pipe_resource *pt)
 /**
  * Upload the pixel transfer color map texture.
  */
-static void
-update_pixel_transfer(struct st_context *st)
+void
+st_update_pixel_transfer(struct st_context *st)
 {
    struct gl_context *ctx = st->ctx;
 
@@ -100,8 +100,3 @@ update_pixel_transfer(struct st_context *st)
       load_color_map_texture(ctx, st->pixel_xfer.pixelmap_texture);
    }
 }
-
-
-const struct st_tracked_state st_update_pixel_transfer = {
-   update_pixel_transfer				/* update */
-};

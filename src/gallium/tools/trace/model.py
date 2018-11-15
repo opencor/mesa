@@ -1,9 +1,9 @@
 #!/usr/bin/env python2
 ##########################################################################
-#
+# 
 # Copyright 2008 VMware, Inc.
 # All Rights Reserved.
-#
+# 
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the
 # "Software"), to deal in the Software without restriction, including
@@ -11,11 +11,11 @@
 # distribute, sub license, and/or sell copies of the Software, and to
 # permit persons to whom the Software is furnished to do so, subject to
 # the following conditions:
-#
+# 
 # The above copyright notice and this permission notice (including the
 # next paragraph) shall be included in all copies or substantial portions
 # of the Software.
-#
+# 
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
 # OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
 # MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
 # ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-#
+# 
 ##########################################################################
 
 
@@ -43,7 +43,7 @@ import format
 
 
 class Node:
-
+    
     def visit(self, visitor):
         raise NotImplementedError
 
@@ -56,7 +56,7 @@ class Node:
 
 
 class Literal(Node):
-
+    
     def __init__(self, value):
         self.value = value
 
@@ -65,7 +65,7 @@ class Literal(Node):
 
 
 class Blob(Node):
-
+    
     def __init__(self, value):
         self._rawValue = None
         self._hexValue = value
@@ -81,16 +81,16 @@ class Blob(Node):
 
 
 class NamedConstant(Node):
-
+    
     def __init__(self, name):
         self.name = name
 
     def visit(self, visitor):
         visitor.visit_named_constant(self)
-
+    
 
 class Array(Node):
-
+    
     def __init__(self, elements):
         self.elements = elements
 
@@ -99,17 +99,17 @@ class Array(Node):
 
 
 class Struct(Node):
-
+    
     def __init__(self, name, members):
         self.name = name
-        self.members = members
+        self.members = members        
 
     def visit(self, visitor):
         visitor.visit_struct(self)
 
-
+        
 class Pointer(Node):
-
+    
     def __init__(self, address):
         self.address = address
 
@@ -118,7 +118,7 @@ class Pointer(Node):
 
 
 class Call:
-
+    
     def __init__(self, no, klass, method, args, ret, time):
         self.no = no
         self.klass = klass
@@ -126,43 +126,43 @@ class Call:
         self.args = args
         self.ret = ret
         self.time = time
-
+        
     def visit(self, visitor):
         visitor.visit_call(self)
 
 
 class Trace:
-
+    
     def __init__(self, calls):
         self.calls = calls
-
+        
     def visit(self, visitor):
         visitor.visit_trace(self)
-
-
+    
+    
 class Visitor:
-
+    
     def visit_literal(self, node):
         raise NotImplementedError
-
+    
     def visit_blob(self, node):
         raise NotImplementedError
-
+    
     def visit_named_constant(self, node):
         raise NotImplementedError
-
+    
     def visit_array(self, node):
         raise NotImplementedError
-
+    
     def visit_struct(self, node):
         raise NotImplementedError
-
+    
     def visit_pointer(self, node):
         raise NotImplementedError
-
+    
     def visit_call(self, node):
         raise NotImplementedError
-
+    
     def visit_trace(self, node):
         raise NotImplementedError
 
@@ -171,7 +171,7 @@ class PrettyPrinter:
 
     def __init__(self, formatter):
         self.formatter = formatter
-
+    
     def visit_literal(self, node):
         if node.value is None:
             self.formatter.literal('NULL')
@@ -182,22 +182,22 @@ class PrettyPrinter:
             return
 
         self.formatter.literal(repr(node.value))
-
+    
     def visit_blob(self, node):
         self.formatter.address('blob()')
-
+    
     def visit_named_constant(self, node):
         self.formatter.literal(node.name)
-
+    
     def visit_array(self, node):
         self.formatter.text('{')
         sep = ''
         for value in node.elements:
             self.formatter.text(sep)
-            value.visit(self)
+            value.visit(self) 
             sep = ', '
         self.formatter.text('}')
-
+    
     def visit_struct(self, node):
         self.formatter.text('{')
         sep = ''
@@ -205,13 +205,13 @@ class PrettyPrinter:
             self.formatter.text(sep)
             self.formatter.variable(name)
             self.formatter.text(' = ')
-            value.visit(self)
+            value.visit(self) 
             sep = ', '
         self.formatter.text('}')
-
+    
     def visit_pointer(self, node):
         self.formatter.address(node.address)
-
+    
     def visit_call(self, node):
         self.formatter.text('%s ' % node.no)
         if node.klass is not None:
@@ -224,7 +224,7 @@ class PrettyPrinter:
             self.formatter.text(sep)
             self.formatter.variable(name)
             self.formatter.text(' = ')
-            value.visit(self)
+            value.visit(self) 
             sep = ', '
         self.formatter.text(')')
         if node.ret is not None:

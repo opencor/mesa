@@ -1,5 +1,5 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  *
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /* Authors:  Keith Whitwell <keithw@vmware.com>
@@ -445,7 +445,7 @@ i915_cleanup_vertex_sampling(struct i915_context *i915)
    struct i915_winsys *iws = i915->iws;
    unsigned i;
    for (i = 0; i < ARRAY_SIZE(i915->mapped_vs_tex); i++) {
-      if (i915->mapped_vs_tex_buffer[i]) {
+      if (i915->mapped_vs_tex_buffer[i]) { 
          iws->buffer_unmap(iws, i915->mapped_vs_tex_buffer[i]);
          pipe_resource_reference(&i915->mapped_vs_tex[i], NULL);
       }
@@ -940,13 +940,13 @@ i915_create_rasterizer_state(struct pipe_context *pipe,
    case PIPE_FACE_FRONT:
       if (rasterizer->front_ccw)
          cso->LIS4 |= S4_CULLMODE_CCW;
-      else
+      else 
          cso->LIS4 |= S4_CULLMODE_CW;
       break;
    case PIPE_FACE_BACK:
       if (rasterizer->front_ccw)
          cso->LIS4 |= S4_CULLMODE_CW;
-      else
+      else 
          cso->LIS4 |= S4_CULLMODE_CCW;
       break;
    case PIPE_FACE_FRONT_AND_BACK:
@@ -1060,17 +1060,6 @@ i915_delete_vertex_elements_state(struct pipe_context *pipe, void *velems)
    FREE( velems );
 }
 
-static void i915_set_index_buffer(struct pipe_context *pipe,
-                                  const struct pipe_index_buffer *ib)
-{
-   struct i915_context *i915 = i915_context(pipe);
-
-   if (ib)
-      memcpy(&i915->index_buffer, ib, sizeof(i915->index_buffer));
-   else
-      memset(&i915->index_buffer, 0, sizeof(i915->index_buffer));
-}
-
 static void
 i915_set_sample_mask(struct pipe_context *pipe,
                      unsigned sample_mask)
@@ -1119,5 +1108,4 @@ i915_init_state_functions( struct i915_context *i915 )
    i915->base.sampler_view_destroy = i915_sampler_view_destroy;
    i915->base.set_viewport_states = i915_set_viewport_states;
    i915->base.set_vertex_buffers = i915_set_vertex_buffers;
-   i915->base.set_index_buffer = i915_set_index_buffer;
 }

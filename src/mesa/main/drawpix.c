@@ -24,7 +24,7 @@
 
 #include "glheader.h"
 #include "imports.h"
-#include "api_validate.h"
+#include "draw_validate.h"
 #include "bufferobj.h"
 #include "context.h"
 #include "drawpix.h"
@@ -34,7 +34,6 @@
 #include "image.h"
 #include "pbo.h"
 #include "state.h"
-#include "dispatch.h"
 #include "glformats.h"
 #include "fbobject.h"
 
@@ -274,7 +273,7 @@ _mesa_CopyPixels( GLint srcx, GLint srcy, GLsizei width, GLsizei height,
    else if (ctx->RenderMode == GL_FEEDBACK) {
       FLUSH_CURRENT( ctx, 0 );
       _mesa_feedback_token( ctx, (GLfloat) (GLint) GL_COPY_PIXEL_TOKEN );
-      _mesa_feedback_vertex( ctx,
+      _mesa_feedback_vertex( ctx, 
                              ctx->Current.RasterPos,
                              ctx->Current.RasterColor,
                              ctx->Current.RasterTexCoords[0] );

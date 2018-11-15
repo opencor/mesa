@@ -40,7 +40,7 @@ extern mesa_format _radeon_texformat_argb4444;
 extern mesa_format _radeon_texformat_argb1555;
 extern mesa_format _radeon_texformat_al88;
 
-extern
+extern 
 void copy_rows(void* dst, GLuint dststride, const void* src, GLuint srcstride,
 	GLuint numrows, GLuint rowsize);
 struct gl_texture_image *radeonNewTextureImage(struct gl_context *ctx);

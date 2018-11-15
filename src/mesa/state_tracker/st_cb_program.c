@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
  /*
@@ -68,19 +68,11 @@ st_new_program(struct gl_context *ctx, GLenum target, GLuint id,
                                                  struct st_fragment_program);
       return _mesa_init_gl_program(&prog->Base, target, id, is_arb_asm);
    }
+   case GL_TESS_CONTROL_PROGRAM_NV:
+   case GL_TESS_EVALUATION_PROGRAM_NV:
    case GL_GEOMETRY_PROGRAM_NV: {
-      struct st_geometry_program *prog = rzalloc(NULL,
-                                                 struct st_geometry_program);
-      return _mesa_init_gl_program(&prog->Base, target, id, is_arb_asm);
-   }
-   case GL_TESS_CONTROL_PROGRAM_NV: {
-      struct st_tessctrl_program *prog = rzalloc(NULL,
-                                                 struct st_tessctrl_program);
-      return _mesa_init_gl_program(&prog->Base, target, id, is_arb_asm);
-   }
-   case GL_TESS_EVALUATION_PROGRAM_NV: {
-      struct st_tesseval_program *prog = rzalloc(NULL,
-                                                 struct st_tesseval_program);
+      struct st_common_program *prog = rzalloc(NULL,
+                                               struct st_common_program);
       return _mesa_init_gl_program(&prog->Base, target, id, is_arb_asm);
    }
    case GL_COMPUTE_PROGRAM_NV: {
@@ -108,21 +100,22 @@ st_delete_program(struct gl_context *ctx, struct gl_program *prog)
       {
          struct st_vertex_program *stvp = (struct st_vertex_program *) prog;
          st_release_vp_variants( st, stvp );
-
+         
          if (stvp->glsl_to_tgsi)
             free_glsl_to_tgsi_visitor(stvp->glsl_to_tgsi);
       }
       break;
+   case GL_TESS_CONTROL_PROGRAM_NV:
+   case GL_TESS_EVALUATION_PROGRAM_NV:
    case GL_GEOMETRY_PROGRAM_NV:
       {
-         struct st_geometry_program *stgp =
-            (struct st_geometry_program *) prog;
+         struct st_common_program *p = st_common_program(prog);
 
-         st_release_basic_variants(st, stgp->Base.Target, &stgp->variants,
-                                   &stgp->tgsi);
-
-         if (stgp->glsl_to_tgsi)
-            free_glsl_to_tgsi_visitor(stgp->glsl_to_tgsi);
+         st_release_basic_variants(st, p->Base.Target, &p->variants,
+                                   &p->tgsi);
+         
+         if (p->glsl_to_tgsi)
+            free_glsl_to_tgsi_visitor(p->glsl_to_tgsi);
       }
       break;
    case GL_FRAGMENT_PROGRAM_ARB:
@@ -131,33 +124,9 @@ st_delete_program(struct gl_context *ctx, struct gl_program *prog)
             (struct st_fragment_program *) prog;
 
          st_release_fp_variants(st, stfp);
-
+         
          if (stfp->glsl_to_tgsi)
             free_glsl_to_tgsi_visitor(stfp->glsl_to_tgsi);
-      }
-      break;
-   case GL_TESS_CONTROL_PROGRAM_NV:
-      {
-         struct st_tessctrl_program *sttcp =
-            (struct st_tessctrl_program *) prog;
-
-         st_release_basic_variants(st, sttcp->Base.Target, &sttcp->variants,
-                                   &sttcp->tgsi);
-
-         if (sttcp->glsl_to_tgsi)
-            free_glsl_to_tgsi_visitor(sttcp->glsl_to_tgsi);
-      }
-      break;
-   case GL_TESS_EVALUATION_PROGRAM_NV:
-      {
-         struct st_tesseval_program *sttep =
-            (struct st_tesseval_program *) prog;
-
-         st_release_basic_variants(st, sttep->Base.Target,
-                                   &sttep->variants, &sttep->tgsi);
-
-         if (sttep->glsl_to_tgsi)
-            free_glsl_to_tgsi_visitor(sttep->glsl_to_tgsi);
       }
       break;
    case GL_COMPUTE_PROGRAM_NV:
@@ -204,7 +173,7 @@ st_program_string_notify( struct gl_context *ctx,
 	 st->dirty |= stfp->affected_states;
    }
    else if (target == GL_GEOMETRY_PROGRAM_NV) {
-      struct st_geometry_program *stgp = (struct st_geometry_program *) prog;
+      struct st_common_program *stgp = st_common_program(prog);
 
       st_release_basic_variants(st, stgp->Base.Target, &stgp->variants,
                                 &stgp->tgsi);
@@ -225,8 +194,8 @@ st_program_string_notify( struct gl_context *ctx,
 	 st->dirty |= ST_NEW_VERTEX_PROGRAM(st, stvp);
    }
    else if (target == GL_TESS_CONTROL_PROGRAM_NV) {
-      struct st_tessctrl_program *sttcp =
-         (struct st_tessctrl_program *) prog;
+      struct st_common_program *sttcp =
+         st_common_program(prog);
 
       st_release_basic_variants(st, sttcp->Base.Target, &sttcp->variants,
                                 &sttcp->tgsi);
@@ -237,8 +206,8 @@ st_program_string_notify( struct gl_context *ctx,
          st->dirty |= sttcp->affected_states;
    }
    else if (target == GL_TESS_EVALUATION_PROGRAM_NV) {
-      struct st_tesseval_program *sttep =
-         (struct st_tesseval_program *) prog;
+      struct st_common_program *sttep =
+         st_common_program(prog);
 
       st_release_basic_variants(st, sttep->Base.Target, &sttep->variants,
                                 &sttep->tgsi);
@@ -307,6 +276,6 @@ st_init_program_functions(struct dd_function_table *functions)
    functions->DeleteProgram = st_delete_program;
    functions->ProgramStringNotify = st_program_string_notify;
    functions->NewATIfs = st_new_ati_fs;
-
+   
    functions->LinkShader = st_link_shader;
 }

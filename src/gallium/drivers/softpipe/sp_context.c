@@ -1,9 +1,9 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  * Copyright 2008 VMware, Inc.  All rights reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -11,11 +11,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /* Author:
@@ -114,7 +114,7 @@ softpipe_destroy( struct pipe_context *pipe )
    }
 
    for (i = 0; i < softpipe->num_vertex_buffers; i++) {
-      pipe_resource_reference(&softpipe->vertex_buffer[i].buffer, NULL);
+      pipe_vertex_buffer_unreference(&softpipe->vertex_buffer[i]);
    }
 
    tgsi_exec_machine_destroy(softpipe->fs_machine);
@@ -151,17 +151,17 @@ softpipe_is_resource_referenced( struct pipe_context *pipe,
    /* check if any of the bound drawing surfaces are this texture */
    if (softpipe->dirty_render_cache) {
       for (i = 0; i < softpipe->framebuffer.nr_cbufs; i++) {
-         if (softpipe->framebuffer.cbufs[i] &&
+         if (softpipe->framebuffer.cbufs[i] && 
              softpipe->framebuffer.cbufs[i]->texture == texture) {
             return SP_REFERENCED_FOR_WRITE;
          }
       }
-      if (softpipe->framebuffer.zsbuf &&
+      if (softpipe->framebuffer.zsbuf && 
           softpipe->framebuffer.zsbuf->texture == texture) {
          return SP_REFERENCED_FOR_WRITE;
       }
    }
-
+   
    /* check if any of the tex_cache textures are this texture */
    for (sh = 0; sh < ARRAY_SIZE(softpipe->tex_cache); sh++) {
       for (i = 0; i < ARRAY_SIZE(softpipe->tex_cache[0]); i++) {
@@ -178,10 +178,10 @@ softpipe_is_resource_referenced( struct pipe_context *pipe,
 
 
 static void
-softpipe_render_condition( struct pipe_context *pipe,
-                           struct pipe_query *query,
-                           boolean condition,
-                           uint mode )
+softpipe_render_condition(struct pipe_context *pipe,
+                          struct pipe_query *query,
+                          boolean condition,
+                          enum pipe_render_cond_flag mode)
 {
    struct softpipe_context *softpipe = softpipe_context( pipe );
 
@@ -245,7 +245,7 @@ softpipe_create_context(struct pipe_screen *screen,
    softpipe->pipe.texture_barrier = softpipe_texture_barrier;
    softpipe->pipe.memory_barrier = softpipe_memory_barrier;
    softpipe->pipe.render_condition = softpipe_render_condition;
-
+   
    /*
     * Alloc caches for accessing drawing surfaces and textures.
     * Must be before quad stage setup!
@@ -283,7 +283,7 @@ softpipe_create_context(struct pipe_screen *screen,
       softpipe->draw = draw_create(&softpipe->pipe);
    else
       softpipe->draw = draw_create_no_llvm(&softpipe->pipe);
-   if (!softpipe->draw)
+   if (!softpipe->draw) 
       goto fail;
 
    draw_texture_sampler(softpipe->draw,

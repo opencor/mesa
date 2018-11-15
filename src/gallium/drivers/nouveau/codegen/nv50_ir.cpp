@@ -423,13 +423,10 @@ ImmediateValue::isNegative() const
 bool
 ImmediateValue::isPow2() const
 {
-   switch (reg.type) {
-   case TYPE_U8:
-   case TYPE_U16:
-   case TYPE_U32: return util_is_power_of_two(reg.data.u32);
-   default:
-      return false;
-   }
+   if (reg.type == TYPE_U64 || reg.type == TYPE_S64)
+      return util_is_power_of_two_or_zero64(reg.data.u64);
+   else
+      return util_is_power_of_two_or_zero(reg.data.u32);
 }
 
 void
@@ -445,6 +442,12 @@ ImmediateValue::applyLog2()
    case TYPE_U16:
    case TYPE_U32:
       reg.data.u32 = util_logbase2(reg.data.u32);
+      break;
+   case TYPE_S64:
+      assert(!this->isNegative());
+      // fall through
+   case TYPE_U64:
+      reg.data.u64 = util_logbase2_64(reg.data.u64);
       break;
    case TYPE_F32:
       reg.data.f32 = log2f(reg.data.f32);
@@ -575,6 +578,7 @@ void Instruction::init()
    encSize = 0;
    ipa = 0;
    mask = 0;
+   precise = 0;
 
    lanes = 0xf;
 
@@ -905,6 +909,9 @@ TexInstruction::TexInstruction(Function *fn, operation op)
 
    tex.rIndirectSrc = -1;
    tex.sIndirectSrc = -1;
+
+   if (op == OP_TXF)
+      sType = TYPE_U32;
 }
 
 TexInstruction::~TexInstruction()
@@ -1214,8 +1221,8 @@ nv50_ir_generate_code(struct nv50_ir_prog_info *info)
    PROG_TYPE_CASE(FRAGMENT, FRAGMENT);
    PROG_TYPE_CASE(COMPUTE, COMPUTE);
    default:
-      type = nv50_ir::Program::TYPE_COMPUTE;
-      break;
+      INFO_DBG(info->dbgFlags, VERBOSE, "unsupported program type %u\n", info->type);
+      return -1;
    }
    INFO_DBG(info->dbgFlags, VERBOSE, "translating program of type %u\n", type);
 
@@ -1224,24 +1231,20 @@ nv50_ir_generate_code(struct nv50_ir_prog_info *info)
       return -1;
 
    nv50_ir::Program *prog = new nv50_ir::Program(type, targ);
-   if (!prog)
+   if (!prog) {
+      nv50_ir::Target::destroy(targ);
       return -1;
+   }
    prog->driver = info;
    prog->dbgFlags = info->dbgFlags;
    prog->optLevel = info->optLevel;
 
    switch (info->bin.sourceRep) {
-#if 0
-   case PIPE_IR_LLVM:
-   case PIPE_IR_GLSL:
-      return -1;
-   case PIPE_IR_SM4:
-      ret = prog->makeFromSM4(info) ? 0 : -2;
-      break;
-   case PIPE_IR_TGSI:
-#endif
-   default:
+   case PIPE_SHADER_IR_TGSI:
       ret = prog->makeFromTGSI(info) ? 0 : -2;
+      break;
+   default:
+      ret = -1;
       break;
    }
    if (ret < 0)

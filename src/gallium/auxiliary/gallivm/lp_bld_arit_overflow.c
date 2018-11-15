@@ -103,7 +103,7 @@ build_binary_int_overflow(struct gallivm_state *gallivm,
 }
 
 /**
- * Performs unsigned addition of two integers and reports
+ * Performs unsigned addition of two integers and reports 
  * overflow if detected.
  *
  * The values @a and @b must be of the same integer type. If
@@ -113,7 +113,7 @@ build_binary_int_overflow(struct gallivm_state *gallivm,
  * - if it's pointing to a valid value, then that variable,
  *   which must be of i1 type, is ORed with the newly detected
  *   overflow bit. This is done to allow chaining of a number of
- *   overflow functions together without having to test the
+ *   overflow functions together without having to test the 
  *   overflow bit after every single one.
  */
 LLVMValueRef
@@ -127,7 +127,7 @@ lp_build_uadd_overflow(struct gallivm_state *gallivm,
 }
 
 /**
- * Performs unsigned subtraction of two integers and reports
+ * Performs unsigned subtraction of two integers and reports 
  * overflow if detected.
  *
  * The values @a and @b must be of the same integer type. If
@@ -137,7 +137,7 @@ lp_build_uadd_overflow(struct gallivm_state *gallivm,
  * - if it's pointing to a valid value, then that variable,
  *   which must be of i1 type, is ORed with the newly detected
  *   overflow bit. This is done to allow chaining of a number of
- *   overflow functions together without having to test the
+ *   overflow functions together without having to test the 
  *   overflow bit after every single one.
  */
 LLVMValueRef
@@ -151,7 +151,7 @@ lp_build_usub_overflow(struct gallivm_state *gallivm,
 }
 
 /**
- * Performs unsigned multiplication of  two integers and
+ * Performs unsigned multiplication of  two integers and 
  * reports overflow if detected.
  *
  * The values @a and @b must be of the same integer type. If
@@ -161,7 +161,7 @@ lp_build_usub_overflow(struct gallivm_state *gallivm,
  * - if it's pointing to a valid value, then that variable,
  *   which must be of i1 type, is ORed with the newly detected
  *   overflow bit. This is done to allow chaining of a number of
- *   overflow functions together without having to test the
+ *   overflow functions together without having to test the 
  *   overflow bit after every single one.
  */
 LLVMValueRef

@@ -1,5 +1,5 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2008 VMware, Inc.
  * Copyright 2010 VMware, Inc.
  * All Rights Reserved.
@@ -11,11 +11,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /**
@@ -297,7 +297,7 @@ pstip_transform_prolog(struct tgsi_transform_context *ctx)
       ctx->emit_declaration(ctx, &decl);
    }
 
-   sampIdx = pctx->hasFixedUnit ? pctx->fixedUnit : pctx->freeSampler;
+   sampIdx = pctx->hasFixedUnit ? (int)pctx->fixedUnit : pctx->freeSampler;
 
    /* declare new sampler */
    tgsi_transform_sampler_decl(ctx, sampIdx);
@@ -327,7 +327,7 @@ pstip_transform_prolog(struct tgsi_transform_context *ctx)
     */
    tgsi_transform_immediate_decl(ctx, 1.0/32.0, 1.0/32.0, 1.0, 1.0);
 
-   /*
+   /* 
     * Insert new MUL/TEX/KILL_IF instructions at start of program
     * Take gl_FragCoord, divide by 32 (stipple size), sample the
     * texture and kill fragment if needed.

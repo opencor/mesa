@@ -47,9 +47,9 @@
    GLfloat yMin, yMax;
    GLboolean ltor;
    GLfloat majDx, majDy;  /* major (i.e. long) edge dx and dy */
-
+   
    SWspan span;
-
+   
 #ifdef DO_Z
    GLfloat zPlane[4];
 #endif
@@ -59,7 +59,7 @@
    GLfloat wPlane[4];  /* win[3] */
 #endif
    GLfloat bf = SWRAST_CONTEXT(ctx)->_BackfaceCullSign;
-
+   
    (void) swrast;
 
    INIT_SPAN(span, GL_POLYGON);
@@ -234,7 +234,7 @@
             count++;
             coverage = compute_coveragef(pMin, pMid, pMax, ix, iy);
          }
-
+         
          if (ix > startX) {
             span.x = startX;
             span.y = iy;
@@ -259,7 +259,7 @@
          GLint ix, left, startX = (GLint) (x + xAdj);
          GLuint count, n;
          GLfloat coverage = 0.0F;
-
+         
 #ifdef _OPENMP
          /* each thread needs to use a different (global) SpanArrays variable */
          span.array = SWRAST_CONTEXT(ctx)->SpanArrays + omp_get_thread_num();
@@ -276,7 +276,7 @@
                break;
             startX--;
          }
-
+         
          /* enter interior of triangle */
          ix = startX;
          count = 0;
@@ -297,7 +297,7 @@
             count++;
             coverage = compute_coveragef(pMin, pMax, pMid, ix, iy);
          }
-
+         
 #if defined(DO_ATTRIBS)
          /* compute attributes at left-most fragment */
          span.attrStart[VARYING_SLOT_POS][3] = solve_plane(ix + 1.5F, iy + 0.5F, wPlane);

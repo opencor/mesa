@@ -140,7 +140,7 @@ class PrintGlxDispatchFunctions(glX_proto_common.glx_print_proto):
         if f.glx_rop or f.vectorequiv:
             self.printRenderFunction(f)
         elif f.glx_sop or f.glx_vendorpriv:
-            if len(f.get_images()) == 0:
+            if len(f.get_images()) == 0: 
                 self.printSingleFunction(f, name)
         else:
             print "/* Missing GLX protocol for %s. */" % (name)
@@ -328,7 +328,7 @@ class PrintGlxDispatchFunctions(glX_proto_common.glx_print_proto):
                     # case for glCallLists.
 
                     if type_size == 1:
-                        x = []
+                        x = [] 
                         x.append( [1, ['BYTE', 'UNSIGNED_BYTE', '2_BYTES', '3_BYTES', '4_BYTES']] )
                         x.append( [2, ['SHORT', 'UNSIGNED_SHORT']] )
                         x.append( [4, ['INT', 'UNSIGNED_INT', 'FLOAT']] )

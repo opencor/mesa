@@ -27,6 +27,7 @@
  */
 
 #include <xf86drm.h>
+#include "vc4_cl_dump.h"
 #include "vc4_context.h"
 #include "util/hash_table.h"
 
@@ -89,6 +90,11 @@ vc4_job_create(struct vc4_context *vc4)
         job->draw_max_x = 0;
         job->draw_max_y = 0;
 
+        job->last_gem_handle_hindex = ~0;
+
+        if (vc4->perfmon)
+                job->perfmon = vc4->perfmon;
+
         return job;
 }
 
@@ -117,11 +123,16 @@ vc4_flush_jobs_reading_resource(struct vc4_context *vc4,
                 struct vc4_job *job = entry->data;
 
                 struct vc4_bo **referenced_bos = job->bo_pointers.base;
+                bool found = false;
                 for (int i = 0; i < cl_offset(&job->bo_handles) / 4; i++) {
                         if (referenced_bos[i] == rsc->bo) {
-                                vc4_job_submit(vc4, job);
-                                continue;
+                                found = true;
+                                break;
                         }
+                }
+                if (found) {
+                        vc4_job_submit(vc4, job);
+                        continue;
                 }
 
                 /* Also check for the Z/color buffers, since the references to
@@ -258,6 +269,13 @@ vc4_get_job_for_fbo(struct vc4_context *vc4)
         job->draw_tiles_y = DIV_ROUND_UP(vc4->framebuffer.height,
                                          job->tile_height);
 
+        /* Initialize the job with the raster order flags -- each draw will
+         * check that we haven't changed the flags, since that requires a
+         * flush.
+         */
+        if (vc4->rasterizer)
+                job->flags = vc4->rasterizer->tile_raster_order_flags;
+
         vc4->job = job;
 
         return job;
@@ -377,13 +395,11 @@ vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
                  * until the FLUSH completes.
                  */
                 cl_ensure_space(&job->bcl, 8);
-                struct vc4_cl_out *bcl = cl_start(&job->bcl);
-                cl_u8(&bcl, VC4_PACKET_INCREMENT_SEMAPHORE);
+                cl_emit(&job->bcl, INCREMENT_SEMAPHORE, incr);
                 /* The FLUSH caps all of our bin lists with a
                  * VC4_PACKET_RETURN.
                  */
-                cl_u8(&bcl, VC4_PACKET_FLUSH);
-                cl_end(&job->bcl, bcl);
+                cl_emit(&job->bcl, FLUSH, flush);
         }
         struct drm_vc4_submit_cl submit = {
                 .color_read.hindex = ~0,
@@ -442,6 +458,8 @@ vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
         submit.shader_rec_count = job->shader_rec_count;
         submit.uniforms = (uintptr_t)job->uniforms.base;
         submit.uniforms_size = cl_offset(&job->uniforms);
+	if (job->perfmon)
+		submit.perfmonid = job->perfmon->id;
 
         assert(job->draw_min_x != ~0 && job->draw_min_y != ~0);
         submit.min_x_tile = job->draw_min_x / job->tile_width;
@@ -456,6 +474,20 @@ vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
                 submit.clear_color[1] = job->clear_color[1];
                 submit.clear_z = job->clear_depth;
                 submit.clear_s = job->clear_stencil;
+        }
+        submit.flags |= job->flags;
+
+        if (vc4->screen->has_syncobj) {
+                submit.out_sync = vc4->job_syncobj;
+
+                if (vc4->in_fence_fd >= 0) {
+                        /* This replaces the fence in the syncobj. */
+                        drmSyncobjImportSyncFile(vc4->fd, vc4->in_syncobj,
+                                                 vc4->in_fence_fd);
+                        submit.in_sync = vc4->in_syncobj;
+                        close(vc4->in_fence_fd);
+                        vc4->in_fence_fd = -1;
+                }
         }
 
         if (!(vc4_debug & VC4_DEBUG_NORAST)) {
@@ -473,6 +505,8 @@ vc4_job_submit(struct vc4_context *vc4, struct vc4_job *job)
                         warned = true;
                 } else if (!ret) {
                         vc4->last_emit_seqno = submit.seqno;
+                        if (job->perfmon)
+                                job->perfmon->last_seqno = submit.seqno;
                 }
         }
 
@@ -509,7 +543,7 @@ vc4_job_hash(const void *key)
         return _mesa_hash_data(key, sizeof(struct vc4_job_key));
 }
 
-void
+int
 vc4_job_init(struct vc4_context *vc4)
 {
         vc4->jobs = _mesa_hash_table_create(vc4,
@@ -518,5 +552,24 @@ vc4_job_init(struct vc4_context *vc4)
         vc4->write_jobs = _mesa_hash_table_create(vc4,
                                                   _mesa_hash_pointer,
                                                   _mesa_key_pointer_equal);
+
+        if (vc4->screen->has_syncobj) {
+                /* Create the syncobj as signaled since with no job executed
+                 * there is nothing to wait on.
+                 */
+                int ret = drmSyncobjCreate(vc4->fd,
+                                           DRM_SYNCOBJ_CREATE_SIGNALED,
+                                           &vc4->job_syncobj);
+                if (ret) {
+                        /* If the screen indicated syncobj support, we should
+                         * be able to create a signaled syncobj.
+                         * At this point it is too late to pretend the screen
+                         * has no syncobj support.
+                         */
+                        return ret;
+                }
+        }
+
+        return 0;
 }
 

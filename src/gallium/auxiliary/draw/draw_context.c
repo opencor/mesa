@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
  /*
@@ -175,8 +175,8 @@ boolean draw_init(struct draw_context *draw)
  * Called whenever we're starting to draw a new instance.
  * Some internal structures don't want to have to reset internal
  * members on each invocation (because their state might have to persist
- * between multiple primitive restart rendering call) but might have to
- * for each new instance.
+ * between multiple primitive restart rendering call) but might have to 
+ * for each new instance. 
  * This is particularly the case for primitive id's in geometry shader.
  */
 void draw_new_instance(struct draw_context *draw)
@@ -206,12 +206,11 @@ void draw_destroy( struct draw_context *draw )
       }
    }
 
-   for (i = 0; i < draw->pt.nr_vertex_buffers; i++) {
-      pipe_resource_reference(&draw->pt.vertex_buffer[i].buffer, NULL);
-   }
+   for (i = 0; i < draw->pt.nr_vertex_buffers; i++)
+      pipe_vertex_buffer_unreference(&draw->pt.vertex_buffer[i]);
 
    /* Not so fast -- we're just borrowing this at the moment.
-    *
+    * 
    if (draw->render)
       draw->render->destroy( draw->render );
    */
@@ -315,7 +314,7 @@ void draw_set_rasterizer_state( struct draw_context *draw,
 }
 
 /* With a little more work, llvmpipe will be able to turn this off and
- * do its own x/y clipping.
+ * do its own x/y clipping.  
  *
  * Some hardware can turn off clipping altogether - in particular any
  * hardware with a TNL unit can do its own clipping, even if it is
@@ -341,7 +340,7 @@ void draw_set_driver_clipping( struct draw_context *draw,
 }
 
 
-/**
+/** 
  * Plug in the primitive rendering/rasterization stage (which is the last
  * stage in the drawing pipeline).
  * This is provided by the device driver.
@@ -701,7 +700,7 @@ draw_total_vs_outputs(const struct draw_context *draw)
  */
 uint
 draw_total_gs_outputs(const struct draw_context *draw)
-{
+{   
    const struct tgsi_shader_info *info;
 
    if (!draw->gs.geometry_shader)
@@ -768,7 +767,7 @@ draw_buffer(struct draw_context *draw,
 }
 
 
-void draw_set_render( struct draw_context *draw,
+void draw_set_render( struct draw_context *draw, 
 		      struct vbuf_render *render )
 {
    draw->render = render;
@@ -778,9 +777,6 @@ void draw_set_render( struct draw_context *draw,
 /**
  * Tell the draw module where vertex indexes/elements are located, and
  * their size (in bytes).
- *
- * Note: the caller must apply the pipe_index_buffer::offset value to
- * the address.  The draw module doesn't do that.
  */
 void
 draw_set_indexes(struct draw_context *draw,
@@ -977,7 +973,7 @@ draw_set_sampler_views(struct draw_context *draw,
 
    for (i = 0; i < num; ++i)
       draw->sampler_views[shader_stage][i] = views[i];
-   for (i = num; i < PIPE_MAX_SHADER_SAMPLER_VIEWS; ++i)
+   for (i = num; i < draw->num_sampler_views[shader_stage]; ++i)
       draw->sampler_views[shader_stage][i] = NULL;
 
    draw->num_sampler_views[shader_stage] = num;

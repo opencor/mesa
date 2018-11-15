@@ -24,11 +24,30 @@
 # out and we'll fail at `make dist'
 vulkan_api_xml = $(top_srcdir)/src/vulkan/registry/vk.xml
 
-vulkan/anv_entrypoints.c: vulkan/anv_entrypoints_gen.py $(vulkan_api_xml)
+vulkan/anv_entrypoints.c: vulkan/anv_entrypoints_gen.py \
+			  vulkan/anv_extensions.py \
+			  $(vulkan_api_xml)
 	$(MKDIR_GEN)
 	$(AM_V_GEN)$(PYTHON2) $(srcdir)/vulkan/anv_entrypoints_gen.py \
-		--xml $(vulkan_api_xml) --outdir $(builddir)/vulkan
+		--xml $(vulkan_api_xml) \
+		--outdir $(builddir)/vulkan
 vulkan/anv_entrypoints.h: vulkan/anv_entrypoints.c
+
+vulkan/anv_extensions.c: vulkan/anv_extensions_gen.py \
+			 vulkan/anv_extensions.py \
+			 $(vulkan_api_xml)
+	$(MKDIR_GEN)
+	$(AM_V_GEN)$(PYTHON2) $(srcdir)/vulkan/anv_extensions_gen.py \
+		--xml $(vulkan_api_xml) \
+		--out-c $@
+
+vulkan/anv_extensions.h: vulkan/anv_extensions_gen.py \
+			 vulkan/anv_extensions.py \
+			 $(vulkan_api_xml)
+	$(MKDIR_GEN)
+	$(AM_V_GEN)$(PYTHON2) $(srcdir)/vulkan/anv_extensions_gen.py \
+		--xml $(vulkan_api_xml) \
+		--out-h $@
 
 BUILT_SOURCES += $(VULKAN_GENERATED_FILES)
 CLEANFILES += \
@@ -39,19 +58,20 @@ CLEANFILES += \
 EXTRA_DIST += \
 	$(top_srcdir)/include/vulkan/vk_icd.h \
 	vulkan/anv_entrypoints_gen.py \
-	vulkan/dev_icd.json.in \
-	vulkan/intel_icd.json.in \
+	vulkan/anv_extensions_gen.py \
+	vulkan/anv_extensions.py \
+	vulkan/anv_icd.py \
 	vulkan/TODO
 
-vulkan/dev_icd.json : vulkan/dev_icd.json.in
-	$(AM_V_GEN) $(SED) \
-		-e "s#@build_libdir@#${abs_top_builddir}/${LIB_DIR}#" \
-		< $(srcdir)/vulkan/dev_icd.json.in > $@
+vulkan/dev_icd.json : vulkan/anv_extensions.py vulkan/anv_icd.py
+	$(MKDIR_GEN)
+	$(AM_V_GEN)$(PYTHON2) $(srcdir)/vulkan/anv_icd.py \
+		--lib-path="${abs_top_builddir}/${LIB_DIR}" --out $@
 
-vulkan/intel_icd.@host_cpu@.json : vulkan/intel_icd.json.in
-	$(AM_V_GEN) $(SED) \
-		-e "s#@install_libdir@#${libdir}#" \
-		< $(srcdir)/vulkan/intel_icd.json.in > $@
+vulkan/intel_icd.@host_cpu@.json : vulkan/anv_extensions.py vulkan/anv_icd.py
+	$(MKDIR_GEN)
+	$(AM_V_GEN)$(PYTHON2) $(srcdir)/vulkan/anv_icd.py \
+		--lib-path="${libdir}" --out $@
 
 if HAVE_INTEL_VULKAN
 
@@ -59,6 +79,10 @@ vulkan_includedir = $(includedir)/vulkan
 
 noinst_HEADERS += \
 	$(top_srcdir)/include/vulkan/vk_platform.h \
+	$(top_srcdir)/include/vulkan/vulkan_core.h \
+	$(top_srcdir)/include/vulkan/vulkan_wayland.h \
+	$(top_srcdir)/include/vulkan/vulkan_xcb.h \
+	$(top_srcdir)/include/vulkan/vulkan_xlib.h \
 	$(top_srcdir)/include/vulkan/vulkan.h
 
 vulkan_include_HEADERS = \
@@ -72,17 +96,20 @@ VULKAN_PER_GEN_LIBS = \
 	vulkan/libanv-gen7.la \
 	vulkan/libanv-gen75.la \
 	vulkan/libanv-gen8.la \
-	vulkan/libanv-gen9.la
+	vulkan/libanv-gen9.la \
+	vulkan/libanv-gen10.la \
+	vulkan/libanv-gen11.la
 
 noinst_LTLIBRARIES += $(VULKAN_PER_GEN_LIBS)
 
 VULKAN_CFLAGS = \
 	$(AM_CFLAGS) \
-	-msse2
+	-msse2 -mstackrealign
 
 VULKAN_CPPFLAGS = \
 	-I$(top_srcdir)/src/compiler \
 	-I$(top_srcdir)/src/intel/compiler \
+	-I$(top_srcdir)/include/drm-uapi \
 	-I$(top_builddir)/src/intel/vulkan \
 	-I$(top_srcdir)/src/intel/vulkan \
 	-I$(top_srcdir)/src/vulkan/wsi \
@@ -107,11 +134,44 @@ vulkan_libanv_gen9_la_CFLAGS = $(VULKAN_CFLAGS)
 vulkan_libanv_gen9_la_CPPFLAGS = $(VULKAN_CPPFLAGS) -DGEN_VERSIONx10=90
 vulkan_libanv_gen9_la_SOURCES = $(VULKAN_GEN9_FILES)
 
+vulkan_libanv_gen10_la_CFLAGS = $(VULKAN_CFLAGS)
+vulkan_libanv_gen10_la_CPPFLAGS = $(VULKAN_CPPFLAGS) -DGEN_VERSIONx10=100
+vulkan_libanv_gen10_la_SOURCES = $(VULKAN_GEN10_FILES)
+
+vulkan_libanv_gen11_la_CFLAGS = $(VULKAN_CFLAGS)
+vulkan_libanv_gen11_la_CPPFLAGS = $(VULKAN_CPPFLAGS) -DGEN_VERSIONx10=110
+vulkan_libanv_gen11_la_SOURCES = $(VULKAN_GEN11_FILES)
+
 VULKAN_SOURCES = \
 	$(VULKAN_GENERATED_FILES) \
 	$(VULKAN_FILES)
 
-VULKAN_LIB_DEPS = $(LIBDRM_LIBS)
+VULKAN_LIB_DEPS = \
+	vulkan/libvulkan_common.la \
+	$(VULKAN_PER_GEN_LIBS) \
+	compiler/libintel_compiler.la \
+	common/libintel_common.la \
+	dev/libintel_dev.la \
+	isl/libisl.la \
+	blorp/libblorp.la \
+	$(top_builddir)/src/vulkan/libvulkan_util.la \
+	$(top_builddir)/src/vulkan/libvulkan_wsi.la \
+	$(top_builddir)/src/compiler/nir/libnir.la \
+	$(top_builddir)/src/util/libmesautil.la \
+	$(LIBDRM_LIBS) \
+	$(PTHREAD_LIBS) \
+	$(DLOPEN_LIBS) \
+	-lm
+
+if HAVE_PLATFORM_ANDROID
+VULKAN_CPPFLAGS += \
+    $(ANDROID_CPPFLAGS) \
+    -DVK_USE_PLATFORM_ANDROID_KHR
+
+VULKAN_CFLAGS += $(ANDROID_CFLAGS)
+VULKAN_LIB_DEPS += $(ANDROID_LIBS)
+VULKAN_SOURCES += $(VULKAN_ANDROID_FILES)
+endif
 
 if HAVE_PLATFORM_X11
 VULKAN_CPPFLAGS += \
@@ -121,40 +181,39 @@ VULKAN_CPPFLAGS += \
 
 VULKAN_SOURCES += $(VULKAN_WSI_X11_FILES)
 
-# FIXME: Use pkg-config for X11-xcb ldflags.
-VULKAN_LIB_DEPS += $(XCB_DRI3_LIBS) -lX11-xcb
+VULKAN_LIB_DEPS += $(XCB_DRI3_LIBS)
 endif
 
 
 if HAVE_PLATFORM_WAYLAND
 VULKAN_CPPFLAGS += \
-	$(WAYLAND_CFLAGS) \
+	$(WAYLAND_CLIENT_CFLAGS) \
 	-DVK_USE_PLATFORM_WAYLAND_KHR
 
 VULKAN_SOURCES += $(VULKAN_WSI_WAYLAND_FILES)
 
-VULKAN_LIB_DEPS += $(WAYLAND_LIBS)
+VULKAN_LIB_DEPS += $(WAYLAND_CLIENT_LIBS)
+endif
+
+if HAVE_PLATFORM_DRM
+VULKAN_CPPFLAGS += \
+	-DVK_USE_PLATFORM_DISPLAY_KHR
+
+VULKAN_SOURCES += $(VULKAN_WSI_DISPLAY_FILES)
+endif
+
+if HAVE_XLIB_LEASE
+VULKAN_CPPFLAGS += \
+	-DVK_USE_PLATFORM_XLIB_XRANDR_EXT \
+	$(XCB_RANDR_CFLAGS) \
+	$(XLIB_RANDR_CFLAGS)
+VULKAN_LIB_DEPS += $(XCB_RANDR_LIBS)
 endif
 
 noinst_LTLIBRARIES += vulkan/libvulkan_common.la
 vulkan_libvulkan_common_la_SOURCES = $(VULKAN_SOURCES)
 vulkan_libvulkan_common_la_CFLAGS = $(VULKAN_CFLAGS)
 vulkan_libvulkan_common_la_CPPFLAGS = $(VULKAN_CPPFLAGS)
-
-VULKAN_LIB_DEPS += \
-	vulkan/libvulkan_common.la \
-	$(VULKAN_PER_GEN_LIBS) \
-	compiler/libintel_compiler.la \
-	common/libintel_common.la \
-	isl/libisl.la \
-	blorp/libblorp.la \
-	$(top_builddir)/src/vulkan/libvulkan_util.la \
-	$(top_builddir)/src/vulkan/libvulkan_wsi.la \
-	$(top_builddir)/src/compiler/nir/libnir.la \
-	$(top_builddir)/src/util/libmesautil.la \
-	$(PTHREAD_LIBS) \
-	$(DLOPEN_LIBS) \
-	-lm
 
 nodist_EXTRA_vulkan_libvulkan_intel_la_SOURCES = dummy.cpp
 vulkan_libvulkan_intel_la_SOURCES = $(VULKAN_GEM_FILES)

@@ -1,7 +1,7 @@
 /*
  * Copyright 2013 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -9,11 +9,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -42,6 +42,7 @@ util_resource_size(const struct pipe_resource *res)
    unsigned depth = res->depth0;
    unsigned size = 0;
    unsigned level;
+   unsigned samples = MAX2(1, res->nr_samples);
 
    for (level = 0; level <= res->last_level; level++) {
       unsigned slices;
@@ -54,7 +55,7 @@ util_resource_size(const struct pipe_resource *res)
          slices = res->array_size;
 
       size += (util_format_get_nblocksy(res->format, height) *
-               util_format_get_stride(res->format, width) * slices);
+               util_format_get_stride(res->format, width) * slices * samples);
 
       width  = u_minify(width, 1);
       height = u_minify(height, 1);

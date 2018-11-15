@@ -298,7 +298,7 @@
 
 /*
  * Color channel component order
- *
+ * 
  * \note Changes will almost certainly cause problems at this time.
  */
 #define RCOMP 0
@@ -308,11 +308,20 @@
 
 
 /**
- * Maximum number of temporary vertices required for clipping.
+ * Maximum number of temporary vertices required for clipping.  
  *
  * Used in array_cache and tnl modules.
  */
 #define MAX_CLIPPED_VERTICES ((2 * (6 + MAX_CLIP_PLANES))+1)
 
+
+/** For GL_ARB_sample_locations - maximum of SAMPLE_LOCATION_PIXEL_GRID_*_ARB */
+#define MAX_SAMPLE_LOCATION_GRID_SIZE 4
+
+/* It is theoretically possible for Consts.MaxSamples to be >32 but
+ * other code seems to assume that is not the case.
+ */
+#define MAX_SAMPLE_LOCATION_TABLE_SIZE \
+   (MAX_SAMPLE_LOCATION_GRID_SIZE * MAX_SAMPLE_LOCATION_GRID_SIZE * 32)
 
 #endif /* MESA_CONFIG_H_INCLUDED */

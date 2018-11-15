@@ -431,7 +431,7 @@ lp_build_pack_rgba_aos(struct gallivm_state *gallivm,
    casted = LLVMBuildFPToSI(builder, scaled, LLVMVectorType(LLVMInt32TypeInContext(gallivm->context), 4), "");
 
    shifted = LLVMBuildShl(builder, casted, LLVMConstVector(shifts, 4), "");
-
+   
    /* Bitwise or all components */
    for (i = 0; i < 4; ++i) {
       if (desc->channel[i].type == UTIL_FORMAT_TYPE_UNSIGNED) {
@@ -496,7 +496,7 @@ lp_build_fetch_rgba_aos(struct gallivm_state *gallivm,
    if (format_matches_type(format_desc, type) &&
        format_desc->block.bits <= type.width * 4 &&
        /* XXX this shouldn't be needed */
-       util_is_power_of_two(format_desc->block.bits)) {
+       util_is_power_of_two_or_zero(format_desc->block.bits)) {
       LLVMValueRef packed;
       LLVMTypeRef dst_vec_type = lp_build_vec_type(gallivm, type);
       struct lp_type fetch_type;
@@ -532,7 +532,7 @@ lp_build_fetch_rgba_aos(struct gallivm_state *gallivm,
        util_format_fits_8unorm(format_desc) &&
        type.width == 8 && type.norm == 1 && type.sign == 0 &&
        type.fixed == 0 && type.floating == 0) {
-      LLVMValueRef packed, res, chans[4], rgba[4];
+      LLVMValueRef packed, res = NULL, chans[4], rgba[4];
       LLVMTypeRef dst_vec_type, conv_vec_type;
       struct lp_type fetch_type, conv_type;
       struct lp_build_context bld_conv;
@@ -609,7 +609,7 @@ lp_build_fetch_rgba_aos(struct gallivm_state *gallivm,
        format_desc->block.width == 1 &&
        format_desc->block.height == 1 &&
        /* XXX this shouldn't be needed */
-       util_is_power_of_two(format_desc->block.bits) &&
+       util_is_power_of_two_or_zero(format_desc->block.bits) &&
        format_desc->block.bits <= 32 &&
        format_desc->is_bitmask &&
        !format_desc->is_mixed &&

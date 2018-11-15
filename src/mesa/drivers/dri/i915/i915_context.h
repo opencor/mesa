@@ -1,8 +1,8 @@
  /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #ifndef I915CONTEXT_INC
@@ -79,12 +79,13 @@
 #define I915_CTXREG_STATE4		0
 #define I915_CTXREG_LI			1
 #define I915_CTXREG_LIS2		2
-#define I915_CTXREG_LIS4		3
-#define I915_CTXREG_LIS5		4
-#define I915_CTXREG_LIS6		5
-#define I915_CTXREG_BF_STENCIL_OPS	6
-#define I915_CTXREG_BF_STENCIL_MASKS	7
-#define I915_CTX_SETUP_SIZE		8
+#define I915_CTXREG_LIS3		3
+#define I915_CTXREG_LIS4		4
+#define I915_CTXREG_LIS5		5
+#define I915_CTXREG_LIS6		6
+#define I915_CTXREG_BF_STENCIL_OPS	7
+#define I915_CTXREG_BF_STENCIL_MASKS	8
+#define I915_CTX_SETUP_SIZE		9
 
 #define I915_BLENDREG_IAB		0
 #define I915_BLENDREG_BLENDCOLOR0	1
@@ -116,6 +117,7 @@ enum {
 };
 
 #define I915_TEX_UNITS 8
+#define I915_WPOS_TEX_INVALID 0xff
 
 #define I915_MAX_CONSTANT      32
 #define I915_CONSTANT_SIZE     (2+(4*I915_MAX_CONSTANT))
@@ -222,7 +224,7 @@ struct i915_hw_state
    GLuint Program[I915_PROGRAM_SIZE];
    GLuint ProgramSize;
 
-   /* Region pointers for relocation:
+   /* Region pointers for relocation: 
     */
    struct intel_region *draw_region;
    struct intel_region *depth_region;

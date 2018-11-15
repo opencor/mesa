@@ -28,7 +28,7 @@
 /**
  * \file
  * Vertex buffer drawing stage.
- *
+ * 
  * \author Keith Whitwell <keithw@vmware.com>
  * \author Jose Fonseca <jfonseca@vmware.com>
  */
@@ -38,6 +38,7 @@
 
 
 #include "pipe/p_compiler.h"
+#include "pipe/p_defines.h"
 
 
 struct pipe_rasterizer_state;
@@ -71,11 +72,11 @@ struct vbuf_render {
 
    /**
     * Get the hardware vertex format.
-    *
+    * 
     * XXX: have this in draw_context instead?
-    */
+    */ 
    const struct vertex_info *(*get_vertex_info)( struct vbuf_render * );
-
+	 
    /**
     * Request a destination for vertices.
     * Hardware renderers will use ttm memory, others will just malloc
@@ -84,9 +85,9 @@ struct vbuf_render {
    boolean (*allocate_vertices)( struct vbuf_render *,
                                  ushort vertex_size,
                                  ushort nr_vertices );
-
+   
    void *(*map_vertices)( struct vbuf_render * );
-   void (*unmap_vertices)( struct vbuf_render *,
+   void (*unmap_vertices)( struct vbuf_render *, 
                            ushort min_index,
                            ushort max_index );
 
@@ -96,7 +97,7 @@ struct vbuf_render {
     * the discretion of the driver, for the benefit of the passthrough
     * path.
     */
-   void (*set_primitive)( struct vbuf_render *, unsigned prim );
+   void (*set_primitive)( struct vbuf_render *, enum pipe_prim_type prim );
 
    /**
     * Draw indexed primitives.  Note that indices are ushort.  The driver

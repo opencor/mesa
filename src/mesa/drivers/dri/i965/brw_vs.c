@@ -69,17 +69,18 @@ brw_select_clip_planes(struct gl_context *ctx)
    }
 }
 
-GLbitfield64
+static GLbitfield64
 brw_vs_outputs_written(struct brw_context *brw, struct brw_vs_prog_key *key,
                        GLbitfield64 user_varyings)
 {
+   const struct gen_device_info *devinfo = &brw->screen->devinfo;
    GLbitfield64 outputs_written = user_varyings;
 
    if (key->copy_edgeflag) {
       outputs_written |= BITFIELD64_BIT(VARYING_SLOT_EDGE);
    }
 
-   if (brw->gen < 6) {
+   if (devinfo->gen < 6) {
       /* Put dummy slots into the VUE for the SF to put the replaced
        * point sprite coords in.  We shouldn't need these dummy slots,
        * which take up precious URB space, but it would mean that the SF
@@ -158,7 +159,6 @@ brw_codegen_vs_prog(struct brw_context *brw,
 {
    const struct brw_compiler *compiler = brw->screen->compiler;
    const struct gen_device_info *devinfo = &brw->screen->devinfo;
-   GLuint program_size;
    const GLuint *program;
    struct brw_vs_prog_data prog_data;
    struct brw_stage_prog_data *stage_prog_data = &prog_data.base.base;
@@ -177,49 +177,23 @@ brw_codegen_vs_prog(struct brw_context *brw,
    brw_assign_common_binding_table_offsets(devinfo, &vp->program,
                                            &prog_data.base.base, 0);
 
-   /* Allocate the references to the uniforms that will end up in the
-    * prog_data associated with the compiled program, and which will be freed
-    * by the state cache.
-    */
-   int param_count = vp->program.nir->num_uniforms / 4;
-
-   prog_data.base.base.nr_image_params = vp->program.info.num_images;
-
-   /* vec4_visitor::setup_uniform_clipplane_values() also uploads user clip
-    * planes as uniforms.
-    */
-   param_count += key->nr_userclip_plane_consts * 4;
-
-   stage_prog_data->param =
-      rzalloc_array(NULL, const gl_constant_value *, param_count);
-   stage_prog_data->pull_param =
-      rzalloc_array(NULL, const gl_constant_value *, param_count);
-   stage_prog_data->image_param =
-      rzalloc_array(NULL, struct brw_image_param,
-                    stage_prog_data->nr_image_params);
-   stage_prog_data->nr_params = param_count;
-
    if (!vp->program.is_arb_asm) {
-      brw_nir_setup_glsl_uniforms(vp->program.nir, &vp->program,
+      brw_nir_setup_glsl_uniforms(mem_ctx, vp->program.nir, &vp->program,
                                   &prog_data.base.base,
                                   compiler->scalar_stage[MESA_SHADER_VERTEX]);
+      brw_nir_analyze_ubo_ranges(compiler, vp->program.nir, key,
+                                 prog_data.base.base.ubo_ranges);
    } else {
-      brw_nir_setup_arb_uniforms(vp->program.nir, &vp->program,
+      brw_nir_setup_arb_uniforms(mem_ctx, vp->program.nir, &vp->program,
                                  &prog_data.base.base);
    }
 
    uint64_t outputs_written =
-      brw_vs_outputs_written(brw, key, vp->program.info.outputs_written);
-   prog_data.inputs_read = vp->program.info.inputs_read;
-   prog_data.double_inputs_read = vp->program.info.double_inputs_read;
-
-   if (key->copy_edgeflag) {
-      prog_data.inputs_read |= VERT_BIT_EDGEFLAG;
-   }
+      brw_vs_outputs_written(brw, key, vp->program.nir->info.outputs_written);
 
    brw_compute_vue_map(devinfo,
                        &prog_data.base.vue_map, outputs_written,
-                       vp->program.nir->info->separate_shader);
+                       vp->program.nir->info.separate_shader);
 
    if (0) {
       _mesa_fprint_program_opt(stderr, &vp->program, PROG_PRINT_DEBUG, true);
@@ -247,12 +221,10 @@ brw_codegen_vs_prog(struct brw_context *brw,
    char *error_str;
    program = brw_compile_vs(compiler, brw, mem_ctx, key, &prog_data,
                             vp->program.nir,
-                            brw_select_clip_planes(&brw->ctx),
-                            !_mesa_is_gles3(&brw->ctx),
-                            st_index, &program_size, &error_str);
+                            st_index, &error_str);
    if (program == NULL) {
       if (!vp->program.is_arb_asm) {
-         vp->program.sh.data->LinkStatus = linking_failure;
+         vp->program.sh.data->LinkStatus = LINKING_FAILURE;
          ralloc_strcat(&vp->program.sh.data->InfoLog, error_str);
       }
 
@@ -275,14 +247,16 @@ brw_codegen_vs_prog(struct brw_context *brw,
 
    /* Scratch space is used for register spilling */
    brw_alloc_stage_scratch(brw, &brw->vs.base,
-                           prog_data.base.base.total_scratch,
-                           devinfo->max_vs_threads);
+                           prog_data.base.base.total_scratch);
 
+   /* The param and pull_param arrays will be freed by the shader cache. */
+   ralloc_steal(NULL, prog_data.base.base.param);
+   ralloc_steal(NULL, prog_data.base.base.pull_param);
    brw_upload_cache(&brw->cache, BRW_CACHE_VS_PROG,
-		    key, sizeof(struct brw_vs_prog_key),
-		    program, program_size,
-		    &prog_data, sizeof(prog_data),
-		    &brw->vs.base.prog_offset, &brw->vs.base.prog_data);
+                    key, sizeof(struct brw_vs_prog_key),
+                    program, prog_data.base.base.program_size,
+                    &prog_data, sizeof(prog_data),
+                    &brw->vs.base.prog_offset, &brw->vs.base.prog_data);
    ralloc_free(mem_ctx);
 
    return true;
@@ -308,8 +282,9 @@ brw_vs_populate_key(struct brw_context *brw,
 {
    struct gl_context *ctx = &brw->ctx;
    /* BRW_NEW_VERTEX_PROGRAM */
-   struct brw_program *vp = (struct brw_program *)brw->vertex_program;
-   struct gl_program *prog = (struct gl_program *) brw->vertex_program;
+   struct gl_program *prog = brw->programs[MESA_SHADER_VERTEX];
+   struct brw_program *vp = (struct brw_program *) prog;
+   const struct gen_device_info *devinfo = &brw->screen->devinfo;
 
    memset(key, 0, sizeof(*key));
 
@@ -325,7 +300,7 @@ brw_vs_populate_key(struct brw_context *brw,
          _mesa_logbase2(ctx->Transform.ClipPlanesEnabled) + 1;
    }
 
-   if (brw->gen < 6) {
+   if (devinfo->gen < 6) {
       /* _NEW_POLYGON */
       key->copy_edgeflag = (ctx->Polygon.FrontMode != GL_FILL ||
                             ctx->Polygon.BackMode != GL_FILL);
@@ -347,7 +322,7 @@ brw_vs_populate_key(struct brw_context *brw,
    brw_populate_sampler_prog_key_data(ctx, prog, &key->tex);
 
    /* BRW_NEW_VS_ATTRIB_WORKAROUNDS */
-   if (brw->gen < 8 && !brw->is_haswell) {
+   if (devinfo->gen < 8 && !devinfo->is_haswell) {
       memcpy(key->gl_attrib_wa_flags, brw->vb.attrib_wa_flags,
              sizeof(brw->vb.attrib_wa_flags));
    }
@@ -358,20 +333,44 @@ brw_upload_vs_prog(struct brw_context *brw)
 {
    struct brw_vs_prog_key key;
    /* BRW_NEW_VERTEX_PROGRAM */
-   struct brw_program *vp = (struct brw_program *)brw->vertex_program;
+   struct brw_program *vp =
+      (struct brw_program *) brw->programs[MESA_SHADER_VERTEX];
 
    if (!brw_vs_state_dirty(brw))
       return;
 
    brw_vs_populate_key(brw, &key);
 
-   if (!brw_search_cache(&brw->cache, BRW_CACHE_VS_PROG,
-			 &key, sizeof(key),
-			 &brw->vs.base.prog_offset, &brw->vs.base.prog_data)) {
-      bool success = brw_codegen_vs_prog(brw, vp, &key);
-      (void) success;
-      assert(success);
-   }
+   if (brw_search_cache(&brw->cache, BRW_CACHE_VS_PROG, &key, sizeof(key),
+                        &brw->vs.base.prog_offset, &brw->vs.base.prog_data,
+                        true))
+      return;
+
+   if (brw_disk_cache_upload_program(brw, MESA_SHADER_VERTEX))
+      return;
+
+   vp = (struct brw_program *) brw->programs[MESA_SHADER_VERTEX];
+   vp->id = key.program_string_id;
+
+   MAYBE_UNUSED bool success = brw_codegen_vs_prog(brw, vp, &key);
+   assert(success);
+}
+
+void
+brw_vs_populate_default_key(const struct gen_device_info *devinfo,
+                            struct brw_vs_prog_key *key,
+                            struct gl_program *prog)
+{
+   struct brw_program *bvp = brw_program(prog);
+
+   memset(key, 0, sizeof(*key));
+
+   brw_setup_tex_for_precompile(devinfo, &key->tex, prog);
+   key->program_string_id = bvp->id;
+   key->clamp_vertex_color =
+      (prog->info.outputs_written &
+       (VARYING_BIT_COL0 | VARYING_BIT_COL1 | VARYING_BIT_BFC0 |
+        VARYING_BIT_BFC1));
 }
 
 bool
@@ -385,14 +384,7 @@ brw_vs_precompile(struct gl_context *ctx, struct gl_program *prog)
 
    struct brw_program *bvp = brw_program(prog);
 
-   memset(&key, 0, sizeof(key));
-
-   brw_setup_tex_for_precompile(brw, &key.tex, prog);
-   key.program_string_id = bvp->id;
-   key.clamp_vertex_color =
-      (prog->info.outputs_written &
-       (VARYING_BIT_COL0 | VARYING_BIT_COL1 | VARYING_BIT_BFC0 |
-        VARYING_BIT_BFC1));
+   brw_vs_populate_default_key(&brw->screen->devinfo, &key, prog);
 
    success = brw_codegen_vs_prog(brw, bvp, &key);
 

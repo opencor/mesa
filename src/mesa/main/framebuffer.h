@@ -72,10 +72,6 @@ extern void
 _mesa_resizebuffers( struct gl_context *ctx );
 
 extern void
-_mesa_scissor_bounding_box(const struct gl_context *ctx,
-                           const struct gl_framebuffer *buffer,
-                           unsigned idx, int *bbox);
-extern void
 _mesa_intersect_scissor_bounding_box(const struct gl_context *ctx,
                                      unsigned idx, int *bbox);
 
@@ -108,7 +104,7 @@ _mesa_geometric_layers(const struct gl_framebuffer *buffer)
       buffer->MaxNumLayers : buffer->DefaultGeometry.Layers;
 }
 
-extern void
+extern void 
 _mesa_update_draw_buffer_bounds(struct gl_context *ctx,
                                 struct gl_framebuffer *drawFb);
 

@@ -24,6 +24,8 @@
 # Authors:
 #    Chia-I Wu <olv@lunarg.com>
 
+from __future__ import print_function
+
 import sys
 # make it possible to import glapi
 import os
@@ -166,7 +168,7 @@ def abi_parse_xml(xml):
             else:
                 attrs['handcode'] = None
 
-            if entry_dict.has_key(name):
+            if name in entry_dict:
                 raise Exception('%s is duplicated' % (name))
 
             cols = []
@@ -178,8 +180,7 @@ def abi_parse_xml(xml):
             ent = ABIEntry(cols, attrs, func)
             entry_dict[ent.name] = ent
 
-    entries = entry_dict.values()
-    entries.sort()
+    entries = sorted(entry_dict.values())
 
     return entries
 
@@ -244,12 +245,11 @@ def abi_parse(filename):
             raise Exception('invalid slot in %s' % (line))
 
         ent = ABIEntry(cols, attrs)
-        if entry_dict.has_key(ent.name):
+        if ent.name in entry_dict:
             raise Exception('%s is duplicated' % (ent.name))
         entry_dict[ent.name] = ent
 
-    entries = entry_dict.values()
-    entries.sort()
+    entries = sorted(entry_dict.values())
 
     return entries
 
@@ -260,7 +260,7 @@ def abi_sanity_check(entries):
     all_names = []
     last_slot = entries[-1].slot
     i = 0
-    for slot in xrange(last_slot + 1):
+    for slot in range(last_slot + 1):
         if entries[i].slot != slot:
             raise Exception('entries are not ordered by slots')
         if entries[i].alias:
@@ -346,28 +346,6 @@ class ABIPrinter(object):
                 '#define MAPI_TABLE_NUM_DYNAMIC %d') % (
                         num_static_entries, ABI_NUM_DYNAMIC_ENTRIES)
 
-    def c_mapi_table_initializer(self, prefix):
-        """Return the array initializer for mapi_table_fill."""
-        entries = [self._c_function(ent, prefix)
-                for ent in self.entries if not ent.alias]
-        pre = self.indent + '(mapi_proc) '
-        return pre + (',\n' + pre).join(entries)
-
-    def c_mapi_table_spec(self):
-        """Return the spec for mapi_init."""
-        specv1 = []
-        line = '"1'
-        for ent in self.entries:
-            if not ent.alias:
-                line += '\\0"\n'
-                specv1.append(line)
-                line = '"'
-            line += '%s\\0' % ent.name
-        line += '";'
-        specv1.append(line)
-
-        return self.indent + self.indent.join(specv1)
-
     def _c_function(self, ent, prefix, mangle=False, stringify=False):
         """Return the function name of an entry."""
         formats = {
@@ -411,13 +389,6 @@ class ABIPrinter(object):
 
         return cast
 
-    def c_private_declarations(self, prefix):
-        """Return the declarations of private functions."""
-        decls = [self._c_decl(ent, prefix) + ';'
-                for ent in self.entries if not ent.alias]
-
-        return "\n".join(decls)
-
     def c_public_dispatches(self, prefix, no_hidden):
         """Return the public dispatch functions."""
         dispatches = []
@@ -437,7 +408,7 @@ class ABIPrinter(object):
             if ent.ret:
                 ret = 'return '
             stmt1 = self.indent
-            stmt1 += 'const struct mapi_table *_tbl = %s();' % (
+            stmt1 += 'const struct _glapi_table *_tbl = %s();' % (
                     self.current_get)
             stmt2 = self.indent
             stmt2 += 'mapi_func _func = ((const mapi_func *) _tbl)[%d];' % (
@@ -570,79 +541,79 @@ class ABIPrinter(object):
         return "\n".join(asm)
 
     def output_for_lib(self):
-        print self.c_notice()
+        print(self.c_notice())
 
         if self.c_header:
-            print
-            print self.c_header
+            print()
+            print(self.c_header)
 
-        print
-        print '#ifdef MAPI_TMP_DEFINES'
-        print self.c_public_includes()
-        print
-        print self.c_public_declarations(self.prefix_lib)
-        print '#undef MAPI_TMP_DEFINES'
-        print '#endif /* MAPI_TMP_DEFINES */'
+        print()
+        print('#ifdef MAPI_TMP_DEFINES')
+        print(self.c_public_includes())
+        print()
+        print(self.c_public_declarations(self.prefix_lib))
+        print('#undef MAPI_TMP_DEFINES')
+        print('#endif /* MAPI_TMP_DEFINES */')
 
         if self.lib_need_table_size:
-            print
-            print '#ifdef MAPI_TMP_TABLE'
-            print self.c_mapi_table()
-            print '#undef MAPI_TMP_TABLE'
-            print '#endif /* MAPI_TMP_TABLE */'
+            print()
+            print('#ifdef MAPI_TMP_TABLE')
+            print(self.c_mapi_table())
+            print('#undef MAPI_TMP_TABLE')
+            print('#endif /* MAPI_TMP_TABLE */')
 
         if self.lib_need_noop_array:
-            print
-            print '#ifdef MAPI_TMP_NOOP_ARRAY'
-            print '#ifdef DEBUG'
-            print
-            print self.c_noop_functions(self.prefix_noop, self.prefix_warn)
-            print
-            print 'const mapi_func table_%s_array[] = {' % (self.prefix_noop)
-            print self.c_noop_initializer(self.prefix_noop, False)
-            print '};'
-            print
-            print '#else /* DEBUG */'
-            print
-            print 'const mapi_func table_%s_array[] = {' % (self.prefix_noop)
-            print self.c_noop_initializer(self.prefix_noop, True)
-            print '};'
-            print
-            print '#endif /* DEBUG */'
-            print '#undef MAPI_TMP_NOOP_ARRAY'
-            print '#endif /* MAPI_TMP_NOOP_ARRAY */'
+            print()
+            print('#ifdef MAPI_TMP_NOOP_ARRAY')
+            print('#ifdef DEBUG')
+            print()
+            print(self.c_noop_functions(self.prefix_noop, self.prefix_warn))
+            print()
+            print('const mapi_func table_%s_array[] = {' % (self.prefix_noop))
+            print(self.c_noop_initializer(self.prefix_noop, False))
+            print('};')
+            print()
+            print('#else /* DEBUG */')
+            print()
+            print('const mapi_func table_%s_array[] = {' % (self.prefix_noop))
+            print(self.c_noop_initializer(self.prefix_noop, True))
+            print('};')
+            print()
+            print('#endif /* DEBUG */')
+            print('#undef MAPI_TMP_NOOP_ARRAY')
+            print('#endif /* MAPI_TMP_NOOP_ARRAY */')
 
         if self.lib_need_stubs:
             pool, pool_offsets = self.c_stub_string_pool()
-            print
-            print '#ifdef MAPI_TMP_PUBLIC_STUBS'
-            print 'static const char public_string_pool[] ='
-            print pool
-            print
-            print 'static const struct mapi_stub public_stubs[] = {'
-            print self.c_stub_initializer(self.prefix_lib, pool_offsets)
-            print '};'
-            print '#undef MAPI_TMP_PUBLIC_STUBS'
-            print '#endif /* MAPI_TMP_PUBLIC_STUBS */'
+            print()
+            print('#ifdef MAPI_TMP_PUBLIC_STUBS')
+            print('static const char public_string_pool[] =')
+            print(pool)
+            print()
+            print('static const struct mapi_stub public_stubs[] = {')
+            print(self.c_stub_initializer(self.prefix_lib, pool_offsets))
+            print('};')
+            print('#undef MAPI_TMP_PUBLIC_STUBS')
+            print('#endif /* MAPI_TMP_PUBLIC_STUBS */')
 
         if self.lib_need_all_entries:
-            print
-            print '#ifdef MAPI_TMP_PUBLIC_ENTRIES'
-            print self.c_public_dispatches(self.prefix_lib, False)
-            print
-            print 'static const mapi_func public_entries[] = {'
-            print self.c_public_initializer(self.prefix_lib)
-            print '};'
-            print '#undef MAPI_TMP_PUBLIC_ENTRIES'
-            print '#endif /* MAPI_TMP_PUBLIC_ENTRIES */'
+            print()
+            print('#ifdef MAPI_TMP_PUBLIC_ENTRIES')
+            print(self.c_public_dispatches(self.prefix_lib, False))
+            print()
+            print('static const mapi_func public_entries[] = {')
+            print(self.c_public_initializer(self.prefix_lib))
+            print('};')
+            print('#undef MAPI_TMP_PUBLIC_ENTRIES')
+            print('#endif /* MAPI_TMP_PUBLIC_ENTRIES */')
 
-            print
-            print '#ifdef MAPI_TMP_STUB_ASM_GCC'
-            print '__asm__('
-            print self.c_asm_gcc(self.prefix_lib, False)
-            print ');'
-            print '#undef MAPI_TMP_STUB_ASM_GCC'
-            print '#endif /* MAPI_TMP_STUB_ASM_GCC */'
+            print()
+            print('#ifdef MAPI_TMP_STUB_ASM_GCC')
+            print('__asm__(')
+            print(self.c_asm_gcc(self.prefix_lib, False))
+            print(');')
+            print('#undef MAPI_TMP_STUB_ASM_GCC')
+            print('#endif /* MAPI_TMP_STUB_ASM_GCC */')
 
         if self.lib_need_non_hidden_entries:
             all_hidden = True
@@ -651,37 +622,21 @@ class ABIPrinter(object):
                     all_hidden = False
                     break
             if not all_hidden:
-                print
-                print '#ifdef MAPI_TMP_PUBLIC_ENTRIES_NO_HIDDEN'
-                print self.c_public_dispatches(self.prefix_lib, True)
-                print
-                print '/* does not need public_entries */'
-                print '#undef MAPI_TMP_PUBLIC_ENTRIES_NO_HIDDEN'
-                print '#endif /* MAPI_TMP_PUBLIC_ENTRIES_NO_HIDDEN */'
+                print()
+                print('#ifdef MAPI_TMP_PUBLIC_ENTRIES_NO_HIDDEN')
+                print(self.c_public_dispatches(self.prefix_lib, True))
+                print()
+                print('/* does not need public_entries */')
+                print('#undef MAPI_TMP_PUBLIC_ENTRIES_NO_HIDDEN')
+                print('#endif /* MAPI_TMP_PUBLIC_ENTRIES_NO_HIDDEN */')
 
-                print
-                print '#ifdef MAPI_TMP_STUB_ASM_GCC_NO_HIDDEN'
-                print '__asm__('
-                print self.c_asm_gcc(self.prefix_lib, True)
-                print ');'
-                print '#undef MAPI_TMP_STUB_ASM_GCC_NO_HIDDEN'
-                print '#endif /* MAPI_TMP_STUB_ASM_GCC_NO_HIDDEN */'
-
-    def output_for_app(self):
-        print self.c_notice()
-        print
-        print self.c_private_declarations(self.prefix_app)
-        print
-        print '#ifdef API_TMP_DEFINE_SPEC'
-        print
-        print 'static const char %s_spec[] =' % (self.prefix_app)
-        print self.c_mapi_table_spec()
-        print
-        print 'static const mapi_proc %s_procs[] = {' % (self.prefix_app)
-        print self.c_mapi_table_initializer(self.prefix_app)
-        print '};'
-        print
-        print '#endif /* API_TMP_DEFINE_SPEC */'
+                print()
+                print('#ifdef MAPI_TMP_STUB_ASM_GCC_NO_HIDDEN')
+                print('__asm__(')
+                print(self.c_asm_gcc(self.prefix_lib, True))
+                print(');')
+                print('#undef MAPI_TMP_STUB_ASM_GCC_NO_HIDDEN')
+                print('#endif /* MAPI_TMP_STUB_ASM_GCC_NO_HIDDEN */')
 
 class GLAPIPrinter(ABIPrinter):
     """OpenGL API Printer"""
@@ -704,7 +659,6 @@ class GLAPIPrinter(ABIPrinter):
         self.lib_need_non_hidden_entries = True
 
         self.prefix_lib = 'GLAPI_PREFIX'
-        self.prefix_app = '_mesa_'
         self.prefix_noop = 'noop'
         self.prefix_warn = self.prefix_lib
 
@@ -817,17 +771,13 @@ typedef int GLclampx;
 
 def parse_args():
     printers = ['glapi', 'es1api', 'es2api', 'shared-glapi']
-    modes = ['lib', 'app']
 
     parser = OptionParser(usage='usage: %prog [options] <filename>')
     parser.add_option('-p', '--printer', dest='printer',
             help='printer to use: %s' % (", ".join(printers)))
-    parser.add_option('-m', '--mode', dest='mode',
-            help='target user: %s' % (", ".join(modes)))
 
     options, args = parser.parse_args()
-    if not args or options.printer not in printers or \
-            options.mode not in modes:
+    if not args or options.printer not in printers:
         parser.print_help()
         sys.exit(1)
 
@@ -850,10 +800,7 @@ def main():
     abi_sanity_check(entries)
 
     printer = printers[options.printer](entries)
-    if options.mode == 'lib':
-        printer.output_for_lib()
-    else:
-        printer.output_for_app()
+    printer.output_for_lib()
 
 if __name__ == '__main__':
     main()

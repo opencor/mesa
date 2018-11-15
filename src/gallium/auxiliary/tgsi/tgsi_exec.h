@@ -1,9 +1,9 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007-2008 VMware, Inc.
  * All Rights Reserved.
  * Copyright 2009-2010 VMware, Inc.  All rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -11,11 +11,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #ifndef TGSI_EXEC_H
@@ -58,6 +58,15 @@ extern "C" {
    TGSI_FOR_EACH_CHANNEL( CHAN )\
       TGSI_IF_IS_DST0_CHANNEL_ENABLED( INST, CHAN )
 
+#define TGSI_IS_DST1_CHANNEL_ENABLED( INST, CHAN )\
+   ((INST)->Dst[1].Register.WriteMask & (1 << (CHAN)))
+
+#define TGSI_IF_IS_DST1_CHANNEL_ENABLED( INST, CHAN )\
+   if (TGSI_IS_DST1_CHANNEL_ENABLED( INST, CHAN ))
+
+#define TGSI_FOR_EACH_DST1_ENABLED_CHANNEL( INST, CHAN )\
+   TGSI_FOR_EACH_CHANNEL( CHAN )\
+      TGSI_IF_IS_DST1_CHANNEL_ENABLED( INST, CHAN )
 
 /**
   * Registers may be treated as float, signed int or unsigned int.
@@ -125,7 +134,7 @@ struct tgsi_image {
 
    void (*op)(const struct tgsi_image *image,
               const struct tgsi_image_params *params,
-              unsigned opcode,
+              enum tgsi_opcode opcode,
               const int s[TGSI_QUAD_SIZE],
               const int t[TGSI_QUAD_SIZE],
               const int r[TGSI_QUAD_SIZE],
@@ -158,7 +167,7 @@ struct tgsi_buffer {
 
    void (*op)(const struct tgsi_buffer *buffer,
               const struct tgsi_buffer_params *params,
-              unsigned opcode,
+              enum tgsi_opcode opcode,
               const int s[TGSI_QUAD_SIZE],
               float rgba[TGSI_NUM_CHANNELS][TGSI_QUAD_SIZE],
               float rgba2[TGSI_NUM_CHANNELS][TGSI_QUAD_SIZE]);
@@ -451,7 +460,7 @@ void
 tgsi_exec_machine_destroy(struct tgsi_exec_machine *mach);
 
 
-void
+void 
 tgsi_exec_machine_bind_shader(
    struct tgsi_exec_machine *mach,
    const struct tgsi_token *tokens,
@@ -511,6 +520,9 @@ tgsi_exec_get_shader_param(enum pipe_shader_cap param)
       return 1;
    case PIPE_SHADER_CAP_INTEGERS:
       return 1;
+   case PIPE_SHADER_CAP_INT64_ATOMICS:
+   case PIPE_SHADER_CAP_FP16:
+      return 0;
    case PIPE_SHADER_CAP_MAX_TEXTURE_SAMPLERS:
       return PIPE_MAX_SAMPLERS;
    case PIPE_SHADER_CAP_MAX_SAMPLER_VIEWS:
@@ -522,12 +534,18 @@ tgsi_exec_get_shader_param(enum pipe_shader_cap param)
    case PIPE_SHADER_CAP_TGSI_SQRT_SUPPORTED:
       return 1;
    case PIPE_SHADER_CAP_TGSI_DFRACEXP_DLDEXP_SUPPORTED:
+   case PIPE_SHADER_CAP_TGSI_LDEXP_SUPPORTED:
    case PIPE_SHADER_CAP_TGSI_ANY_INOUT_DECL_RANGE:
       return 1;
    case PIPE_SHADER_CAP_TGSI_DROUND_SUPPORTED:
    case PIPE_SHADER_CAP_TGSI_FMA_SUPPORTED:
    case PIPE_SHADER_CAP_LOWER_IF_THRESHOLD:
+   case PIPE_SHADER_CAP_TGSI_SKIP_MERGE_REGISTERS:
+   case PIPE_SHADER_CAP_MAX_HW_ATOMIC_COUNTERS:
+   case PIPE_SHADER_CAP_MAX_HW_ATOMIC_COUNTER_BUFFERS:
       return 0;
+   case PIPE_SHADER_CAP_SCALAR_ISA:
+      return 1;
    case PIPE_SHADER_CAP_MAX_SHADER_BUFFERS:
       return PIPE_MAX_SHADER_BUFFERS;
    case PIPE_SHADER_CAP_MAX_SHADER_IMAGES:

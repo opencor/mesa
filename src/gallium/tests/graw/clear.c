@@ -60,7 +60,7 @@ static void init( void )
       fprintf(stderr, "Unable to create window\n");
       exit(1);
    }
-
+   
    ctx = screen->context_create(screen, NULL, 0);
    if (ctx == NULL)
       exit(3);
@@ -73,10 +73,9 @@ static void init( void )
    templat.depth0 = 1;
    templat.array_size = 1;
    templat.last_level = 0;
-   templat.nr_samples = 1;
    templat.bind = (PIPE_BIND_RENDER_TARGET |
                    PIPE_BIND_DISPLAY_TARGET);
-
+   
    tex = screen->resource_create(screen,
                                  &templat);
    if (tex == NULL)

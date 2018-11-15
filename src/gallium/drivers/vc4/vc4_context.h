@@ -67,7 +67,7 @@
 #define VC4_DIRTY_CONSTBUF      (1 << 13)
 #define VC4_DIRTY_VTXSTATE      (1 << 14)
 #define VC4_DIRTY_VTXBUF        (1 << 15)
-#define VC4_DIRTY_INDEXBUF      (1 << 16)
+
 #define VC4_DIRTY_SCISSOR       (1 << 17)
 #define VC4_DIRTY_FLAT_SHADE_FLAGS (1 << 18)
 #define VC4_DIRTY_PRIM_MODE     (1 << 19)
@@ -78,12 +78,20 @@
 #define VC4_DIRTY_COMPILED_VS   (1 << 24)
 #define VC4_DIRTY_COMPILED_FS   (1 << 25)
 #define VC4_DIRTY_FS_INPUTS     (1 << 26)
+#define VC4_DIRTY_UBO_1_SIZE    (1 << 27)
 
 struct vc4_sampler_view {
         struct pipe_sampler_view base;
         uint32_t texture_p0;
         uint32_t texture_p1;
         bool force_first_level;
+        /**
+         * Resource containing the actual texture that will be sampled.
+         *
+         * We may need to rebase the .base.texture resource to work around the
+         * lack of GL_TEXTURE_BASE_LEVEL, or to upload the texture as tiled.
+         */
+        struct pipe_resource *texture;
 };
 
 struct vc4_sampler_state {
@@ -212,6 +220,13 @@ struct vc4_job_key {
         struct pipe_surface *zsbuf;
 };
 
+struct vc4_hwperfmon {
+        uint32_t id;
+        uint64_t last_seqno;
+        uint8_t events[DRM_VC4_MAX_PERF_COUNTERS];
+        uint64_t counters[DRM_VC4_MAX_PERF_COUNTERS];
+};
+
 /**
  * A complete bin/render job.
  *
@@ -235,6 +250,9 @@ struct vc4_job {
          * OOM.
          */
         uint32_t bo_space;
+
+        /* Last BO hindex referenced from VC4_PACKET_GEM_HANDLES. */
+        uint32_t last_gem_handle_hindex;
 
         /** @{ Surfaces to submit rendering for. */
         struct pipe_surface *color_read;
@@ -296,6 +314,12 @@ struct vc4_job {
          */
         uint32_t draw_calls_queued;
 
+        /** Any flags to be passed in drm_vc4_submit_cl.flags. */
+        uint32_t flags;
+
+	/* Performance monitor attached to this job. */
+	struct vc4_hwperfmon *perfmon;
+
         struct vc4_job_key key;
 };
 
@@ -353,6 +377,10 @@ struct vc4_context {
 
         struct u_upload_mgr *uploader;
 
+        struct pipe_shader_state *yuv_linear_blit_vs;
+        struct pipe_shader_state *yuv_linear_blit_fs_8bit;
+        struct pipe_shader_state *yuv_linear_blit_fs_16bit;
+
         /** @{ Current pipeline state objects */
         struct pipe_scissor_state scissor;
         struct pipe_blend_state *blend;
@@ -377,35 +405,39 @@ struct vc4_context {
         struct pipe_viewport_state viewport;
         struct vc4_constbuf_stateobj constbuf[PIPE_SHADER_TYPES];
         struct vc4_vertexbuf_stateobj vertexbuf;
-        struct pipe_index_buffer indexbuf;
+
+        struct vc4_hwperfmon *perfmon;
         /** @} */
+
+        /** Handle of syncobj containing the last submitted job fence. */
+        uint32_t job_syncobj;
+
+        int in_fence_fd;
+        /** Handle of the syncobj that holds in_fence_fd for submission. */
+        uint32_t in_syncobj;
 };
 
 struct vc4_rasterizer_state {
         struct pipe_rasterizer_state base;
 
         /* VC4_CONFIGURATION_BITS */
-        uint8_t config_bits[3];
+        uint8_t config_bits[V3D21_CONFIGURATION_BITS_length];
 
-        float point_size;
+        struct PACKED {
+                uint8_t depth_offset[V3D21_DEPTH_OFFSET_length];
+                uint8_t point_size[V3D21_POINT_SIZE_length];
+                uint8_t line_width[V3D21_LINE_WIDTH_length];
+        } packed;
 
-        /**
-         * Half-float (1/8/7 bits) value of polygon offset units for
-         * VC4_PACKET_DEPTH_OFFSET
-         */
-        uint16_t offset_units;
-        /**
-         * Half-float (1/8/7 bits) value of polygon offset scale for
-         * VC4_PACKET_DEPTH_OFFSET
-         */
-        uint16_t offset_factor;
+        /** Raster order flags to be passed in struct drm_vc4_submit_cl.flags. */
+        uint32_t tile_raster_order_flags;
 };
 
 struct vc4_depth_stencil_alpha_state {
         struct pipe_depth_stencil_alpha_state base;
 
         /* VC4_CONFIGURATION_BITS */
-        uint8_t config_bits[3];
+        uint8_t config_bits[V3D21_CONFIGURATION_BITS_length];
 
         /** Uniforms for stencil state.
          *
@@ -439,6 +471,12 @@ vc4_sampler_state(struct pipe_sampler_state *psampler)
         return (struct vc4_sampler_state *)psampler;
 }
 
+int vc4_get_driver_query_group_info(struct pipe_screen *pscreen,
+                                    unsigned index,
+                                    struct pipe_driver_query_group_info *info);
+int vc4_get_driver_query_info(struct pipe_screen *pscreen, unsigned index,
+                              struct pipe_driver_query_info *info);
+
 struct pipe_context *vc4_context_create(struct pipe_screen *pscreen,
                                         void *priv, unsigned flags);
 void vc4_draw_init(struct pipe_context *pctx);
@@ -471,7 +509,8 @@ void vc4_write_uniforms(struct vc4_context *vc4,
                         struct vc4_texture_stateobj *texstate);
 
 void vc4_flush(struct pipe_context *pctx);
-void vc4_job_init(struct vc4_context *vc4);
+int vc4_job_init(struct vc4_context *vc4);
+int vc4_fence_context_init(struct vc4_context *vc4);
 struct vc4_job *vc4_get_job(struct vc4_context *vc4,
                             struct pipe_surface *cbuf,
                             struct pipe_surface *zsbuf);

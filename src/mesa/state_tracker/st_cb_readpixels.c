@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include "main/bufferobj.h"
@@ -112,7 +112,7 @@ try_pbo_readpixels(struct st_context *st, struct st_renderbuffer *strb,
    if (texture->nr_samples > 1)
       return false;
 
-   if (!screen->is_format_supported(screen, dst_format, PIPE_BUFFER, 0,
+   if (!screen->is_format_supported(screen, dst_format, PIPE_BUFFER, 0, 0,
                                     PIPE_BIND_SHADER_IMAGE))
       return false;
 
@@ -175,7 +175,7 @@ try_pbo_readpixels(struct st_context *st, struct st_renderbuffer *strb,
 
       if (view_target != PIPE_TEXTURE_3D) {
          templ.u.tex.first_layer = surface->u.tex.first_layer;
-         templ.u.tex.last_layer = templ.u.tex.last_layer;
+         templ.u.tex.last_layer = templ.u.tex.first_layer;
       } else {
          addr.constants.layer_offset = surface->u.tex.first_layer;
       }
@@ -251,14 +251,6 @@ fail:
    return success;
 }
 
-/* Invalidate the readpixels cache to ensure we don't read stale data.
- */
-void st_invalidate_readpix_cache(struct st_context *st)
-{
-   pipe_resource_reference(&st->readpix_cache.src, NULL);
-   pipe_resource_reference(&st->readpix_cache.cache, NULL);
-}
-
 /**
  * Create a staging texture and blit the requested region to it.
  */
@@ -278,8 +270,8 @@ blit_to_staging(struct st_context *st, struct st_renderbuffer *strb,
    /* We are creating a texture of the size of the region being read back.
     * Need to check for NPOT texture support. */
    if (!screen->get_param(screen, PIPE_CAP_NPOT_TEXTURES) &&
-       (!util_is_power_of_two(width) ||
-        !util_is_power_of_two(height)))
+       (!util_is_power_of_two_or_zero(width) ||
+        !util_is_power_of_two_or_zero(height)))
       return NULL;
 
    /* create the destination texture */
@@ -457,7 +449,7 @@ st_ReadPixels(struct gl_context *ctx, GLint x, GLint y,
 
    if (!src_format ||
        !screen->is_format_supported(screen, src_format, src->target,
-                                    src->nr_samples,
+                                    src->nr_samples, src->nr_storage_samples,
                                     PIPE_BIND_SAMPLER_VIEW)) {
       goto fallback;
    }

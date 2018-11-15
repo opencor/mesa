@@ -55,7 +55,7 @@ static void set_vertices(void)
 
    vbuf.stride = sizeof(struct vertex);
    vbuf.buffer_offset = 0;
-   vbuf.buffer = pipe_buffer_create_with_data(info.ctx,
+   vbuf.buffer.resource = pipe_buffer_create_with_data(info.ctx,
                                               PIPE_BIND_VERTEX_BUFFER,
                                               PIPE_USAGE_DEFAULT,
                                               sizeof(vertices),
@@ -118,7 +118,7 @@ static void draw(void)
 
 static void
 init_tex(const unsigned swizzle[4])
-{
+{ 
 #define SIZE 256
    struct pipe_sampler_view sv_template;
    ubyte tex2d[SIZE][SIZE][4];
@@ -133,7 +133,7 @@ init_tex(const unsigned swizzle[4])
       }
    }
 
-   texture = graw_util_create_tex2d(&info, SIZE, SIZE,
+   texture = graw_util_create_tex2d(&info, SIZE, SIZE, 
                                     PIPE_FORMAT_B8G8R8A8_UNORM, tex2d);
 
    memset(&sv_template, 0, sizeof sv_template);
@@ -166,7 +166,7 @@ init(const unsigned swizzle[4])
       exit(1);
 
    graw_util_default_state(&info, FALSE);
-
+   
    graw_util_viewport(&info, 0, 0, WIDTH, HEIGHT, 30, 10000);
 
    init_tex(swizzle);

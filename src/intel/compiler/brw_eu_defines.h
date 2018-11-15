@@ -46,6 +46,13 @@
       fieldval & field ## _MASK;                                        \
    })
 
+#define SET_BITS(value, high, low)                                      \
+   ({                                                                   \
+      const uint32_t fieldval = (value) << (low);                       \
+      assert((fieldval & ~INTEL_MASK(high, low)) == 0);                 \
+      fieldval & INTEL_MASK(high, low);                                 \
+   })
+
 #define GET_BITS(data, high, low) ((data & INTEL_MASK((high), (low))) >> (low))
 #define GET_FIELD(word, field) (((word)  & field ## _MASK) >> field ## _SHIFT)
 
@@ -72,31 +79,12 @@
 #define _3DPRIM_TRIFAN_NOSTIPPLE  0x16
 #define _3DPRIM_PATCHLIST(n) ({ assert(n > 0 && n <= 32); 0x20 + (n - 1); })
 
-enum brw_barycentric_mode {
-   BRW_BARYCENTRIC_PERSPECTIVE_PIXEL       = 0,
-   BRW_BARYCENTRIC_PERSPECTIVE_CENTROID    = 1,
-   BRW_BARYCENTRIC_PERSPECTIVE_SAMPLE      = 2,
-   BRW_BARYCENTRIC_NONPERSPECTIVE_PIXEL    = 3,
-   BRW_BARYCENTRIC_NONPERSPECTIVE_CENTROID = 4,
-   BRW_BARYCENTRIC_NONPERSPECTIVE_SAMPLE   = 5,
-   BRW_BARYCENTRIC_MODE_COUNT              = 6
-};
-#define BRW_BARYCENTRIC_NONPERSPECTIVE_BITS \
-   ((1 << BRW_BARYCENTRIC_NONPERSPECTIVE_PIXEL) | \
-    (1 << BRW_BARYCENTRIC_NONPERSPECTIVE_CENTROID) | \
-    (1 << BRW_BARYCENTRIC_NONPERSPECTIVE_SAMPLE))
-
-enum brw_pixel_shader_computed_depth_mode {
-   BRW_PSCDEPTH_OFF   = 0, /* PS does not compute depth */
-   BRW_PSCDEPTH_ON    = 1, /* PS computes depth; no guarantee about value */
-   BRW_PSCDEPTH_ON_GE = 2, /* PS guarantees output depth >= source depth */
-   BRW_PSCDEPTH_ON_LE = 3, /* PS guarantees output depth <= source depth */
-};
-
 /* Bitfields for the URB_WRITE message, DW2 of message header: */
 #define URB_WRITE_PRIM_END		0x1
 #define URB_WRITE_PRIM_START		0x2
 #define URB_WRITE_PRIM_TYPE_SHIFT	2
+
+#define BRW_SPRITE_POINT_ENABLE  16
 
 # define GEN7_GS_CONTROL_DATA_FORMAT_GSCTL_CUT		0
 # define GEN7_GS_CONTROL_DATA_FORMAT_GSCTL_SID		1
@@ -167,6 +155,18 @@ enum PACKED brw_horizontal_stride {
    BRW_HORIZONTAL_STRIDE_4 = 3,
 };
 
+enum PACKED gen10_align1_3src_src_horizontal_stride {
+   BRW_ALIGN1_3SRC_SRC_HORIZONTAL_STRIDE_0 = 0,
+   BRW_ALIGN1_3SRC_SRC_HORIZONTAL_STRIDE_1 = 1,
+   BRW_ALIGN1_3SRC_SRC_HORIZONTAL_STRIDE_2 = 2,
+   BRW_ALIGN1_3SRC_SRC_HORIZONTAL_STRIDE_4 = 3,
+};
+
+enum PACKED gen10_align1_3src_dst_horizontal_stride {
+   BRW_ALIGN1_3SRC_DST_HORIZONTAL_STRIDE_1 = 0,
+   BRW_ALIGN1_3SRC_DST_HORIZONTAL_STRIDE_2 = 1,
+};
+
 #define BRW_INSTRUCTION_NORMAL    0
 #define BRW_INSTRUCTION_SATURATE  1
 
@@ -207,7 +207,7 @@ enum opcode {
    BRW_OPCODE_SHR =	8,
    BRW_OPCODE_SHL =	9,
    BRW_OPCODE_DIM =	10,  /**< Gen7.5 only */ /* Reused */
-   // BRW_OPCODE_SMOV =	10,  /**< Gen8+       */ /* Reused */
+   BRW_OPCODE_SMOV =	10,  /**< Gen8+       */ /* Reused */
    /* Reserved - 11 */
    BRW_OPCODE_ASR =	12,
    /* Reserved - 13-15 */
@@ -223,27 +223,27 @@ enum opcode {
    BRW_OPCODE_BFI2 =	26,  /**< Gen7+ */
    /* Reserved - 27-31 */
    BRW_OPCODE_JMPI =	32,
-   // BRW_OPCODE_BRD =	33,  /**< Gen7+ */
+   BRW_OPCODE_BRD =	33,  /**< Gen7+ */
    BRW_OPCODE_IF =	34,
    BRW_OPCODE_IFF =	35,  /**< Pre-Gen6    */ /* Reused */
-   // BRW_OPCODE_BRC =	35,  /**< Gen7+       */ /* Reused */
+   BRW_OPCODE_BRC =	35,  /**< Gen7+       */ /* Reused */
    BRW_OPCODE_ELSE =	36,
    BRW_OPCODE_ENDIF =	37,
    BRW_OPCODE_DO =	38,  /**< Pre-Gen6    */ /* Reused */
-   // BRW_OPCODE_CASE =	38,  /**< Gen6 only   */ /* Reused */
+   BRW_OPCODE_CASE =	38,  /**< Gen6 only   */ /* Reused */
    BRW_OPCODE_WHILE =	39,
    BRW_OPCODE_BREAK =	40,
    BRW_OPCODE_CONTINUE = 41,
    BRW_OPCODE_HALT =	42,
-   // BRW_OPCODE_CALLA =	43,  /**< Gen7.5+     */
-   // BRW_OPCODE_MSAVE =	44,  /**< Pre-Gen6    */ /* Reused */
-   // BRW_OPCODE_CALL =	44,  /**< Gen6+       */ /* Reused */
-   // BRW_OPCODE_MREST =	45,  /**< Pre-Gen6    */ /* Reused */
-   // BRW_OPCODE_RET =	45,  /**< Gen6+       */ /* Reused */
-   // BRW_OPCODE_PUSH =	46,  /**< Pre-Gen6    */ /* Reused */
-   // BRW_OPCODE_FORK =	46,  /**< Gen6 only   */ /* Reused */
-   // BRW_OPCODE_GOTO =	46,  /**< Gen8+       */ /* Reused */
-   // BRW_OPCODE_POP =	47,  /**< Pre-Gen6    */
+   BRW_OPCODE_CALLA =	43,  /**< Gen7.5+     */
+   BRW_OPCODE_MSAVE =	44,  /**< Pre-Gen6    */ /* Reused */
+   BRW_OPCODE_CALL =	44,  /**< Gen6+       */ /* Reused */
+   BRW_OPCODE_MREST =	45,  /**< Pre-Gen6    */ /* Reused */
+   BRW_OPCODE_RET =	45,  /**< Gen6+       */ /* Reused */
+   BRW_OPCODE_PUSH =	46,  /**< Pre-Gen6    */ /* Reused */
+   BRW_OPCODE_FORK =	46,  /**< Gen6 only   */ /* Reused */
+   BRW_OPCODE_GOTO =	46,  /**< Gen8+       */ /* Reused */
+   BRW_OPCODE_POP =	47,  /**< Pre-Gen6    */
    BRW_OPCODE_WAIT =	48,
    BRW_OPCODE_SEND =	49,
    BRW_OPCODE_SENDC =	50,
@@ -280,7 +280,7 @@ enum opcode {
    BRW_OPCODE_PLN =	90,  /**< G45+ */
    BRW_OPCODE_MAD =	91,  /**< Gen6+ */
    BRW_OPCODE_LRP =	92,  /**< Gen6+ */
-   // BRW_OPCODE_MADM =	93,  /**< Gen8+ */
+   BRW_OPCODE_MADM =	93,  /**< Gen8+ */
    /* Reserved 94-124 */
    BRW_OPCODE_NENOP =	125, /**< G45 only */
    BRW_OPCODE_NOP =	126,
@@ -407,6 +407,20 @@ enum opcode {
    SHADER_OPCODE_TYPED_SURFACE_WRITE,
    SHADER_OPCODE_TYPED_SURFACE_WRITE_LOGICAL,
 
+   SHADER_OPCODE_RND_MODE,
+
+   /**
+    * Byte scattered write/read opcodes.
+    *
+    * LOGICAL opcodes are eventually translated to the matching non-LOGICAL
+    * opcode, but instead of taking a single payload blog they expect their
+    * arguments separately as individual sources, like untyped write/read.
+    */
+   SHADER_OPCODE_BYTE_SCATTERED_READ,
+   SHADER_OPCODE_BYTE_SCATTERED_READ_LOGICAL,
+   SHADER_OPCODE_BYTE_SCATTERED_WRITE,
+   SHADER_OPCODE_BYTE_SCATTERED_WRITE_LOGICAL,
+
    SHADER_OPCODE_MEMORY_FENCE,
 
    SHADER_OPCODE_GEN4_SCRATCH_READ,
@@ -444,6 +458,37 @@ enum opcode {
     */
    SHADER_OPCODE_BROADCAST,
 
+   /* Pick the channel from its first source register given by the index
+    * specified as second source.
+    *
+    * This is similar to the BROADCAST instruction except that it takes a
+    * dynamic index and potentially puts a different value in each output
+    * channel.
+    */
+   SHADER_OPCODE_SHUFFLE,
+
+   /* Select between src0 and src1 based on channel enables.
+    *
+    * This instruction copies src0 into the enabled channels of the
+    * destination and copies src1 into the disabled channels.
+    */
+   SHADER_OPCODE_SEL_EXEC,
+
+   /* This turns into an align16 mov from src0 to dst with a swizzle
+    * provided as an immediate in src1.
+    */
+   SHADER_OPCODE_QUAD_SWIZZLE,
+
+   /* Take every Nth element in src0 and broadcast it to the group of N
+    * channels in which it lives in the destination.  The offset within the
+    * cluster is given by src1 and the cluster size is given by src2.
+    */
+   SHADER_OPCODE_CLUSTER_BROADCAST,
+
+   SHADER_OPCODE_GET_BUFFER_SIZE,
+
+   SHADER_OPCODE_INTERLOCK,
+
    VEC4_OPCODE_MOV_BYTES,
    VEC4_OPCODE_PACK_BYTES,
    VEC4_OPCODE_UNPACK_UNIFORM,
@@ -463,7 +508,6 @@ enum opcode {
     */
    FS_OPCODE_DDY_COARSE,
    FS_OPCODE_DDY_FINE,
-   FS_OPCODE_CINTERP,
    FS_OPCODE_LINTERP,
    FS_OPCODE_PIXEL_X,
    FS_OPCODE_PIXEL_Y,
@@ -472,8 +516,6 @@ enum opcode {
    FS_OPCODE_VARYING_PULL_CONSTANT_LOAD_GEN4,
    FS_OPCODE_VARYING_PULL_CONSTANT_LOAD_GEN7,
    FS_OPCODE_VARYING_PULL_CONSTANT_LOAD_LOGICAL,
-   FS_OPCODE_GET_BUFFER_SIZE,
-   FS_OPCODE_MOV_DISPATCH_TO_FLAGS,
    FS_OPCODE_DISCARD_JUMP,
    FS_OPCODE_SET_SAMPLE_ID,
    FS_OPCODE_PACK_HALF_2x16_SPLIT,
@@ -488,8 +530,6 @@ enum opcode {
    VS_OPCODE_PULL_CONSTANT_LOAD,
    VS_OPCODE_PULL_CONSTANT_LOAD_GEN7,
    VS_OPCODE_SET_SIMD4X2_HEADER_GEN9,
-
-   VS_OPCODE_GET_BUFFER_SIZE,
 
    VS_OPCODE_UNPACK_FLAGS_SIMD4X2,
 
@@ -838,35 +878,21 @@ enum PACKED brw_reg_file {
    BAD_FILE,
 };
 
-#define BRW_HW_REG_TYPE_UD  0
-#define BRW_HW_REG_TYPE_D   1
-#define BRW_HW_REG_TYPE_UW  2
-#define BRW_HW_REG_TYPE_W   3
-#define BRW_HW_REG_TYPE_F   7
-#define GEN8_HW_REG_TYPE_UQ 8
-#define GEN8_HW_REG_TYPE_Q  9
+enum PACKED gen10_align1_3src_reg_file {
+   BRW_ALIGN1_3SRC_GENERAL_REGISTER_FILE = 0,
+   BRW_ALIGN1_3SRC_IMMEDIATE_VALUE       = 1, /* src0, src2 */
+   BRW_ALIGN1_3SRC_ACCUMULATOR           = 1, /* dest, src1 */
+};
 
-#define BRW_HW_REG_NON_IMM_TYPE_UB  4
-#define BRW_HW_REG_NON_IMM_TYPE_B   5
-#define GEN7_HW_REG_NON_IMM_TYPE_DF 6
-#define GEN8_HW_REG_NON_IMM_TYPE_HF 10
-
-#define BRW_HW_REG_IMM_TYPE_UV  4 /* Gen6+ packed unsigned immediate vector */
-#define BRW_HW_REG_IMM_TYPE_VF  5 /* packed float immediate vector */
-#define BRW_HW_REG_IMM_TYPE_V   6 /* packed int imm. vector; uword dest only */
-#define GEN8_HW_REG_IMM_TYPE_DF 10
-#define GEN8_HW_REG_IMM_TYPE_HF 11
-
-/* SNB adds 3-src instructions (MAD and LRP) that only operate on floats, so
- * the types were implied. IVB adds BFE and BFI2 that operate on doublewords
- * and unsigned doublewords, so a new field is also available in the da3src
- * struct (part of struct brw_instruction.bits1 in brw_structs.h) to select
- * dst and shared-src types. The values are different from BRW_REGISTER_TYPE_*.
+/* CNL adds Align1 support for 3-src instructions. Bit 35 of the instruction
+ * word is "Execution Datatype" which controls whether the instruction operates
+ * on float or integer types. The register arguments have fields that offer
+ * more fine control their respective types.
  */
-#define BRW_3SRC_TYPE_F  0
-#define BRW_3SRC_TYPE_D  1
-#define BRW_3SRC_TYPE_UD 2
-#define BRW_3SRC_TYPE_DF 3
+enum PACKED gen10_align1_3src_exec_type {
+   BRW_ALIGN1_3SRC_EXEC_TYPE_INT   = 0,
+   BRW_ALIGN1_3SRC_EXEC_TYPE_FLOAT = 1,
+};
 
 #define BRW_ARF_NULL                  0x00
 #define BRW_ARF_ADDRESS               0x10
@@ -904,6 +930,13 @@ enum PACKED brw_vertical_stride {
    BRW_VERTICAL_STRIDE_16              = 5,
    BRW_VERTICAL_STRIDE_32              = 6,
    BRW_VERTICAL_STRIDE_ONE_DIMENSIONAL = 0xF,
+};
+
+enum PACKED gen10_align1_3src_vertical_stride {
+   BRW_ALIGN1_3SRC_VERTICAL_STRIDE_0 = 0,
+   BRW_ALIGN1_3SRC_VERTICAL_STRIDE_2 = 1,
+   BRW_ALIGN1_3SRC_VERTICAL_STRIDE_4 = 2,
+   BRW_ALIGN1_3SRC_VERTICAL_STRIDE_8 = 3,
 };
 
 enum PACKED brw_width {
@@ -1251,5 +1284,30 @@ enum brw_message_target {
 
 /* R0 */
 # define GEN7_GS_PAYLOAD_INSTANCE_ID_SHIFT		27
+
+/* CR0.0[5:4] Floating-Point Rounding Modes
+ *  Skylake PRM, Volume 7 Part 1, "Control Register", page 756
+ */
+
+#define BRW_CR0_RND_MODE_MASK     0x30
+#define BRW_CR0_RND_MODE_SHIFT    4
+
+enum PACKED brw_rnd_mode {
+   BRW_RND_MODE_RTNE = 0,  /* Round to Nearest or Even */
+   BRW_RND_MODE_RU = 1,    /* Round Up, toward +inf */
+   BRW_RND_MODE_RD = 2,    /* Round Down, toward -inf */
+   BRW_RND_MODE_RTZ = 3,   /* Round Toward Zero */
+   BRW_RND_MODE_UNSPECIFIED,  /* Unspecified rounding mode */
+};
+
+/* MDC_DS - Data Size Message Descriptor Control Field
+ * Skylake PRM, Volume 2d, page 129
+ *
+ * Specifies the number of Bytes to be read or written per Dword used at
+ * byte_scattered read/write and byte_scaled read/write messages.
+ */
+#define GEN7_BYTE_SCATTERED_DATA_ELEMENT_BYTE     0
+#define GEN7_BYTE_SCATTERED_DATA_ELEMENT_WORD     1
+#define GEN7_BYTE_SCATTERED_DATA_ELEMENT_DWORD    2
 
 #endif /* BRW_EU_DEFINES_H */

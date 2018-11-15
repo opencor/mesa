@@ -104,7 +104,7 @@ svga_create_vs_state(struct pipe_context *pipe,
    if (!vs)
       return NULL;
 
-   SVGA_STATS_TIME_PUSH(svga_sws(svga), SVGA_STATS_TIME_CREATEVS);
+   SVGA_STATS_TIME_PUSH(svga_sws(svga), SVGA_STATS_TIME_CREATEVS);         
 
    /* substitute a debug shader?
     */

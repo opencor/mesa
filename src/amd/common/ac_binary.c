@@ -19,10 +19,6 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
- *
- * Authors: Tom Stellard <thomas.stellard@amd.com>
- *
- * Based on radeon_elf_util.c.
  */
 
 #include "ac_binary.h"
@@ -109,7 +105,7 @@ static void parse_relocs(Elf *elf, Elf_Data *relocs, Elf_Data *symbols,
 	}
 }
 
-void ac_elf_read(const char *elf_data, unsigned elf_size,
+bool ac_elf_read(const char *elf_data, unsigned elf_size,
 		 struct ac_shader_binary *binary)
 {
 	char *elf_buffer;
@@ -118,6 +114,7 @@ void ac_elf_read(const char *elf_data, unsigned elf_size,
 	Elf_Data *symbols = NULL, *relocs = NULL;
 	size_t section_str_index;
 	unsigned symbol_sh_link = 0;
+	bool success = true;
 
 	/* One of the libelf implementations
 	 * (http://www.mr511.de/software/english.htm) requires calling
@@ -137,7 +134,8 @@ void ac_elf_read(const char *elf_data, unsigned elf_size,
 		GElf_Shdr section_header;
 		if (gelf_getshdr(section, &section_header) != &section_header) {
 			fprintf(stderr, "Failed to read ELF section header\n");
-			return;
+			success = false;
+			break;
 		}
 		name = elf_strptr(elf, section_str_index, section_header.sh_name);
 		if (!strcmp(name, ".text")) {
@@ -148,6 +146,11 @@ void ac_elf_read(const char *elf_data, unsigned elf_size,
 		} else if (!strcmp(name, ".AMDGPU.config")) {
 			section_data = elf_getdata(section, section_data);
 			binary->config_size = section_data->d_size;
+			if (!binary->config_size) {
+				fprintf(stderr, ".AMDGPU.config is empty!\n");
+				success = false;
+				break;
+			}
 			binary->config = MALLOC(binary->config_size * sizeof(unsigned char));
 			memcpy(binary->config, section_data->d_buf, binary->config_size);
 		} else if (!strcmp(name, ".AMDGPU.disasm")) {
@@ -186,6 +189,7 @@ void ac_elf_read(const char *elf_data, unsigned elf_size,
 		binary->global_symbol_count = 1;
 		binary->config_size_per_symbol = binary->config_size;
 	}
+	return success;
 }
 
 const unsigned char *ac_shader_binary_config_start(
@@ -244,6 +248,7 @@ void ac_shader_binary_read_config(struct ac_shader_binary *binary,
 		case R_00B128_SPI_SHADER_PGM_RSRC1_VS:
 		case R_00B228_SPI_SHADER_PGM_RSRC1_GS:
 		case R_00B848_COMPUTE_PGM_RSRC1:
+		case R_00B428_SPI_SHADER_PGM_RSRC1_HS:
 			conf->num_sgprs = MAX2(conf->num_sgprs, (G_00B028_SGPRS(value) + 1) * 8);
 			conf->num_vgprs = MAX2(conf->num_vgprs, (G_00B028_VGPRS(value) + 1) * 4);
 			conf->float_mode =  G_00B028_FLOAT_MODE(value);
@@ -292,4 +297,17 @@ void ac_shader_binary_read_config(struct ac_shader_binary *binary,
 		/* sgprs spills aren't spilling */
 	        conf->scratch_bytes_per_wave = G_00B860_WAVESIZE(wavesize) * 256 * 4;
 	}
+}
+
+void ac_shader_binary_clean(struct ac_shader_binary *b)
+{
+	if (!b)
+		return;
+	FREE(b->code);
+	FREE(b->config);
+	FREE(b->rodata);
+	FREE(b->global_symbol_offsets);
+	FREE(b->relocs);
+	FREE(b->disasm_string);
+	FREE(b->llvm_ir_string);
 }

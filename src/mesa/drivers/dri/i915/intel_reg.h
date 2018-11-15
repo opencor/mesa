@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #define CMD_MI				(0x0 << 29)
@@ -93,7 +93,11 @@
 #define S2_TEX_COUNT_SHIFT_830		12
 #define S2_VERTEX_1_WIDTH_SHIFT_830	0
 #define S2_VERTEX_0_WIDTH_SHIFT_830	6
-/* S3 not interesting */
+
+#define S3_TEXCOORD_WRAP_SHORTEST_TCX(unit)	(1<<((unit)*4+3))
+#define S3_TEXCOORD_WRAP_SHORTEST_TCY(unit)	(1<<((unit)*4+2))
+#define S3_TEXCOORD_WRAP_SHORTEST_TCZ(unit)	(1<<((unit)*4+1))
+#define S3_TEXCOORD_PERSPECTIVE_DISABLE(unit)	(1<<((unit)*4+0))
 
 #define S4_POINT_WIDTH_SHIFT           23
 #define S4_POINT_WIDTH_MASK            (0x1ff<<23)

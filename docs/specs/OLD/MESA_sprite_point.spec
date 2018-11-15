@@ -27,7 +27,7 @@ Dependencies
     GL_ARB_multitexture effects the definition of this extension
 
 Overview
-
+	
     This extension modifies the way in which points are rendered,
     specifically when they're textured.  When SPRITE_POINT_MESA is enabled
     a point is rendered as if it were a quadrilateral with unique texture
@@ -103,7 +103,7 @@ New Procedures and Functions
     None.
 
 New Tokens
-
+    
     Accepted by the <pname> parameter of Enable, Disable, IsEnabled,
     GetIntegerv, GetBooleanv, GetFloatv and GetDoublev:
 

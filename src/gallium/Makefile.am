@@ -11,12 +11,6 @@ SUBDIRS += auxiliary/pipe-loader
 ## Gallium pipe drivers and their respective winsys'
 ##
 
-SUBDIRS += \
-	drivers/ddebug \
-	drivers/noop \
-	drivers/trace \
-	drivers/rbug
-
 ## freedreno/msm/kgsl
 if HAVE_GALLIUM_FREEDRENO
 SUBDIRS += drivers/freedreno winsys/freedreno/drm
@@ -40,11 +34,6 @@ endif
 ## r300
 if HAVE_GALLIUM_R300
 SUBDIRS += drivers/r300
-endif
-
-## radeon - linked into r600 and radeonsi
-if HAVE_GALLIUM_RADEON_COMMON
-SUBDIRS += drivers/radeon
 endif
 
 ## r600
@@ -71,6 +60,10 @@ if HAVE_GALLIUM_IMX
 SUBDIRS += drivers/imx winsys/imx/drm
 endif
 
+if HAVE_GALLIUM_PL111
+SUBDIRS += drivers/pl111 winsys/pl111/drm
+endif
+
 ## swrast/softpipe
 if HAVE_GALLIUM_SOFTPIPE
 SUBDIRS += drivers/softpipe
@@ -85,9 +78,19 @@ if HAVE_GALLIUM_SWR
 SUBDIRS += drivers/swr
 endif
 
+## tegra
+if HAVE_GALLIUM_TEGRA
+SUBDIRS += drivers/tegra winsys/tegra/drm
+endif
+
 ## vc4/rpi
 if HAVE_GALLIUM_VC4
 SUBDIRS += drivers/vc4 winsys/vc4/drm
+endif
+
+## v3d
+if HAVE_GALLIUM_V3D
+SUBDIRS += drivers/v3d winsys/v3d/drm
 endif
 
 ## virgl
@@ -145,7 +148,11 @@ if HAVE_GALLIUM_XLIB_GLX
 SUBDIRS += state_trackers/glx/xlib targets/libgl-xlib
 endif
 
-if HAVE_ST_OMX
+if HAVE_ST_OMX_BELLAGIO
+SUBDIRS += state_trackers/omx targets/omx
+endif
+
+if HAVE_ST_OMX_TIZONIA
 SUBDIRS += state_trackers/omx targets/omx
 endif
 
@@ -198,4 +205,7 @@ endif
 
 EXTRA_DIST += \
 	tests/graw \
-	tests/python
+	tests/python \
+	meson.build \
+	tests/meson.build \
+	tests/graw/meson.build

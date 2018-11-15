@@ -1,4 +1,4 @@
-	      CROSS-PLATFORM PORTABILITY GUIDELINES FOR GALLIUM3D
+	      CROSS-PLATFORM PORTABILITY GUIDELINES FOR GALLIUM3D 
 
 
 = General Considerations =
@@ -67,7 +67,7 @@ struct texture_buffer
 };
 
 
-Then, we'll typically have cast-wrapper functions to convert base-class
+Then, we'll typically have cast-wrapper functions to convert base-class 
 pointers to sub-class pointers where needed:
 
 static inline struct vertex_buffer *vertex_buffer(struct buffer *buf)
@@ -103,5 +103,5 @@ void tex_validate(struct buffer *buf)
 Note that we typically do not use typedefs to make "class names"; we use
 'struct whatever' everywhere.
 
-Gallium's pipe_context and the subclassed psb_context, etc are prime examples
+Gallium's pipe_context and the subclassed psb_context, etc are prime examples 
 of this.  There's also many examples in Mesa and the Mesa state tracker.

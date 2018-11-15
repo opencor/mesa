@@ -28,7 +28,7 @@
 _EGL_DRIVER_TYPECAST(dri3_egl_surface, _EGLSurface, obj)
 
 struct dri3_egl_surface {
-   _EGLSurface base;
+   struct dri2_egl_surface surf;
    struct loader_dri3_drawable loader_drawable;
 };
 
@@ -37,5 +37,8 @@ extern struct dri2_egl_display_vtbl dri3_x11_display_vtbl;
 
 EGLBoolean
 dri3_x11_connect(struct dri2_egl_display *dri2_dpy);
+
+uint32_t
+dri2_format_for_depth(struct dri2_egl_display *dri2_dpy, uint32_t depth);
 
 #endif

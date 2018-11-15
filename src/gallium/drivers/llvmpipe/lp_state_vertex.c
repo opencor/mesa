@@ -1,5 +1,5 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  *
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /* Authors:  Keith Whitwell <keithw@vmware.com>
@@ -93,18 +93,6 @@ llvmpipe_set_vertex_buffers(struct pipe_context *pipe,
 }
 
 
-static void
-llvmpipe_set_index_buffer(struct pipe_context *pipe,
-                          const struct pipe_index_buffer *ib)
-{
-   struct llvmpipe_context *llvmpipe = llvmpipe_context(pipe);
-
-   if (ib)
-      memcpy(&llvmpipe->index_buffer, ib, sizeof(llvmpipe->index_buffer));
-   else
-      memset(&llvmpipe->index_buffer, 0, sizeof(llvmpipe->index_buffer));
-}
-
 void
 llvmpipe_init_vertex_funcs(struct llvmpipe_context *llvmpipe)
 {
@@ -113,5 +101,4 @@ llvmpipe_init_vertex_funcs(struct llvmpipe_context *llvmpipe)
    llvmpipe->pipe.delete_vertex_elements_state = llvmpipe_delete_vertex_elements_state;
 
    llvmpipe->pipe.set_vertex_buffers = llvmpipe_set_vertex_buffers;
-   llvmpipe->pipe.set_index_buffer = llvmpipe_set_index_buffer;
 }

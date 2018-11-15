@@ -82,7 +82,8 @@ enum lp_sampler_lod_control {
 enum lp_sampler_op_type {
    LP_SAMPLER_OP_TEXTURE,
    LP_SAMPLER_OP_FETCH,
-   LP_SAMPLER_OP_GATHER
+   LP_SAMPLER_OP_GATHER,
+   LP_SAMPLER_OP_LODQ
 };
 
 
@@ -165,6 +166,7 @@ struct lp_static_sampler_state
    unsigned normalized_coords:1;
    unsigned min_max_lod_equal:1;  /**< min_lod == max_lod ? */
    unsigned lod_bias_non_zero:1;
+   unsigned max_lod_pos:1;
    unsigned apply_min_lod:1;  /**< min_lod > 0 ? */
    unsigned apply_max_lod:1;  /**< max_lod < last_level ? */
    unsigned seamless_cube_map:1;
@@ -282,7 +284,7 @@ struct lp_sampler_dynamic_state
                    LLVMValueRef context_ptr,
                    unsigned sampler_unit);
 
-   /**
+   /** 
     * Obtain texture cache (returns ptr to lp_build_format_cache).
     *
     * It's optional: no caching will be done if it's NULL.
@@ -320,6 +322,10 @@ struct lp_build_sample_context
 
    /** number of lod values (valid are 1, length/4, length) */
    unsigned num_lods;
+
+   boolean no_quad_lod;
+   boolean no_brilinear;
+   boolean no_rho_approx;
 
    /** regular scalar float type */
    struct lp_type float_type;
@@ -486,6 +492,7 @@ lp_sampler_static_texture_state(struct lp_static_texture_state *state,
 
 void
 lp_build_lod_selector(struct lp_build_sample_context *bld,
+                      boolean is_lodq,
                       unsigned texture_index,
                       unsigned sampler_index,
                       LLVMValueRef s,
@@ -496,6 +503,7 @@ lp_build_lod_selector(struct lp_build_sample_context *bld,
                       LLVMValueRef lod_bias, /* optional */
                       LLVMValueRef explicit_lod, /* optional */
                       unsigned mip_filter,
+                      LLVMValueRef *out_lod,
                       LLVMValueRef *out_lod_ipart,
                       LLVMValueRef *out_lod_fpart,
                       LLVMValueRef *out_lod_positive);
@@ -619,7 +627,7 @@ lp_build_size_query_soa(struct gallivm_state *gallivm,
                         const struct lp_sampler_size_query_params *params);
 
 void
-lp_build_sample_nop(struct gallivm_state *gallivm,
+lp_build_sample_nop(struct gallivm_state *gallivm, 
                     struct lp_type type,
                     const LLVMValueRef *coords,
                     LLVMValueRef texel_out[4]);

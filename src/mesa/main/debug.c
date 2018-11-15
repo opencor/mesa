@@ -24,6 +24,7 @@
  */
 
 #include <stdio.h>
+#include "errors.h"
 #include "mtypes.h"
 #include "attrib.h"
 #include "enums.h"
@@ -210,7 +211,7 @@ set_debug_flags(const char *str)
 /**
  * Initialize debugging variables from env vars.
  */
-void
+void 
 _mesa_init_debug( struct gl_context *ctx )
 {
    set_debug_flags(getenv("MESA_DEBUG"));
@@ -235,6 +236,11 @@ write_ppm(const char *filename, const GLubyte *buffer, int width, int height,
       fprintf(f,"255\n");
       fclose(f);
       f = fopen( filename, "ab" );  /* reopen in binary append mode */
+      if (!f) {
+         fprintf(stderr, "Error while reopening %s in write_ppm()\n",
+                 filename);
+         return;
+      }
       for (y=0; y < height; y++) {
          for (x = 0; x < width; x++) {
             int yy = invert ? (height - 1 - y) : y;
@@ -302,7 +308,7 @@ _mesa_write_renderbuffer_image(const struct gl_renderbuffer *rb)
    char s[100];
    GLenum format, type;
 
-   if (rb->_BaseFormat == GL_RGB ||
+   if (rb->_BaseFormat == GL_RGB || 
        rb->_BaseFormat == GL_RGBA) {
       format = GL_RGBA;
       type = GL_UNSIGNED_BYTE;

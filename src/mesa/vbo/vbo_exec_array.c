@@ -1,9 +1,9 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * Copyright 2009 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -11,11 +11,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include <stdio.h>
@@ -31,7 +31,7 @@
 #include "main/glheader.h"
 #include "main/context.h"
 #include "main/state.h"
-#include "main/api_validate.h"
+#include "main/draw_validate.h"
 #include "main/dispatch.h"
 #include "main/varray.h"
 #include "main/bufferobj.h"
@@ -39,7 +39,20 @@
 #include "main/macros.h"
 #include "main/transformfeedback.h"
 
-#include "vbo_context.h"
+typedef struct {
+   GLuint count;
+   GLuint primCount;
+   GLuint first;
+   GLuint baseInstance;
+} DrawArraysIndirectCommand;
+
+typedef struct {
+   GLuint count;
+   GLuint primCount;
+   GLuint firstIndex;
+   GLint  baseVertex;
+   GLuint baseInstance;
+} DrawElementsIndirectCommand;
 
 
 /**
@@ -113,6 +126,23 @@ unmap_array_buffer(struct gl_context *ctx, struct gl_vertex_array_object *vao,
 }
 
 
+static inline int
+sizeof_ib_type(GLenum type)
+{
+   switch (type) {
+   case GL_UNSIGNED_INT:
+      return sizeof(GLuint);
+   case GL_UNSIGNED_SHORT:
+      return sizeof(GLushort);
+   case GL_UNSIGNED_BYTE:
+      return sizeof(GLubyte);
+   default:
+      assert(!"unsupported index data type");
+      /* In case assert is turned off */
+      return 0;
+   }
+}
+
 /**
  * Examine the array's data for NaNs, etc.
  * For debug purposes; not normally used.
@@ -150,7 +180,7 @@ check_draw_elements_data(struct gl_context *ctx, GLsizei count,
          j = ((const GLuint *) elements)[i];
          break;
       default:
-         assert(0);
+         unreachable("Unexpected index buffer type");
       }
 
       /* check element j of each enabled array */
@@ -176,6 +206,60 @@ static void
 check_draw_arrays_data(struct gl_context *ctx, GLint start, GLsizei count)
 {
    /* TO DO */
+}
+
+
+/**
+ * Check if we should skip the draw call even after validation was successful.
+ */
+static bool
+skip_validated_draw(struct gl_context *ctx)
+{
+   switch (ctx->API) {
+   case API_OPENGLES2:
+      /* For ES2, we can draw if we have a vertex program/shader). */
+      return ctx->VertexProgram._Current == NULL;
+
+   case API_OPENGLES:
+      /* For OpenGL ES, only draw if we have vertex positions
+       */
+      if (!ctx->Array.VAO->VertexAttrib[VERT_ATTRIB_POS].Enabled)
+         return true;
+      break;
+
+   case API_OPENGL_CORE:
+      /* Section 7.3 (Program Objects) of the OpenGL 4.5 Core Profile spec
+       * says:
+       *
+       *     "If there is no active program for the vertex or fragment shader
+       *     stages, the results of vertex and/or fragment processing will be
+       *     undefined. However, this is not an error."
+       *
+       * The fragment shader is not tested here because other state (e.g.,
+       * GL_RASTERIZER_DISCARD) affects whether or not we actually care.
+       */
+      return ctx->VertexProgram._Current == NULL;
+
+   case API_OPENGL_COMPAT:
+      if (ctx->VertexProgram._Current != NULL) {
+         /* Draw regardless of whether or not we have any vertex arrays.
+          * (Ex: could draw a point using a constant vertex pos)
+          */
+         return false;
+      } else {
+         /* Draw if we have vertex positions (GL_VERTEX_ARRAY or generic
+          * array [0]).
+          */
+         return (!ctx->Array.VAO->VertexAttrib[VERT_ATTRIB_POS].Enabled &&
+                 !ctx->Array.VAO->VertexAttrib[VERT_ATTRIB_GENERIC0].Enabled);
+      }
+      break;
+
+   default:
+      unreachable("Invalid API value in check_valid_to_render()");
+   }
+
+   return false;
 }
 
 
@@ -213,16 +297,34 @@ print_draw_arrays(struct gl_context *ctx,
                                                  MAP_INTERNAL);
          int offset = (int) (GLintptr)
             _mesa_vertex_attrib_address(array, binding);
+
+	 unsigned multiplier;
+	 switch (array->Type) {
+	 case GL_DOUBLE:
+	 case GL_INT64_ARB:
+	 case GL_UNSIGNED_INT64_ARB:
+	    multiplier = 2;
+	    break;
+	 default:
+	    multiplier = 1;
+	 }
+
          float *f = (float *) (p + offset);
          int *k = (int *) f;
-         int i;
-         int n = (count * binding->Stride) / 4;
+	 int i = 0;
+	 int n = (count - 1) * (binding->Stride / (4 * multiplier))
+	   + array->Size;
          if (n > 32)
             n = 32;
          printf("  Data at offset %d:\n", offset);
-         for (i = 0; i < n; i++) {
-            printf("    float[%d] = 0x%08x %f\n", i, k[i], f[i]);
-         }
+	 do {
+	    if (multiplier == 2)
+	       printf("    double[%d] = 0x%016llx %lf\n", i,
+		      ((unsigned long long *) k)[i], ((double *) f)[i]);
+	    else
+	       printf("    float[%d] = 0x%08x %f\n", i, k[i], f[i]);
+	    i++;
+	 } while (i < n);
          ctx->Driver.UnmapBuffer(ctx, bufObj, MAP_INTERNAL);
       }
    }
@@ -230,168 +332,43 @@ print_draw_arrays(struct gl_context *ctx,
 
 
 /**
- * Set the vbo->exec->inputs[] pointers to point to the enabled
- * vertex arrays.  This depends on the current vertex program/shader
- * being executed because of whether or not generic vertex arrays
- * alias the conventional vertex arrays.
- * For arrays that aren't enabled, we set the input[attrib] pointer
- * to point at a zero-stride current value "array".
+ * Return a filter mask for the net enabled vao arrays.
+ * This is to mask out arrays that would otherwise supersed required current
+ * values for the fixed function shaders for example.
  */
-static void
-recalculate_input_bindings(struct gl_context *ctx)
+static GLbitfield
+enabled_filter(const struct gl_context *ctx)
 {
-   struct vbo_context *vbo = vbo_context(ctx);
-   struct vbo_exec_context *exec = &vbo->exec;
-   const struct gl_array_attributes *array = ctx->Array.VAO->VertexAttrib;
-   struct gl_vertex_array *vertexAttrib = ctx->Array.VAO->_VertexAttrib;
-   const struct gl_vertex_array **inputs = &exec->array.inputs[0];
-   GLbitfield64 const_inputs = 0x0;
-   GLuint i;
-
-   switch (get_program_mode(ctx)) {
-   case VP_NONE:
+   switch (ctx->VertexProgram._VPMode) {
+   case VP_MODE_FF:
       /* When no vertex program is active (or the vertex program is generated
        * from fixed-function state).  We put the material values into the
-       * generic slots.  This is the only situation where material values
-       * are available as per-vertex attributes.
+       * generic slots.  Since the vao has no material arrays, mute these
+       * slots from the enabled arrays so that the current material values
+       * are pulled instead of the vao arrays.
        */
-      for (i = 0; i < VERT_ATTRIB_FF_MAX; i++) {
-         if (array[VERT_ATTRIB_FF(i)].Enabled)
-            inputs[i] = &vertexAttrib[VERT_ATTRIB_FF(i)];
-         else {
-            inputs[i] = &vbo->currval[VBO_ATTRIB_POS + i];
-            const_inputs |= VERT_BIT(i);
-         }
-      }
+      return VERT_BIT_FF_ALL;
 
-      for (i = 0; i < MAT_ATTRIB_MAX; i++) {
-         inputs[VERT_ATTRIB_GENERIC(i)] =
-            &vbo->currval[VBO_ATTRIB_MAT_FRONT_AMBIENT + i];
-         const_inputs |= VERT_BIT_GENERIC(i);
-      }
-
-      /* Could use just about anything, just to fill in the empty
-       * slots:
-       */
-      for (i = MAT_ATTRIB_MAX; i < VERT_ATTRIB_GENERIC_MAX; i++) {
-         inputs[VERT_ATTRIB_GENERIC(i)] =
-            &vbo->currval[VBO_ATTRIB_GENERIC0 + i];
-         const_inputs |= VERT_BIT_GENERIC(i);
-      }
-      break;
-
-   case VP_ARB:
+   case VP_MODE_SHADER:
       /* There are no shaders in OpenGL ES 1.x, so this code path should be
        * impossible to reach.  The meta code is careful to not use shaders in
        * ES1.
        */
       assert(ctx->API != API_OPENGLES);
 
-      /* In the compatibility profile of desktop OpenGL, the generic[0]
-       * attribute array aliases and overrides the legacy position array.
-       * Otherwise, legacy attributes available in the legacy slots,
-       * generic attributes in the generic slots and materials are not
-       * available as per-vertex attributes.
-       *
-       * In all other APIs, only the generic attributes exist, and none of the
-       * slots are considered "magic."
+      /* Other parts of the code assume that inputs[VERT_ATTRIB_POS] through
+       * inputs[VERT_ATTRIB_FF_MAX] will be non-NULL.  However, in OpenGL
+       * ES 2.0+ or OpenGL core profile, none of these arrays should ever
+       * be enabled.
        */
-      if (ctx->API == API_OPENGL_COMPAT) {
-         if (array[VERT_ATTRIB_GENERIC0].Enabled)
-            inputs[0] = &vertexAttrib[VERT_ATTRIB_GENERIC0];
-         else if (array[VERT_ATTRIB_POS].Enabled)
-            inputs[0] = &vertexAttrib[VERT_ATTRIB_POS];
-         else {
-            inputs[0] = &vbo->currval[VBO_ATTRIB_POS];
-            const_inputs |= VERT_BIT_POS;
-         }
+      if (ctx->API != API_OPENGL_COMPAT)
+         return VERT_BIT_GENERIC_ALL;
 
-         for (i = 1; i < VERT_ATTRIB_FF_MAX; i++) {
-            if (array[VERT_ATTRIB_FF(i)].Enabled)
-               inputs[i] = &vertexAttrib[VERT_ATTRIB_FF(i)];
-            else {
-               inputs[i] = &vbo->currval[VBO_ATTRIB_POS + i];
-               const_inputs |= VERT_BIT_FF(i);
-            }
-         }
+      return VERT_BIT_ALL;
 
-         for (i = 1; i < VERT_ATTRIB_GENERIC_MAX; i++) {
-            if (array[VERT_ATTRIB_GENERIC(i)].Enabled)
-               inputs[VERT_ATTRIB_GENERIC(i)] =
-                  &vertexAttrib[VERT_ATTRIB_GENERIC(i)];
-            else {
-               inputs[VERT_ATTRIB_GENERIC(i)] =
-                  &vbo->currval[VBO_ATTRIB_GENERIC0 + i];
-               const_inputs |= VERT_BIT_GENERIC(i);
-            }
-         }
-
-         inputs[VERT_ATTRIB_GENERIC0] = inputs[0];
-      } else {
-         /* Other parts of the code assume that inputs[0] through
-          * inputs[VERT_ATTRIB_FF_MAX] will be non-NULL.  However, in OpenGL
-          * ES 2.0+ or OpenGL core profile, none of these arrays should ever
-          * be enabled.
-          */
-         for (i = 0; i < VERT_ATTRIB_FF_MAX; i++) {
-            assert(!array[VERT_ATTRIB_FF(i)].Enabled);
-
-            inputs[i] = &vbo->currval[VBO_ATTRIB_POS + i];
-            const_inputs |= VERT_BIT_FF(i);
-         }
-
-         for (i = 0; i < VERT_ATTRIB_GENERIC_MAX; i++) {
-            if (array[VERT_ATTRIB_GENERIC(i)].Enabled)
-               inputs[VERT_ATTRIB_GENERIC(i)] =
-                  &vertexAttrib[VERT_ATTRIB_GENERIC(i)];
-            else {
-               inputs[VERT_ATTRIB_GENERIC(i)] =
-                  &vbo->currval[VBO_ATTRIB_GENERIC0 + i];
-               const_inputs |= VERT_BIT_GENERIC(i);
-            }
-         }
-      }
-
-      break;
-   }
-
-   _mesa_set_varying_vp_inputs(ctx, VERT_BIT_ALL & (~const_inputs));
-   ctx->NewDriverState |= ctx->DriverFlags.NewArray;
-}
-
-
-/**
- * Examine the enabled vertex arrays to set the exec->array.inputs[] values.
- * These will point to the arrays to actually use for drawing.  Some will
- * be user-provided arrays, other will be zero-stride const-valued arrays.
- * Note that this might set the _NEW_VARYING_VP_INPUTS dirty flag so state
- * validation must be done after this call.
- */
-void
-vbo_bind_arrays(struct gl_context *ctx)
-{
-   struct vbo_context *vbo = vbo_context(ctx);
-   struct vbo_exec_context *exec = &vbo->exec;
-
-   vbo_draw_method(vbo, DRAW_ARRAYS);
-
-   if (exec->array.recalculate_inputs) {
-      recalculate_input_bindings(ctx);
-      exec->array.recalculate_inputs = GL_FALSE;
-
-      /* Again... because we may have changed the bitmask of per-vertex varying
-       * attributes.  If we regenerate the fixed-function vertex program now
-       * we may be able to prune down the number of vertex attributes which we
-       * need in the shader.
-       */
-      if (ctx->NewState) {
-         /* Setting "validating" to TRUE prevents _mesa_update_state from
-          * invalidating what we just did.
-          */
-         exec->validating = GL_TRUE;
-         _mesa_update_state(ctx);
-         exec->validating = GL_FALSE;
-      }
+   default:
+      assert(0);
+      return 0;
    }
 }
 
@@ -407,27 +384,27 @@ vbo_draw_arrays(struct gl_context *ctx, GLenum mode, GLint start,
                 GLsizei count, GLuint numInstances, GLuint baseInstance,
                 GLuint drawID)
 {
-   struct vbo_context *vbo = vbo_context(ctx);
-   struct _mesa_prim prim[2];
+   struct _mesa_prim prim;
 
-   vbo_bind_arrays(ctx);
+   if (skip_validated_draw(ctx))
+      return;
 
    /* OpenGL 4.5 says that primitive restart is ignored with non-indexed
     * draws.
     */
-   memset(prim, 0, sizeof(prim));
-   prim[0].begin = 1;
-   prim[0].end = 1;
-   prim[0].mode = mode;
-   prim[0].num_instances = numInstances;
-   prim[0].base_instance = baseInstance;
-   prim[0].draw_id = drawID;
-   prim[0].is_indirect = 0;
-   prim[0].start = start;
-   prim[0].count = count;
+   memset(&prim, 0, sizeof(prim));
+   prim.begin = 1;
+   prim.end = 1;
+   prim.mode = mode;
+   prim.num_instances = numInstances;
+   prim.base_instance = baseInstance;
+   prim.draw_id = drawID;
+   prim.is_indirect = 0;
+   prim.start = start;
+   prim.count = count;
 
-   vbo->draw_prims(ctx, prim, 1, NULL,
-                   GL_TRUE, start, start + count - 1, NULL, 0, NULL);
+   ctx->Driver.Draw(ctx, &prim, 1, NULL,
+                    GL_TRUE, start, start + count - 1, NULL, 0, NULL);
 
    if (MESA_DEBUG_FLAGS & DEBUG_ALWAYS_FLUSH) {
       _mesa_flush(ctx);
@@ -568,8 +545,19 @@ vbo_exec_DrawArrays(GLenum mode, GLint start, GLsizei count)
       _mesa_debug(ctx, "glDrawArrays(%s, %d, %d)\n",
                   _mesa_enum_to_string(mode), start, count);
 
-   if (!_mesa_validate_DrawArrays(ctx, mode, count))
-      return;
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawArrays(ctx, mode, count))
+         return;
+   }
 
    if (0)
       check_draw_arrays_data(ctx, start, count);
@@ -595,9 +583,20 @@ vbo_exec_DrawArraysInstanced(GLenum mode, GLint start, GLsizei count,
       _mesa_debug(ctx, "glDrawArraysInstanced(%s, %d, %d, %d)\n",
                   _mesa_enum_to_string(mode), start, count, numInstances);
 
-   if (!_mesa_validate_DrawArraysInstanced(ctx, mode, start, count,
-                                           numInstances))
-      return;
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawArraysInstanced(ctx, mode, start, count,
+                                              numInstances))
+         return;
+   }
 
    if (0)
       check_draw_arrays_data(ctx, start, count);
@@ -625,9 +624,20 @@ vbo_exec_DrawArraysInstancedBaseInstance(GLenum mode, GLint first,
                   _mesa_enum_to_string(mode), first, count,
                   numInstances, baseInstance);
 
-   if (!_mesa_validate_DrawArraysInstanced(ctx, mode, first, count,
-                                           numInstances))
-      return;
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawArraysInstanced(ctx, mode, first, count,
+                                              numInstances))
+         return;
+   }
 
    if (0)
       check_draw_arrays_data(ctx, first, count);
@@ -654,8 +664,19 @@ vbo_exec_MultiDrawArrays(GLenum mode, const GLint *first,
                   "glMultiDrawArrays(%s, %p, %p, %d)\n",
                   _mesa_enum_to_string(mode), first, count, primcount);
 
-   if (!_mesa_validate_MultiDrawArrays(ctx, mode, count, primcount))
-      return;
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_MultiDrawArrays(ctx, mode, count, primcount))
+         return;
+   }
 
    for (i = 0; i < primcount; i++) {
       if (count[i] > 0) {
@@ -739,6 +760,25 @@ dump_element_buffer(struct gl_context *ctx, GLenum type)
 #endif
 
 
+static bool
+skip_draw_elements(struct gl_context *ctx, GLsizei count,
+                   const GLvoid *indices)
+{
+   if (count == 0)
+      return true;
+
+   /* Not using a VBO for indices, so avoid NULL pointer derefs later.
+    */
+   if (!_mesa_is_bufferobj(ctx->Array.VAO->IndexBufferObj) && indices == NULL)
+      return true;
+
+   if (skip_validated_draw(ctx))
+      return true;
+
+   return false;
+}
+
+
 /**
  * Inner support for both _mesa_DrawElements and _mesa_DrawRangeElements.
  * Do the rendering for a glDrawElements or glDrawRangeElements call after
@@ -753,30 +793,35 @@ vbo_validated_drawrangeelements(struct gl_context *ctx, GLenum mode,
                                 GLint basevertex, GLuint numInstances,
                                 GLuint baseInstance)
 {
-   struct vbo_context *vbo = vbo_context(ctx);
    struct _mesa_index_buffer ib;
-   struct _mesa_prim prim[1];
+   struct _mesa_prim prim;
 
-   vbo_bind_arrays(ctx);
+   if (!index_bounds_valid) {
+      assert(start == 0u);
+      assert(end == ~0u);
+   }
+
+   if (skip_draw_elements(ctx, count, indices))
+      return;
 
    ib.count = count;
-   ib.type = type;
+   ib.index_size = sizeof_ib_type(type);
    ib.obj = ctx->Array.VAO->IndexBufferObj;
    ib.ptr = indices;
 
-   prim[0].begin = 1;
-   prim[0].end = 1;
-   prim[0].weak = 0;
-   prim[0].pad = 0;
-   prim[0].mode = mode;
-   prim[0].start = 0;
-   prim[0].count = count;
-   prim[0].indexed = 1;
-   prim[0].is_indirect = 0;
-   prim[0].basevertex = basevertex;
-   prim[0].num_instances = numInstances;
-   prim[0].base_instance = baseInstance;
-   prim[0].draw_id = 0;
+   prim.begin = 1;
+   prim.end = 1;
+   prim.weak = 0;
+   prim.pad = 0;
+   prim.mode = mode;
+   prim.start = 0;
+   prim.count = count;
+   prim.indexed = 1;
+   prim.is_indirect = 0;
+   prim.basevertex = basevertex;
+   prim.num_instances = numInstances;
+   prim.base_instance = baseInstance;
+   prim.draw_id = 0;
 
    /* Need to give special consideration to rendering a range of
     * indices starting somewhere above zero.  Typically the
@@ -809,8 +854,8 @@ vbo_validated_drawrangeelements(struct gl_context *ctx, GLenum mode,
     * for the latter case elsewhere.
     */
 
-   vbo->draw_prims(ctx, prim, 1, &ib,
-                   index_bounds_valid, start, end, NULL, 0, NULL);
+   ctx->Driver.Draw(ctx, &prim, 1, &ib,
+                    index_bounds_valid, start, end, NULL, 0, NULL);
 
    if (MESA_DEBUG_FLAGS & DEBUG_ALWAYS_FLUSH) {
       _mesa_flush(ctx);
@@ -842,9 +887,20 @@ vbo_exec_DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end,
                   _mesa_enum_to_string(mode), start, end, count,
                   _mesa_enum_to_string(type), indices, basevertex);
 
-   if (!_mesa_validate_DrawRangeElements(ctx, mode, start, end, count,
-                                         type, indices))
-      return;
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawRangeElements(ctx, mode, start, end, count,
+                                            type, indices))
+         return;
+   }
 
    if ((int) end + basevertex < 0 || start + basevertex >= max_element) {
       /* The application requested we draw using a range of indices that's
@@ -898,6 +954,11 @@ vbo_exec_DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end,
    (void) check_draw_elements_data;
 #endif
 
+   if (!index_bounds_valid) {
+      start = 0;
+      end = ~0;
+   }
+
    vbo_validated_drawrangeelements(ctx, mode, index_bounds_valid, start, end,
                                    count, type, indices, basevertex, 1, 0);
 }
@@ -937,10 +998,21 @@ vbo_exec_DrawElements(GLenum mode, GLsizei count, GLenum type,
                   _mesa_enum_to_string(mode), count,
                   _mesa_enum_to_string(type), indices);
 
-   if (!_mesa_validate_DrawElements(ctx, mode, count, type, indices))
-      return;
+   FLUSH_FOR_DRAW(ctx);
 
-   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, ~0, ~0,
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawElements(ctx, mode, count, type, indices))
+         return;
+   }
+
+   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, 0, ~0,
                                    count, type, indices, 0, 1, 0);
 }
 
@@ -955,14 +1027,25 @@ vbo_exec_DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type,
    GET_CURRENT_CONTEXT(ctx);
 
    if (MESA_VERBOSE & VERBOSE_DRAW)
-      _mesa_debug(ctx, "glDrawElementsBaseVertex(%s, %d, %s, %p, %d)\n",
+      _mesa_debug(ctx, "glDrawElements(%s, %u, %s, %p)\n",
                   _mesa_enum_to_string(mode), count,
-                  _mesa_enum_to_string(type), indices, basevertex);
+                  _mesa_enum_to_string(type), indices);
 
-   if (!_mesa_validate_DrawElements(ctx, mode, count, type, indices))
-      return;
+   FLUSH_FOR_DRAW(ctx);
 
-   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, ~0, ~0,
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawElements(ctx, mode, count, type, indices))
+         return;
+   }
+
+   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, 0, ~0,
                                    count, type, indices, basevertex, 1, 0);
 }
 
@@ -977,15 +1060,26 @@ vbo_exec_DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type,
    GET_CURRENT_CONTEXT(ctx);
 
    if (MESA_VERBOSE & VERBOSE_DRAW)
-      _mesa_debug(ctx, "glDrawElementsInstanced(%s, %d, %s, %p, %d)\n",
+      _mesa_debug(ctx, "glDrawElements(%s, %u, %s, %p)\n",
                   _mesa_enum_to_string(mode), count,
-                  _mesa_enum_to_string(type), indices, numInstances);
+                  _mesa_enum_to_string(type), indices);
 
-   if (!_mesa_validate_DrawElementsInstanced(ctx, mode, count, type, indices,
-                                             numInstances))
-      return;
+   FLUSH_FOR_DRAW(ctx);
 
-   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, ~0, ~0,
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawElementsInstanced(ctx, mode, count, type,
+                                                indices, numInstances))
+         return;
+   }
+
+   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, 0, ~0,
                                    count, type, indices, 0, numInstances, 0);
 }
 
@@ -1003,16 +1097,28 @@ vbo_exec_DrawElementsInstancedBaseVertex(GLenum mode, GLsizei count,
 
    if (MESA_VERBOSE & VERBOSE_DRAW)
       _mesa_debug(ctx,
-                  "glDrawElementsInstancedBaseVertex(%s, %d, %s, %p, %d; %d)\n",
+                  "glDrawElementsInstancedBaseVertex"
+                  "(%s, %d, %s, %p, %d; %d)\n",
                   _mesa_enum_to_string(mode), count,
                   _mesa_enum_to_string(type), indices,
                   numInstances, basevertex);
 
-   if (!_mesa_validate_DrawElementsInstanced(ctx, mode, count, type, indices,
-                                             numInstances))
-      return;
+   FLUSH_FOR_DRAW(ctx);
 
-   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, ~0, ~0,
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawElementsInstanced(ctx, mode, count, type,
+                                                indices, numInstances))
+         return;
+   }
+
+   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, 0, ~0,
                                    count, type, indices,
                                    basevertex, numInstances, 0);
 }
@@ -1038,11 +1144,22 @@ vbo_exec_DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count,
                   _mesa_enum_to_string(type), indices,
                   numInstances, baseInstance);
 
-   if (!_mesa_validate_DrawElementsInstanced(ctx, mode, count, type, indices,
-                                             numInstances))
-      return;
+   FLUSH_FOR_DRAW(ctx);
 
-   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, ~0, ~0,
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawElementsInstanced(ctx, mode, count, type,
+                                                indices, numInstances))
+         return;
+   }
+
+   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, 0, ~0,
                                    count, type, indices, 0, numInstances,
                                    baseInstance);
 }
@@ -1070,11 +1187,22 @@ vbo_exec_DrawElementsInstancedBaseVertexBaseInstance(GLenum mode,
                   _mesa_enum_to_string(type), indices,
                   numInstances, basevertex, baseInstance);
 
-   if (!_mesa_validate_DrawElementsInstanced(ctx, mode, count, type, indices,
-                                             numInstances))
-      return;
+   FLUSH_FOR_DRAW(ctx);
 
-   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, ~0, ~0,
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawElementsInstanced(ctx, mode, count, type,
+                                                indices, numInstances))
+         return;
+   }
+
+   vbo_validated_drawrangeelements(ctx, mode, GL_FALSE, 0, ~0,
                                    count, type, indices, basevertex,
                                    numInstances, baseInstance);
 }
@@ -1091,10 +1219,9 @@ vbo_validated_multidrawelements(struct gl_context *ctx, GLenum mode,
                                 const GLvoid * const *indices,
                                 GLsizei primcount, const GLint *basevertex)
 {
-   struct vbo_context *vbo = vbo_context(ctx);
    struct _mesa_index_buffer ib;
    struct _mesa_prim *prim;
-   unsigned int index_type_size = vbo_sizeof_ib_type(type);
+   unsigned int index_type_size = sizeof_ib_type(type);
    uintptr_t min_index_ptr, max_index_ptr;
    GLboolean fallback = GL_FALSE;
    int i;
@@ -1107,8 +1234,6 @@ vbo_validated_multidrawelements(struct gl_context *ctx, GLenum mode,
       _mesa_error(ctx, GL_OUT_OF_MEMORY, "glMultiDrawElements");
       return;
    }
-
-   vbo_bind_arrays(ctx);
 
    min_index_ptr = (uintptr_t) indices[0];
    max_index_ptr = 0;
@@ -1153,7 +1278,7 @@ vbo_validated_multidrawelements(struct gl_context *ctx, GLenum mode,
 
    if (!fallback) {
       ib.count = (max_index_ptr - min_index_ptr) / index_type_size;
-      ib.type = type;
+      ib.index_size = sizeof_ib_type(type);
       ib.obj = ctx->Array.VAO->IndexBufferObj;
       ib.ptr = (void *) min_index_ptr;
 
@@ -1177,8 +1302,8 @@ vbo_validated_multidrawelements(struct gl_context *ctx, GLenum mode,
             prim[i].basevertex = 0;
       }
 
-      vbo->draw_prims(ctx, prim, primcount, &ib,
-                      false, ~0, ~0, NULL, 0, NULL);
+      ctx->Driver.Draw(ctx, prim, primcount, &ib,
+                       false, 0, ~0, NULL, 0, NULL);
    }
    else {
       /* render one prim at a time */
@@ -1186,7 +1311,7 @@ vbo_validated_multidrawelements(struct gl_context *ctx, GLenum mode,
          if (count[i] == 0)
             continue;
          ib.count = count[i];
-         ib.type = type;
+         ib.index_size = sizeof_ib_type(type);
          ib.obj = ctx->Array.VAO->IndexBufferObj;
          ib.ptr = indices[i];
 
@@ -1207,7 +1332,7 @@ vbo_validated_multidrawelements(struct gl_context *ctx, GLenum mode,
          else
             prim[0].basevertex = 0;
 
-         vbo->draw_prims(ctx, prim, 1, &ib, false, ~0, ~0, NULL, 0, NULL);
+         ctx->Driver.Draw(ctx, prim, 1, &ib, false, 0, ~0, NULL, 0, NULL);
       }
    }
 
@@ -1226,8 +1351,15 @@ vbo_exec_MultiDrawElements(GLenum mode,
 {
    GET_CURRENT_CONTEXT(ctx);
 
+   FLUSH_FOR_DRAW(ctx);
+
+   _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
    if (!_mesa_validate_MultiDrawElements(ctx, mode, count, type, indices,
                                          primcount))
+      return;
+
+   if (skip_validated_draw(ctx))
       return;
 
    vbo_validated_multidrawelements(ctx, mode, count, type, indices, primcount,
@@ -1244,8 +1376,22 @@ vbo_exec_MultiDrawElementsBaseVertex(GLenum mode,
 {
    GET_CURRENT_CONTEXT(ctx);
 
-   if (!_mesa_validate_MultiDrawElements(ctx, mode, count, type, indices,
-                                         primcount))
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_MultiDrawElements(ctx, mode, count, type, indices,
+                                            primcount))
+         return;
+   }
+
+   if (skip_validated_draw(ctx))
       return;
 
    vbo_validated_multidrawelements(ctx, mode, count, type, indices, primcount,
@@ -1253,17 +1399,35 @@ vbo_exec_MultiDrawElementsBaseVertex(GLenum mode,
 }
 
 
+/**
+ * Draw a GL primitive using a vertex count obtained from transform feedback.
+ * \param mode  the type of GL primitive to draw
+ * \param obj  the transform feedback object to use
+ * \param stream  index of the transform feedback stream from which to
+ *                get the primitive count.
+ * \param numInstances  number of instances to draw
+ */
 static void
 vbo_draw_transform_feedback(struct gl_context *ctx, GLenum mode,
                             struct gl_transform_feedback_object *obj,
                             GLuint stream, GLuint numInstances)
 {
-   struct vbo_context *vbo = vbo_context(ctx);
-   struct _mesa_prim prim[2];
+   struct _mesa_prim prim;
 
-   if (!_mesa_validate_DrawTransformFeedback(ctx, mode, obj, stream,
-                                             numInstances)) {
-      return;
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawTransformFeedback(ctx, mode, obj, stream,
+                                                numInstances)) {
+         return;
+      }
    }
 
    if (ctx->Driver.GetTransformFeedbackVertexCount &&
@@ -1275,22 +1439,23 @@ vbo_draw_transform_feedback(struct gl_context *ctx, GLenum mode,
       return;
    }
 
-   vbo_bind_arrays(ctx);
+   if (skip_validated_draw(ctx))
+      return;
 
    /* init most fields to zero */
-   memset(prim, 0, sizeof(prim));
-   prim[0].begin = 1;
-   prim[0].end = 1;
-   prim[0].mode = mode;
-   prim[0].num_instances = numInstances;
-   prim[0].base_instance = 0;
-   prim[0].is_indirect = 0;
+   memset(&prim, 0, sizeof(prim));
+   prim.begin = 1;
+   prim.end = 1;
+   prim.mode = mode;
+   prim.num_instances = numInstances;
+   prim.base_instance = 0;
+   prim.is_indirect = 0;
 
    /* Maybe we should do some primitive splitting for primitive restart
     * (like in DrawArrays), but we have no way to know how many vertices
     * will be rendered. */
 
-   vbo->draw_prims(ctx, prim, 1, NULL, GL_FALSE, ~0, ~0, obj, stream, NULL);
+   ctx->Driver.Draw(ctx, &prim, 1, NULL, GL_FALSE, 0, ~0, obj, stream, NULL);
 
    if (MESA_DEBUG_FLAGS & DEBUG_ALWAYS_FLUSH) {
       _mesa_flush(ctx);
@@ -1374,11 +1539,7 @@ static void
 vbo_validated_drawarraysindirect(struct gl_context *ctx,
                                  GLenum mode, const GLvoid *indirect)
 {
-   struct vbo_context *vbo = vbo_context(ctx);
-
-   vbo_bind_arrays(ctx);
-
-   vbo->draw_indirect_prims(ctx, mode,
+   ctx->Driver.DrawIndirect(ctx, mode,
                             ctx->DrawIndirectBuffer, (GLsizeiptr) indirect,
                             1 /* draw_count */ , 16 /* stride */ ,
                             NULL, 0, NULL);
@@ -1394,15 +1555,12 @@ vbo_validated_multidrawarraysindirect(struct gl_context *ctx,
                                       const GLvoid *indirect,
                                       GLsizei primcount, GLsizei stride)
 {
-   struct vbo_context *vbo = vbo_context(ctx);
    GLsizeiptr offset = (GLsizeiptr) indirect;
 
    if (primcount == 0)
       return;
 
-   vbo_bind_arrays(ctx);
-
-   vbo->draw_indirect_prims(ctx, mode, ctx->DrawIndirectBuffer, offset,
+   ctx->Driver.DrawIndirect(ctx, mode, ctx->DrawIndirectBuffer, offset,
                             primcount, stride, NULL, 0, NULL);
 
    if (MESA_DEBUG_FLAGS & DEBUG_ALWAYS_FLUSH)
@@ -1415,17 +1573,14 @@ vbo_validated_drawelementsindirect(struct gl_context *ctx,
                                    GLenum mode, GLenum type,
                                    const GLvoid *indirect)
 {
-   struct vbo_context *vbo = vbo_context(ctx);
    struct _mesa_index_buffer ib;
 
-   vbo_bind_arrays(ctx);
-
    ib.count = 0;                /* unknown */
-   ib.type = type;
+   ib.index_size = sizeof_ib_type(type);
    ib.obj = ctx->Array.VAO->IndexBufferObj;
    ib.ptr = NULL;
 
-   vbo->draw_indirect_prims(ctx, mode,
+   ctx->Driver.DrawIndirect(ctx, mode,
                             ctx->DrawIndirectBuffer, (GLsizeiptr) indirect,
                             1 /* draw_count */ , 20 /* stride */ ,
                             NULL, 0, &ib);
@@ -1441,23 +1596,20 @@ vbo_validated_multidrawelementsindirect(struct gl_context *ctx,
                                         const GLvoid *indirect,
                                         GLsizei primcount, GLsizei stride)
 {
-   struct vbo_context *vbo = vbo_context(ctx);
    struct _mesa_index_buffer ib;
    GLsizeiptr offset = (GLsizeiptr) indirect;
 
    if (primcount == 0)
       return;
 
-   vbo_bind_arrays(ctx);
-
    /* NOTE: IndexBufferObj is guaranteed to be a VBO. */
 
    ib.count = 0;                /* unknown */
-   ib.type = type;
+   ib.index_size = sizeof_ib_type(type);
    ib.obj = ctx->Array.VAO->IndexBufferObj;
    ib.ptr = NULL;
 
-   vbo->draw_indirect_prims(ctx, mode,
+   ctx->Driver.DrawIndirect(ctx, mode,
                             ctx->DrawIndirectBuffer, offset,
                             primcount, stride, NULL, 0, &ib);
 
@@ -1479,7 +1631,38 @@ vbo_exec_DrawArraysIndirect(GLenum mode, const GLvoid *indirect)
       _mesa_debug(ctx, "glDrawArraysIndirect(%s, %p)\n",
                   _mesa_enum_to_string(mode), indirect);
 
-   if (!_mesa_validate_DrawArraysIndirect(ctx, mode, indirect))
+   /* From the ARB_draw_indirect spec:
+    *
+    *    "Initially zero is bound to DRAW_INDIRECT_BUFFER. In the
+    *    compatibility profile, this indicates that DrawArraysIndirect and
+    *    DrawElementsIndirect are to source their arguments directly from the
+    *    pointer passed as their <indirect> parameters."
+    */
+   if (ctx->API == API_OPENGL_COMPAT &&
+       !_mesa_is_bufferobj(ctx->DrawIndirectBuffer)) {
+      DrawArraysIndirectCommand *cmd = (DrawArraysIndirectCommand *) indirect;
+
+      vbo_exec_DrawArraysInstancedBaseInstance(mode, cmd->first, cmd->count,
+                                               cmd->primCount,
+                                               cmd->baseInstance);
+      return;
+   }
+
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawArraysIndirect(ctx, mode, indirect))
+         return;
+   }
+
+   if (skip_validated_draw(ctx))
       return;
 
    vbo_validated_drawarraysindirect(ctx, mode, indirect);
@@ -1496,7 +1679,58 @@ vbo_exec_DrawElementsIndirect(GLenum mode, GLenum type, const GLvoid *indirect)
                   _mesa_enum_to_string(mode),
                   _mesa_enum_to_string(type), indirect);
 
-   if (!_mesa_validate_DrawElementsIndirect(ctx, mode, type, indirect))
+   /* From the ARB_draw_indirect spec:
+    *
+    *    "Initially zero is bound to DRAW_INDIRECT_BUFFER. In the
+    *    compatibility profile, this indicates that DrawArraysIndirect and
+    *    DrawElementsIndirect are to source their arguments directly from the
+    *    pointer passed as their <indirect> parameters."
+    */
+   if (ctx->API == API_OPENGL_COMPAT &&
+       !_mesa_is_bufferobj(ctx->DrawIndirectBuffer)) {
+      /*
+       * Unlike regular DrawElementsInstancedBaseVertex commands, the indices
+       * may not come from a client array and must come from an index buffer.
+       * If no element array buffer is bound, an INVALID_OPERATION error is
+       * generated.
+       */
+      if (!_mesa_is_bufferobj(ctx->Array.VAO->IndexBufferObj)) {
+         _mesa_error(ctx, GL_INVALID_OPERATION,
+                     "glDrawElementsIndirect(no buffer bound "
+                     "to GL_ELEMENT_ARRAY_BUFFER)");
+      } else {
+         DrawElementsIndirectCommand *cmd =
+            (DrawElementsIndirectCommand *) indirect;
+
+         /* Convert offset to pointer */
+         void *offset = (void *)
+            ((cmd->firstIndex * _mesa_sizeof_type(type)) & 0xffffffffUL);
+
+         vbo_exec_DrawElementsInstancedBaseVertexBaseInstance(mode, cmd->count,
+                                                              type, offset,
+                                                              cmd->primCount,
+                                                              cmd->baseVertex,
+                                                              cmd->baseInstance);
+      }
+
+      return;
+   }
+
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_DrawElementsIndirect(ctx, mode, type, indirect))
+         return;
+   }
+
+   if (skip_validated_draw(ctx))
       return;
 
    vbo_validated_drawelementsindirect(ctx, mode, type, indirect);
@@ -1515,10 +1749,55 @@ vbo_exec_MultiDrawArraysIndirect(GLenum mode, const GLvoid *indirect,
 
    /* If <stride> is zero, the array elements are treated as tightly packed. */
    if (stride == 0)
-      stride = 4 * sizeof(GLuint);      /* sizeof(DrawArraysIndirectCommand) */
+      stride = sizeof(DrawArraysIndirectCommand);
 
-   if (!_mesa_validate_MultiDrawArraysIndirect(ctx, mode, indirect,
-                                               primcount, stride))
+   /* From the ARB_draw_indirect spec:
+    *
+    *    "Initially zero is bound to DRAW_INDIRECT_BUFFER. In the
+    *    compatibility profile, this indicates that DrawArraysIndirect and
+    *    DrawElementsIndirect are to source their arguments directly from the
+    *    pointer passed as their <indirect> parameters."
+    */
+   if (ctx->API == API_OPENGL_COMPAT &&
+       !_mesa_is_bufferobj(ctx->DrawIndirectBuffer)) {
+
+      if (!_mesa_valid_draw_indirect_multi(ctx, primcount, stride,
+                                           "glMultiDrawArraysIndirect"))
+         return;
+
+      const ubyte *ptr = (const ubyte *) indirect;
+      for (unsigned i = 0; i < primcount; i++) {
+         DrawArraysIndirectCommand *cmd = (DrawArraysIndirectCommand *) ptr;
+         vbo_exec_DrawArraysInstancedBaseInstance(mode, cmd->first,
+                                                  cmd->count, cmd->primCount,
+                                                  cmd->baseInstance);
+
+         if (stride == 0) {
+            ptr += sizeof(DrawArraysIndirectCommand);
+         } else {
+            ptr += stride;
+         }
+      }
+
+      return;
+   }
+
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_MultiDrawArraysIndirect(ctx, mode, indirect,
+                                                  primcount, stride))
+         return;
+   }
+
+   if (skip_validated_draw(ctx))
       return;
 
    vbo_validated_multidrawarraysindirect(ctx, mode, indirect,
@@ -1540,10 +1819,66 @@ vbo_exec_MultiDrawElementsIndirect(GLenum mode, GLenum type,
 
    /* If <stride> is zero, the array elements are treated as tightly packed. */
    if (stride == 0)
-      stride = 5 * sizeof(GLuint);      /* sizeof(DrawElementsIndirectCommand) */
+      stride = sizeof(DrawElementsIndirectCommand);
 
-   if (!_mesa_validate_MultiDrawElementsIndirect(ctx, mode, type, indirect,
-                                                 primcount, stride))
+
+   /* From the ARB_draw_indirect spec:
+    *
+    *    "Initially zero is bound to DRAW_INDIRECT_BUFFER. In the
+    *    compatibility profile, this indicates that DrawArraysIndirect and
+    *    DrawElementsIndirect are to source their arguments directly from the
+    *    pointer passed as their <indirect> parameters."
+    */
+   if (ctx->API == API_OPENGL_COMPAT &&
+       !_mesa_is_bufferobj(ctx->DrawIndirectBuffer)) {
+      /*
+       * Unlike regular DrawElementsInstancedBaseVertex commands, the indices
+       * may not come from a client array and must come from an index buffer.
+       * If no element array buffer is bound, an INVALID_OPERATION error is
+       * generated.
+       */
+      if (!_mesa_is_bufferobj(ctx->Array.VAO->IndexBufferObj)) {
+         _mesa_error(ctx, GL_INVALID_OPERATION,
+                     "glMultiDrawElementsIndirect(no buffer bound "
+                     "to GL_ELEMENT_ARRAY_BUFFER)");
+
+         return;
+      }
+
+      if (!_mesa_valid_draw_indirect_multi(ctx, primcount, stride,
+                                           "glMultiDrawArraysIndirect"))
+         return;
+
+      const ubyte *ptr = (const ubyte *) indirect;
+      for (unsigned i = 0; i < primcount; i++) {
+         vbo_exec_DrawElementsIndirect(mode, type, ptr);
+
+         if (stride == 0) {
+            ptr += sizeof(DrawElementsIndirectCommand);
+         } else {
+            ptr += stride;
+         }
+      }
+
+      return;
+   }
+
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_MultiDrawElementsIndirect(ctx, mode, type, indirect,
+                                                    primcount, stride))
+         return;
+   }
+
+   if (skip_validated_draw(ctx))
       return;
 
    vbo_validated_multidrawelementsindirect(ctx, mode, type, indirect,
@@ -1555,22 +1890,19 @@ static void
 vbo_validated_multidrawarraysindirectcount(struct gl_context *ctx,
                                            GLenum mode,
                                            GLintptr indirect,
-                                           GLintptr drawcount,
+                                           GLintptr drawcount_offset,
                                            GLsizei maxdrawcount,
                                            GLsizei stride)
 {
-   struct vbo_context *vbo = vbo_context(ctx);
    GLsizeiptr offset = indirect;
 
    if (maxdrawcount == 0)
       return;
 
-   vbo_bind_arrays(ctx);
-
-   vbo->draw_indirect_prims(ctx, mode,
+   ctx->Driver.DrawIndirect(ctx, mode,
                             ctx->DrawIndirectBuffer, offset,
                             maxdrawcount, stride,
-                            ctx->ParameterBuffer, drawcount, NULL);
+                            ctx->ParameterBuffer, drawcount_offset, NULL);
 
    if (MESA_DEBUG_FLAGS & DEBUG_ALWAYS_FLUSH)
       _mesa_flush(ctx);
@@ -1581,30 +1913,27 @@ static void
 vbo_validated_multidrawelementsindirectcount(struct gl_context *ctx,
                                              GLenum mode, GLenum type,
                                              GLintptr indirect,
-                                             GLintptr drawcount,
+                                             GLintptr drawcount_offset,
                                              GLsizei maxdrawcount,
                                              GLsizei stride)
 {
-   struct vbo_context *vbo = vbo_context(ctx);
    struct _mesa_index_buffer ib;
    GLsizeiptr offset = (GLsizeiptr) indirect;
 
    if (maxdrawcount == 0)
       return;
 
-   vbo_bind_arrays(ctx);
-
    /* NOTE: IndexBufferObj is guaranteed to be a VBO. */
 
    ib.count = 0;                /* unknown */
-   ib.type = type;
+   ib.index_size = sizeof_ib_type(type);
    ib.obj = ctx->Array.VAO->IndexBufferObj;
    ib.ptr = NULL;
 
-   vbo->draw_indirect_prims(ctx, mode,
+   ctx->Driver.DrawIndirect(ctx, mode,
                             ctx->DrawIndirectBuffer, offset,
                             maxdrawcount, stride,
-                            ctx->ParameterBuffer, drawcount, &ib);
+                            ctx->ParameterBuffer, drawcount_offset, &ib);
 
    if (MESA_DEBUG_FLAGS & DEBUG_ALWAYS_FLUSH)
       _mesa_flush(ctx);
@@ -1613,7 +1942,7 @@ vbo_validated_multidrawelementsindirectcount(struct gl_context *ctx,
 
 static void GLAPIENTRY
 vbo_exec_MultiDrawArraysIndirectCount(GLenum mode, GLintptr indirect,
-                                      GLintptr drawcount,
+                                      GLintptr drawcount_offset,
                                       GLsizei maxdrawcount, GLsizei stride)
 {
    GET_CURRENT_CONTEXT(ctx);
@@ -1622,26 +1951,43 @@ vbo_exec_MultiDrawArraysIndirectCount(GLenum mode, GLintptr indirect,
       _mesa_debug(ctx, "glMultiDrawArraysIndirectCountARB"
                   "(%s, %lx, %lx, %i, %i)\n",
                   _mesa_enum_to_string(mode),
-                  (unsigned long) indirect, (unsigned long) drawcount,
+                  (unsigned long) indirect, (unsigned long) drawcount_offset,
                   maxdrawcount, stride);
 
    /* If <stride> is zero, the array elements are treated as tightly packed. */
    if (stride == 0)
       stride = 4 * sizeof(GLuint);      /* sizeof(DrawArraysIndirectCommand) */
 
-   if (!_mesa_validate_MultiDrawArraysIndirectCount(ctx, mode,
-                                                    indirect, drawcount,
-                                                    maxdrawcount, stride))
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_MultiDrawArraysIndirectCount(ctx, mode,
+                                                       indirect,
+                                                       drawcount_offset,
+                                                       maxdrawcount, stride))
+         return;
+   }
+
+   if (skip_validated_draw(ctx))
       return;
 
-   vbo_validated_multidrawarraysindirectcount(ctx, mode, indirect, drawcount,
+   vbo_validated_multidrawarraysindirectcount(ctx, mode, indirect,
+                                              drawcount_offset,
                                               maxdrawcount, stride);
 }
 
 
 static void GLAPIENTRY
 vbo_exec_MultiDrawElementsIndirectCount(GLenum mode, GLenum type,
-                                        GLintptr indirect, GLintptr drawcount,
+                                        GLintptr indirect,
+                                        GLintptr drawcount_offset,
                                         GLsizei maxdrawcount, GLsizei stride)
 {
    GET_CURRENT_CONTEXT(ctx);
@@ -1650,20 +1996,35 @@ vbo_exec_MultiDrawElementsIndirectCount(GLenum mode, GLenum type,
       _mesa_debug(ctx, "glMultiDrawElementsIndirectCountARB"
                   "(%s, %s, %lx, %lx, %i, %i)\n",
                   _mesa_enum_to_string(mode), _mesa_enum_to_string(type),
-                  (unsigned long) indirect, (unsigned long) drawcount,
+                  (unsigned long) indirect, (unsigned long) drawcount_offset,
                   maxdrawcount, stride);
 
    /* If <stride> is zero, the array elements are treated as tightly packed. */
    if (stride == 0)
       stride = 5 * sizeof(GLuint);      /* sizeof(DrawElementsIndirectCommand) */
 
-   if (!_mesa_validate_MultiDrawElementsIndirectCount(ctx, mode, type,
-                                                      indirect, drawcount,
-                                                      maxdrawcount, stride))
+   FLUSH_FOR_DRAW(ctx);
+
+   if (_mesa_is_no_error_enabled(ctx)) {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (ctx->NewState)
+         _mesa_update_state(ctx);
+   } else {
+      _mesa_set_draw_vao(ctx, ctx->Array.VAO, enabled_filter(ctx));
+
+      if (!_mesa_validate_MultiDrawElementsIndirectCount(ctx, mode, type,
+                                                         indirect,
+                                                         drawcount_offset,
+                                                         maxdrawcount, stride))
+         return;
+   }
+
+   if (skip_validated_draw(ctx))
       return;
 
    vbo_validated_multidrawelementsindirectcount(ctx, mode, type, indirect,
-                                                drawcount, maxdrawcount,
+                                                drawcount_offset, maxdrawcount,
                                                 stride);
 }
 
@@ -1714,18 +2075,9 @@ vbo_initialize_exec_dispatch(const struct gl_context *ctx,
                                                       vbo_exec_DrawElementsInstancedBaseVertexBaseInstance);
    }
 
-   if (ctx->API == API_OPENGL_CORE || _mesa_is_gles31(ctx)) {
+   if (_mesa_is_desktop_gl(ctx) || _mesa_is_gles31(ctx)) {
       SET_DrawArraysIndirect(exec, vbo_exec_DrawArraysIndirect);
       SET_DrawElementsIndirect(exec, vbo_exec_DrawElementsIndirect);
-   }
-
-   if (ctx->API == API_OPENGL_CORE) {
-      SET_MultiDrawArraysIndirect(exec, vbo_exec_MultiDrawArraysIndirect);
-      SET_MultiDrawElementsIndirect(exec, vbo_exec_MultiDrawElementsIndirect);
-      SET_MultiDrawArraysIndirectCountARB(exec,
-                                          vbo_exec_MultiDrawArraysIndirectCount);
-      SET_MultiDrawElementsIndirectCountARB(exec,
-                                            vbo_exec_MultiDrawElementsIndirectCount);
    }
 
    if (_mesa_is_desktop_gl(ctx) || _mesa_is_gles3(ctx)) {
@@ -1741,6 +2093,12 @@ vbo_initialize_exec_dispatch(const struct gl_context *ctx,
                                          vbo_exec_DrawTransformFeedbackInstanced);
       SET_DrawTransformFeedbackStreamInstanced(exec,
                                                vbo_exec_DrawTransformFeedbackStreamInstanced);
+      SET_MultiDrawArraysIndirect(exec, vbo_exec_MultiDrawArraysIndirect);
+      SET_MultiDrawElementsIndirect(exec, vbo_exec_MultiDrawElementsIndirect);
+      SET_MultiDrawArraysIndirectCountARB(exec,
+                                          vbo_exec_MultiDrawArraysIndirectCount);
+      SET_MultiDrawElementsIndirectCountARB(exec,
+                                            vbo_exec_MultiDrawElementsIndirectCount);
    }
 }
 

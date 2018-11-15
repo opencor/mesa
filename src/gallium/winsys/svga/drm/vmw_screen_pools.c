@@ -122,19 +122,19 @@ vmw_mob_pools_init(struct vmw_winsys_screen *vws)
 {
    struct pb_desc desc;
 
-   vws->pools.mob_cache =
+   vws->pools.mob_cache = 
       pb_cache_manager_create(vws->pools.gmr, 100000, 2.0f,
                               VMW_BUFFER_USAGE_SHARED,
                               64 * 1024 * 1024);
    if (!vws->pools.mob_cache)
       return FALSE;
 
-   vws->pools.mob_fenced =
+   vws->pools.mob_fenced = 
       simple_fenced_bufmgr_create(vws->pools.mob_cache,
                                   vws->fence_ops);
    if(!vws->pools.mob_fenced)
       goto out_no_mob_fenced;
-
+   
    desc.alignment = 64;
    desc.usage = ~(SVGA_BUFFER_USAGE_PINNED | VMW_BUFFER_USAGE_SHARED |
                   VMW_BUFFER_USAGE_SYNC);
@@ -150,7 +150,7 @@ vmw_mob_pools_init(struct vmw_winsys_screen *vws)
    vws->pools.mob_shader_slab_fenced =
       simple_fenced_bufmgr_create(vws->pools.mob_shader_slab,
 				  vws->fence_ops);
-   if(!vws->pools.mob_fenced)
+   if(!vws->pools.mob_shader_slab_fenced)
       goto out_no_mob_shader_slab_fenced;
 
    return TRUE;

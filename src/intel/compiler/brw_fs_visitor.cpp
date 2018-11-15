@@ -32,50 +32,6 @@
 
 using namespace brw;
 
-fs_reg *
-fs_visitor::emit_vs_system_value(int location)
-{
-   fs_reg *reg = new(this->mem_ctx)
-      fs_reg(ATTR, 4 * _mesa_bitcount_64(nir->info->inputs_read),
-             BRW_REGISTER_TYPE_D);
-   struct brw_vs_prog_data *vs_prog_data = brw_vs_prog_data(prog_data);
-
-   switch (location) {
-   case SYSTEM_VALUE_BASE_VERTEX:
-      reg->offset = 0;
-      vs_prog_data->uses_basevertex = true;
-      break;
-   case SYSTEM_VALUE_BASE_INSTANCE:
-      reg->offset = REG_SIZE;
-      vs_prog_data->uses_baseinstance = true;
-      break;
-   case SYSTEM_VALUE_VERTEX_ID:
-      unreachable("should have been lowered");
-   case SYSTEM_VALUE_VERTEX_ID_ZERO_BASE:
-      reg->offset = 2 * REG_SIZE;
-      vs_prog_data->uses_vertexid = true;
-      break;
-   case SYSTEM_VALUE_INSTANCE_ID:
-      reg->offset = 3 * REG_SIZE;
-      vs_prog_data->uses_instanceid = true;
-      break;
-   case SYSTEM_VALUE_DRAW_ID:
-      if (nir->info->system_values_read &
-          (BITFIELD64_BIT(SYSTEM_VALUE_BASE_VERTEX) |
-           BITFIELD64_BIT(SYSTEM_VALUE_BASE_INSTANCE) |
-           BITFIELD64_BIT(SYSTEM_VALUE_VERTEX_ID_ZERO_BASE) |
-           BITFIELD64_BIT(SYSTEM_VALUE_INSTANCE_ID)))
-         reg->nr += 4;
-      reg->offset = 0;
-      vs_prog_data->uses_drawid = true;
-      break;
-   default:
-      unreachable("not reached");
-   }
-
-   return reg;
-}
-
 /* Sample from the MCS surface attached to this multisample texture. */
 fs_reg
 fs_visitor::emit_mcs_fetch(const fs_reg &coordinate, unsigned components,
@@ -147,6 +103,7 @@ fs_visitor::emit_dummy_fs()
    fs_inst *write;
    write = bld.emit(FS_OPCODE_FB_WRITE);
    write->eot = true;
+   write->last_rt = true;
    if (devinfo->gen >= 6) {
       write->base_mrf = 2;
       write->mlen = 4 * reg_width;
@@ -169,7 +126,8 @@ fs_visitor::emit_dummy_fs()
    stage_prog_data->nr_pull_params = 0;
    stage_prog_data->curb_read_length = 0;
    stage_prog_data->dispatch_grf_start_reg = 2;
-   wm_prog_data->dispatch_grf_start_reg_2 = 2;
+   wm_prog_data->dispatch_grf_start_reg_16 = 2;
+   wm_prog_data->dispatch_grf_start_reg_32 = 2;
    grf_used = 1; /* Gen4-5 don't allow zero GRF blocks */
 
    calculate_cfg();
@@ -179,17 +137,15 @@ fs_visitor::emit_dummy_fs()
  * data.  It will get adjusted to be a real location before
  * generate_code() time.
  */
-struct brw_reg
+fs_reg
 fs_visitor::interp_reg(int location, int channel)
 {
    assert(stage == MESA_SHADER_FRAGMENT);
    struct brw_wm_prog_data *prog_data = brw_wm_prog_data(this->prog_data);
-   int regnr = prog_data->urb_setup[location] * 2 + channel / 2;
-   int stride = (channel & 1) * 4;
-
+   int regnr = prog_data->urb_setup[location] * 4 + channel;
    assert(prog_data->urb_setup[location] != -1);
 
-   return brw_vec1_grf(regnr, stride);
+   return fs_reg(ATTR, regnr, BRW_REGISTER_TYPE_F);
 }
 
 /** Emits the interpolation for the varying inputs. */
@@ -236,7 +192,7 @@ fs_visitor::emit_interpolation_setup_gen4()
     */
    this->wpos_w = vgrf(glsl_type::float_type);
    abld.emit(FS_OPCODE_LINTERP, wpos_w, delta_xy,
-             interp_reg(VARYING_SLOT_POS, 3));
+             component(interp_reg(VARYING_SLOT_POS, 3), 0));
    /* Compute the pixel 1/W value from wpos.w. */
    this->pixel_w = vgrf(glsl_type::float_type);
    abld.emit(SHADER_OPCODE_RCP, this->pixel_w, wpos_w);
@@ -246,101 +202,106 @@ fs_visitor::emit_interpolation_setup_gen4()
 void
 fs_visitor::emit_interpolation_setup_gen6()
 {
-   struct brw_reg g1_uw = retype(brw_vec1_grf(1, 0), BRW_REGISTER_TYPE_UW);
-
    fs_builder abld = bld.annotate("compute pixel centers");
-   if (devinfo->gen >= 8 || dispatch_width == 8) {
-      /* The "Register Region Restrictions" page says for BDW (and newer,
-       * presumably):
-       *
-       *     "When destination spans two registers, the source may be one or
-       *      two registers. The destination elements must be evenly split
-       *      between the two registers."
-       *
-       * Thus we can do a single add(16) in SIMD8 or an add(32) in SIMD16 to
-       * compute our pixel centers.
-       */
-      fs_reg int_pixel_xy(VGRF, alloc.allocate(dispatch_width / 8),
-                          BRW_REGISTER_TYPE_UW);
 
-      const fs_builder dbld = abld.exec_all().group(dispatch_width * 2, 0);
-      dbld.ADD(int_pixel_xy,
-               fs_reg(stride(suboffset(g1_uw, 4), 1, 4, 0)),
-               fs_reg(brw_imm_v(0x11001010)));
+   this->pixel_x = vgrf(glsl_type::float_type);
+   this->pixel_y = vgrf(glsl_type::float_type);
 
-      this->pixel_x = vgrf(glsl_type::float_type);
-      this->pixel_y = vgrf(glsl_type::float_type);
-      abld.emit(FS_OPCODE_PIXEL_X, this->pixel_x, int_pixel_xy);
-      abld.emit(FS_OPCODE_PIXEL_Y, this->pixel_y, int_pixel_xy);
-   } else {
-      /* The "Register Region Restrictions" page says for SNB, IVB, HSW:
-       *
-       *     "When destination spans two registers, the source MUST span two
-       *      registers."
-       *
-       * Since the GRF source of the ADD will only read a single register, we
-       * must do two separate ADDs in SIMD16.
-       */
-      fs_reg int_pixel_x = vgrf(glsl_type::uint_type);
-      fs_reg int_pixel_y = vgrf(glsl_type::uint_type);
-      int_pixel_x.type = BRW_REGISTER_TYPE_UW;
-      int_pixel_y.type = BRW_REGISTER_TYPE_UW;
-      abld.ADD(int_pixel_x,
-               fs_reg(stride(suboffset(g1_uw, 4), 2, 4, 0)),
-               fs_reg(brw_imm_v(0x10101010)));
-      abld.ADD(int_pixel_y,
-               fs_reg(stride(suboffset(g1_uw, 5), 2, 4, 0)),
-               fs_reg(brw_imm_v(0x11001100)));
+   for (unsigned i = 0; i < DIV_ROUND_UP(dispatch_width, 16); i++) {
+      const fs_builder hbld = abld.group(MIN2(16, dispatch_width), i);
+      struct brw_reg gi_uw = retype(brw_vec1_grf(1 + i, 0), BRW_REGISTER_TYPE_UW);
 
-      /* As of gen6, we can no longer mix float and int sources.  We have
-       * to turn the integer pixel centers into floats for their actual
-       * use.
-       */
-      this->pixel_x = vgrf(glsl_type::float_type);
-      this->pixel_y = vgrf(glsl_type::float_type);
-      abld.MOV(this->pixel_x, int_pixel_x);
-      abld.MOV(this->pixel_y, int_pixel_y);
+      if (devinfo->gen >= 8 || dispatch_width == 8) {
+         /* The "Register Region Restrictions" page says for BDW (and newer,
+          * presumably):
+          *
+          *     "When destination spans two registers, the source may be one or
+          *      two registers. The destination elements must be evenly split
+          *      between the two registers."
+          *
+          * Thus we can do a single add(16) in SIMD8 or an add(32) in SIMD16
+          * to compute our pixel centers.
+          */
+         const fs_builder dbld =
+            abld.exec_all().group(hbld.dispatch_width() * 2, 0);
+         fs_reg int_pixel_xy = dbld.vgrf(BRW_REGISTER_TYPE_UW);
+
+         dbld.ADD(int_pixel_xy,
+                  fs_reg(stride(suboffset(gi_uw, 4), 1, 4, 0)),
+                  fs_reg(brw_imm_v(0x11001010)));
+
+         hbld.emit(FS_OPCODE_PIXEL_X, offset(pixel_x, hbld, i), int_pixel_xy);
+         hbld.emit(FS_OPCODE_PIXEL_Y, offset(pixel_y, hbld, i), int_pixel_xy);
+      } else {
+         /* The "Register Region Restrictions" page says for SNB, IVB, HSW:
+          *
+          *     "When destination spans two registers, the source MUST span
+          *      two registers."
+          *
+          * Since the GRF source of the ADD will only read a single register,
+          * we must do two separate ADDs in SIMD16.
+          */
+         const fs_reg int_pixel_x = hbld.vgrf(BRW_REGISTER_TYPE_UW);
+         const fs_reg int_pixel_y = hbld.vgrf(BRW_REGISTER_TYPE_UW);
+
+         hbld.ADD(int_pixel_x,
+                  fs_reg(stride(suboffset(gi_uw, 4), 2, 4, 0)),
+                  fs_reg(brw_imm_v(0x10101010)));
+         hbld.ADD(int_pixel_y,
+                  fs_reg(stride(suboffset(gi_uw, 5), 2, 4, 0)),
+                  fs_reg(brw_imm_v(0x11001100)));
+
+         /* As of gen6, we can no longer mix float and int sources.  We have
+          * to turn the integer pixel centers into floats for their actual
+          * use.
+          */
+         hbld.MOV(offset(pixel_x, hbld, i), int_pixel_x);
+         hbld.MOV(offset(pixel_y, hbld, i), int_pixel_y);
+      }
    }
 
    abld = bld.annotate("compute pos.w");
-   this->pixel_w = fs_reg(brw_vec8_grf(payload.source_w_reg, 0));
+   this->pixel_w = fetch_payload_reg(abld, payload.source_w_reg);
    this->wpos_w = vgrf(glsl_type::float_type);
    abld.emit(SHADER_OPCODE_RCP, this->wpos_w, this->pixel_w);
 
    struct brw_wm_prog_data *wm_prog_data = brw_wm_prog_data(prog_data);
+
+   for (int i = 0; i < BRW_BARYCENTRIC_MODE_COUNT; ++i) {
+      this->delta_xy[i] = fetch_payload_reg(
+         bld, payload.barycentric_coord_reg[i], BRW_REGISTER_TYPE_F, 2);
+   }
+
    uint32_t centroid_modes = wm_prog_data->barycentric_interp_modes &
       (1 << BRW_BARYCENTRIC_PERSPECTIVE_CENTROID |
        1 << BRW_BARYCENTRIC_NONPERSPECTIVE_CENTROID);
 
-   for (int i = 0; i < BRW_BARYCENTRIC_MODE_COUNT; ++i) {
-      uint8_t reg = payload.barycentric_coord_reg[i];
-      this->delta_xy[i] = fs_reg(brw_vec16_grf(reg, 0));
+   if (devinfo->needs_unlit_centroid_workaround && centroid_modes) {
+      /* Get the pixel/sample mask into f0 so that we know which
+       * pixels are lit.  Then, for each channel that is unlit,
+       * replace the centroid data with non-centroid data.
+       */
+      for (unsigned i = 0; i < DIV_ROUND_UP(dispatch_width, 16); i++) {
+         bld.exec_all().group(1, 0)
+            .MOV(retype(brw_flag_reg(0, i), BRW_REGISTER_TYPE_UW),
+                 retype(brw_vec1_grf(1 + i, 7), BRW_REGISTER_TYPE_UW));
+      }
 
-      if (devinfo->needs_unlit_centroid_workaround &&
-          (centroid_modes & (1 << i))) {
-         /* Get the pixel/sample mask into f0 so that we know which
-          * pixels are lit.  Then, for each channel that is unlit,
-          * replace the centroid data with non-centroid data.
-          */
-         bld.emit(FS_OPCODE_MOV_DISPATCH_TO_FLAGS);
+      for (int i = 0; i < BRW_BARYCENTRIC_MODE_COUNT; ++i) {
+         if (!(centroid_modes & (1 << i)))
+            continue;
 
-         uint8_t pixel_reg = payload.barycentric_coord_reg[i - 1];
+         const fs_reg &pixel_delta_xy = delta_xy[i - 1];
 
-         set_predicate_inv(BRW_PREDICATE_NORMAL, true,
-                           bld.half(0).MOV(brw_vec8_grf(reg, 0),
-                                           brw_vec8_grf(pixel_reg, 0)));
-         set_predicate_inv(BRW_PREDICATE_NORMAL, true,
-                           bld.half(0).MOV(brw_vec8_grf(reg + 1, 0),
-                                           brw_vec8_grf(pixel_reg + 1, 0)));
-         if (dispatch_width == 16) {
-            set_predicate_inv(BRW_PREDICATE_NORMAL, true,
-                              bld.half(1).MOV(brw_vec8_grf(reg + 2, 0),
-                                              brw_vec8_grf(pixel_reg + 2, 0)));
-            set_predicate_inv(BRW_PREDICATE_NORMAL, true,
-                              bld.half(1).MOV(brw_vec8_grf(reg + 3, 0),
-                                              brw_vec8_grf(pixel_reg + 3, 0)));
+         for (unsigned q = 0; q < dispatch_width / 8; q++) {
+            for (unsigned c = 0; c < 2; c++) {
+               const unsigned idx = c + (q & 2) + (q & 1) * dispatch_width / 8;
+               set_predicate_inv(
+                  BRW_PREDICATE_NORMAL, true,
+                  bld.half(q).MOV(horiz_offset(delta_xy[i], idx * 8),
+                                  horiz_offset(pixel_delta_xy, idx * 8)));
+            }
          }
-         assert(dispatch_width != 32); /* not implemented yet */
       }
    }
 }
@@ -408,19 +369,17 @@ fs_visitor::emit_single_fb_write(const fs_builder &bld,
    struct brw_wm_prog_data *prog_data = brw_wm_prog_data(this->prog_data);
 
    /* Hand over gl_FragDepth or the payload depth. */
-   const fs_reg dst_depth = (payload.dest_depth_reg ?
-                             fs_reg(brw_vec8_grf(payload.dest_depth_reg, 0)) :
-                             fs_reg());
+   const fs_reg dst_depth = fetch_payload_reg(bld, payload.dest_depth_reg);
    fs_reg src_depth, src_stencil;
 
    if (source_depth_to_render_target) {
-      if (nir->info->outputs_written & BITFIELD64_BIT(FRAG_RESULT_DEPTH))
+      if (nir->info.outputs_written & BITFIELD64_BIT(FRAG_RESULT_DEPTH))
          src_depth = frag_depth;
       else
-         src_depth = fs_reg(brw_vec8_grf(payload.source_depth_reg, 0));
+         src_depth = fetch_payload_reg(bld, payload.source_depth_reg);
    }
 
-   if (nir->info->outputs_written & BITFIELD64_BIT(FRAG_RESULT_STENCIL))
+   if (nir->info.outputs_written & BITFIELD64_BIT(FRAG_RESULT_STENCIL))
       src_stencil = frag_stencil;
 
    const fs_reg sources[] = {
@@ -459,7 +418,7 @@ fs_visitor::emit_fb_writes()
       limit_dispatch_width(8, "Depth writes unsupported in SIMD16+ mode.\n");
    }
 
-   if (nir->info->outputs_written & BITFIELD64_BIT(FRAG_RESULT_STENCIL)) {
+   if (nir->info.outputs_written & BITFIELD64_BIT(FRAG_RESULT_STENCIL)) {
       /* From the 'Render Target Write message' section of the docs:
        * "Output Stencil is not supported with SIMD16 Render Target Write
        * Messages."
@@ -485,7 +444,8 @@ fs_visitor::emit_fb_writes()
       inst->target = target;
    }
 
-   prog_data->dual_src_blend = (this->dual_src_output.file != BAD_FILE);
+   prog_data->dual_src_blend = (this->dual_src_output.file != BAD_FILE &&
+                                this->outputs[0].file != BAD_FILE);
    assert(!prog_data->dual_src_blend || key->nr_color_regions == 1);
 
    if (inst == NULL) {
@@ -505,20 +465,28 @@ fs_visitor::emit_fb_writes()
       inst->target = 0;
    }
 
+   inst->last_rt = true;
    inst->eot = true;
 }
 
 void
-fs_visitor::setup_uniform_clipplane_values(gl_clip_plane *clip_planes)
+fs_visitor::setup_uniform_clipplane_values()
 {
    const struct brw_vs_prog_key *key =
       (const struct brw_vs_prog_key *) this->key;
+
+   if (key->nr_userclip_plane_consts == 0)
+      return;
+
+   assert(stage_prog_data->nr_params == uniforms);
+   brw_stage_prog_data_add_params(stage_prog_data,
+                                  key->nr_userclip_plane_consts * 4);
 
    for (int i = 0; i < key->nr_userclip_plane_consts; i++) {
       this->userplane[i] = fs_reg(UNIFORM, uniforms);
       for (int j = 0; j < 4; ++j) {
          stage_prog_data->param[uniforms + j] =
-            (gl_constant_value *) &clip_planes[i][j];
+            BRW_PARAM_BUILTIN_CLIP_PLANE(i, j);
       }
       uniforms += 4;
    }
@@ -530,7 +498,7 @@ fs_visitor::setup_uniform_clipplane_values(gl_clip_plane *clip_planes)
  * This does nothing if the shader uses gl_ClipDistance or user clipping is
  * disabled altogether.
  */
-void fs_visitor::compute_clip_distance(gl_clip_plane *clip_planes)
+void fs_visitor::compute_clip_distance()
 {
    struct brw_vue_prog_data *vue_prog_data = brw_vue_prog_data(prog_data);
    const struct brw_vs_prog_key *key =
@@ -562,7 +530,7 @@ void fs_visitor::compute_clip_distance(gl_clip_plane *clip_planes)
    if (outputs[clip_vertex].file == BAD_FILE)
       return;
 
-   setup_uniform_clipplane_values(clip_planes);
+   setup_uniform_clipplane_values();
 
    const fs_builder abld = bld.annotate("user clip distances");
 
@@ -603,34 +571,6 @@ fs_visitor::emit_urb_writes(const fs_reg &gs_vertex_count)
    else
       urb_handle = fs_reg(retype(brw_vec8_grf(1, 0), BRW_REGISTER_TYPE_UD));
 
-   /* If we don't have any valid slots to write, just do a minimal urb write
-    * send to terminate the shader.  This includes 1 slot of undefined data,
-    * because it's invalid to write 0 data:
-    *
-    * From the Broadwell PRM, Volume 7: 3D Media GPGPU, Shared Functions -
-    * Unified Return Buffer (URB) > URB_SIMD8_Write and URB_SIMD8_Read >
-    * Write Data Payload:
-    *
-    *    "The write data payload can be between 1 and 8 message phases long."
-    */
-   if (vue_map->slots_valid == 0) {
-      /* For GS, just turn EmitVertex() into a no-op.  We don't want it to
-       * end the thread, and emit_gs_thread_end() already emits a SEND with
-       * EOT at the end of the program for us.
-       */
-      if (stage == MESA_SHADER_GEOMETRY)
-         return;
-
-      fs_reg payload = fs_reg(VGRF, alloc.allocate(2), BRW_REGISTER_TYPE_UD);
-      bld.exec_all().MOV(payload, urb_handle);
-
-      fs_inst *inst = bld.emit(SHADER_OPCODE_URB_WRITE_SIMD8, reg_undef, payload);
-      inst->eot = true;
-      inst->mlen = 2;
-      inst->offset = 1;
-      return;
-   }
-
    opcode opcode = SHADER_OPCODE_URB_WRITE_SIMD8;
    int header_size = 1;
    fs_reg per_slot_offsets;
@@ -662,7 +602,7 @@ fs_visitor::emit_urb_writes(const fs_reg &gs_vertex_count)
          per_slot_offsets = brw_imm_ud(output_vertex_size_owords *
                                        gs_vertex_count.ud);
       } else {
-         per_slot_offsets = vgrf(glsl_type::int_type);
+         per_slot_offsets = vgrf(glsl_type::uint_type);
          bld.MUL(per_slot_offsets, gs_vertex_count,
                  brw_imm_ud(output_vertex_size_owords));
       }
@@ -682,6 +622,7 @@ fs_visitor::emit_urb_writes(const fs_reg &gs_vertex_count)
       last_slot--;
    }
 
+   bool urb_written = false;
    for (slot = 0; slot < vue_map->num_slots; slot++) {
       int varying = vue_map->slot_to_varying[slot];
       switch (varying) {
@@ -767,7 +708,7 @@ fs_visitor::emit_urb_writes(const fs_reg &gs_vertex_count)
        * the last slot or if we need to flush (see BAD_FILE varying case
        * above), emit a URB write send now to flush out the data.
        */
-      if (length == 8 || slot == last_slot)
+      if (length == 8 || (length > 0 && slot == last_slot))
          flush = true;
       if (flush) {
          fs_reg *payload_sources =
@@ -792,7 +733,36 @@ fs_visitor::emit_urb_writes(const fs_reg &gs_vertex_count)
          urb_offset = starting_urb_offset + slot + 1;
          length = 0;
          flush = false;
+         urb_written = true;
       }
+   }
+
+   /* If we don't have any valid slots to write, just do a minimal urb write
+    * send to terminate the shader.  This includes 1 slot of undefined data,
+    * because it's invalid to write 0 data:
+    *
+    * From the Broadwell PRM, Volume 7: 3D Media GPGPU, Shared Functions -
+    * Unified Return Buffer (URB) > URB_SIMD8_Write and URB_SIMD8_Read >
+    * Write Data Payload:
+    *
+    *    "The write data payload can be between 1 and 8 message phases long."
+    */
+   if (!urb_written) {
+      /* For GS, just turn EmitVertex() into a no-op.  We don't want it to
+       * end the thread, and emit_gs_thread_end() already emits a SEND with
+       * EOT at the end of the program for us.
+       */
+      if (stage == MESA_SHADER_GEOMETRY)
+         return;
+
+      fs_reg payload = fs_reg(VGRF, alloc.allocate(2), BRW_REGISTER_TYPE_UD);
+      bld.exec_all().MOV(payload, urb_handle);
+
+      fs_inst *inst = bld.emit(SHADER_OPCODE_URB_WRITE_SIMD8, reg_undef, payload);
+      inst->eot = true;
+      inst->mlen = 2;
+      inst->offset = 1;
+      return;
    }
 }
 
@@ -830,14 +800,13 @@ fs_visitor::emit_barrier()
 
    fs_reg payload = fs_reg(VGRF, alloc.allocate(1), BRW_REGISTER_TYPE_UD);
 
-   const fs_builder pbld = bld.exec_all().group(8, 0);
-
    /* Clear the message payload */
-   pbld.MOV(payload, brw_imm_ud(0u));
+   bld.exec_all().group(8, 0).MOV(payload, brw_imm_ud(0u));
 
    /* Copy the barrier id from r0.2 to the message payload reg.2 */
    fs_reg r0_2 = fs_reg(retype(brw_vec1_grf(0, 2), BRW_REGISTER_TYPE_UD));
-   pbld.AND(component(payload, 2), r0_2, brw_imm_ud(barrier_id_mask));
+   bld.exec_all().group(1, 0).AND(component(payload, 2), r0_2,
+                                  brw_imm_ud(barrier_id_mask));
 
    /* Emit a gateway "barrier" message using the payload we set up, followed
     * by a wait instruction.
@@ -908,17 +877,6 @@ fs_visitor::init()
       unreachable("unhandled shader stage");
    }
 
-   if (stage == MESA_SHADER_COMPUTE) {
-      const struct brw_cs_prog_data *cs_prog_data = brw_cs_prog_data(prog_data);
-      unsigned size = cs_prog_data->local_size[0] *
-                      cs_prog_data->local_size[1] *
-                      cs_prog_data->local_size[2];
-      size = DIV_ROUND_UP(size, devinfo->max_cs_threads);
-      min_dispatch_width = size > 16 ? 32 : (size > 8 ? 16 : 8);
-   } else {
-      min_dispatch_width = 8;
-   }
-
    this->max_dispatch_width = 32;
    this->prog_data = this->stage_prog_data;
 
@@ -945,6 +903,7 @@ fs_visitor::init()
 
    this->promoted_constants = 0,
 
+   this->grf_used = 0;
    this->spilled_any_registers = false;
 }
 

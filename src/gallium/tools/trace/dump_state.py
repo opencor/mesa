@@ -1,9 +1,9 @@
 #!/usr/bin/env python2
 ##########################################################################
-#
+# 
 # Copyright 2008-2013, VMware, Inc.
 # All Rights Reserved.
-#
+# 
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the
 # "Software"), to deal in the Software without restriction, including
@@ -11,11 +11,11 @@
 # distribute, sub license, and/or sell copies of the Software, and to
 # permit persons to whom the Software is furnished to do so, subject to
 # the following conditions:
-#
+# 
 # The above copyright notice and this permission notice (including the
 # next paragraph) shall be included in all copies or substantial portions
 # of the Software.
-#
+# 
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
 # OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
 # MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
 # ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-#
+# 
 ##########################################################################
 
 
@@ -88,7 +88,7 @@ def serialize(obj):
 
 class Struct:
     """C-like struct.
-
+    
     Python doesn't have C structs, but do its dynamic nature, any object is
     pretty close.
     """
@@ -118,39 +118,40 @@ class Translator(model.Visitor):
         self.result = None
         node.visit(self)
         return self.result
-
+        
     def visit_literal(self, node):
         self.result = node.value
-
+    
     def visit_blob(self, node):
         self.result = node
-
+    
     def visit_named_constant(self, node):
         self.result = node.name
-
+    
     def visit_array(self, node):
         array = []
         for element in node.elements:
             array.append(self.visit(element))
         self.result = array
-
+    
     def visit_struct(self, node):
         struct = Struct()
         for member_name, member_node in node.members:
+            member_name = member_name.replace('.', '_')
             member_value = self.visit(member_node)
             setattr(struct, member_name, member_value)
         self.result = struct
-
+    
     def visit_pointer(self, node):
         self.result = self.interpreter.lookup_object(node.address)
 
 
 class Dispatcher:
     '''Base class for classes whose methods can dispatch Gallium calls.'''
-
+    
     def __init__(self, interpreter):
         self.interpreter = interpreter
-
+        
 
 class Global(Dispatcher):
     '''Global name space.
@@ -161,11 +162,11 @@ class Global(Dispatcher):
 
     def pipe_screen_create(self):
         return Screen(self.interpreter)
-
+    
     def pipe_context_create(self, screen):
         return screen.context_create()
 
-
+    
 class Transfer:
     '''pipe_transfer'''
 
@@ -178,19 +179,19 @@ class Transfer:
 
 class Screen(Dispatcher):
     '''pipe_screen'''
-
+    
     def __init__(self, interpreter):
         Dispatcher.__init__(self, interpreter)
 
     def destroy(self):
         pass
 
-    def context_create(self):
+    def context_create(self, priv=None, flags=0):
         return Context(self.interpreter)
-
+    
     def is_format_supported(self, format, target, sample_count, bind, geom_flags):
         pass
-
+    
     def resource_create(self, templat):
         resource = templat
         # Normalize state to avoid spurious differences
@@ -208,13 +209,13 @@ class Screen(Dispatcher):
 
     def fence_finish(self, fence, timeout=None):
         pass
-
+    
     def fence_signalled(self, fence):
         pass
-
+    
     def fence_reference(self, dst, src):
         pass
-
+    
     def flush_frontbuffer(self, resource):
         pass
 
@@ -223,7 +224,7 @@ class Context(Dispatcher):
     '''pipe_context'''
 
     # Internal methods variable should be prefixed with '_'
-
+    
     def __init__(self, interpreter):
         Dispatcher.__init__(self, interpreter)
 
@@ -255,7 +256,7 @@ class Context(Dispatcher):
 
     def destroy(self):
         pass
-
+    
     def create_blend_state(self, state):
         # Normalize state to avoid spurious differences
         if not state.logicop_enable:
@@ -275,7 +276,7 @@ class Context(Dispatcher):
 
     def delete_blend_state(self, state):
         pass
-
+    
     def create_sampler_state(self, state):
         return state
 
@@ -298,16 +299,16 @@ class Context(Dispatcher):
     def bind_fragment_sampler_states(self, num_states, states):
         # XXX: deprecated method
         self._state.fs.sampler = states
-
+        
     def create_rasterizer_state(self, state):
         return state
 
     def bind_rasterizer_state(self, state):
         self._state.rasterizer = state
-
+        
     def delete_rasterizer_state(self, state):
         pass
-
+    
     def create_depth_stencil_alpha_state(self, state):
         # Normalize state to avoid spurious differences
         if not state.alpha.enabled:
@@ -320,7 +321,7 @@ class Context(Dispatcher):
 
     def bind_depth_stencil_alpha_state(self, state):
         self._state.depth_stencil_alpha = state
-
+            
     def delete_depth_stencil_alpha_state(self, state):
         pass
 
@@ -335,16 +336,16 @@ class Context(Dispatcher):
     create_vs_state = _create_shader_state
     create_gs_state = _create_shader_state
     create_fs_state = _create_shader_state
-
+    
     def bind_vs_state(self, state):
         self._state.vs.shader = state
 
     def bind_gs_state(self, state):
         self._state.gs.shader = state
-
+        
     def bind_fs_state(self, state):
         self._state.fs.shader = state
-
+        
     def _delete_shader_state(self, state):
         return state
 
@@ -434,7 +435,7 @@ class Context(Dispatcher):
 
     def set_vertex_buffers(self, start_slot, num_buffers, buffers):
         self._update(self._state.vertex_buffers, start_slot, num_buffers, buffers)
-
+            
     def create_vertex_elements_state(self, num_elements, elements):
         return elements[0:num_elements]
 
@@ -454,7 +455,7 @@ class Context(Dispatcher):
         '''Merge the vertices into our state.'''
 
         index_size = self._state.index_buffer.index_size
-
+        
         format = {
             1: 'B',
             2: 'H',
@@ -498,10 +499,11 @@ class Context(Dispatcher):
             vertex = []
             for velem in self._state.vertex_elements:
                 vbuf = self._state.vertex_buffers[velem.vertex_buffer_index]
-                if vbuf.buffer is None:
+                resource = vbuf.buffer_resource
+                if resource is None:
                     continue
 
-                data = vbuf.buffer.data
+                data = resource.data
 
                 offset = vbuf.buffer_offset + velem.src_offset + vbuf.stride*index
                 format = {
@@ -523,7 +525,7 @@ class Context(Dispatcher):
                     'PIPE_FORMAT_R16G16B16_SNORM': '3h',
                 }[velem.src_format]
 
-                data = vbuf.buffer.data
+                data = resource.data
                 attribute = unpack_from(format, data, offset)
                 vertex.append(attribute)
 
@@ -551,7 +553,7 @@ class Context(Dispatcher):
 
         self._state.draw = info
 
-        if info.indexed:
+        if info.index_size != 0:
             min_index, max_index = self._merge_indices(info)
         else:
             min_index = info.start
@@ -627,15 +629,34 @@ class Context(Dispatcher):
 
     def is_resource_referenced(self, texture, face, level):
         pass
-
+    
     def get_transfer(self, texture, sr, usage, box):
         if texture is None:
             return None
         transfer = Transfer(texture, sr, usage, box)
         return transfer
-
+    
     def tex_transfer_destroy(self, transfer):
         self.interpreter.unregister_object(transfer)
+
+    def buffer_subdata(self, resource, usage, data, box=None, offset=None, size=None, level=None, stride=None, layer_stride=None):
+        if box is not None:
+            # XXX trace_context_transfer_unmap generates brokens buffer_subdata
+            assert offset is None
+            assert size is None
+            assert level == 0
+            offset = box.x
+            size = box.width
+            box = None
+
+        if resource is not None and resource.target == PIPE_BUFFER:
+            data = data.getValue()
+            assert len(data) >= size
+            assert offset + size <= len(resource.data)
+            resource.data[offset : offset + size] = data[:size]
+
+    def texture_subdata(self, resource, level, usage, box, data, stride, layer_stride):
+        pass
 
     def transfer_inline_write(self, resource, level, usage, box, stride, layer_stride, data):
         if resource is not None and resource.target == PIPE_BUFFER:
@@ -650,7 +671,7 @@ class Context(Dispatcher):
 
     def clear(self, buffers, color, depth, stencil):
         pass
-
+        
     def clear_render_target(self, dst, rgba, dstx, dsty, width, height):
         pass
 
@@ -667,7 +688,7 @@ class Context(Dispatcher):
 
     def create_query(self, query_type, index):
         return query_type
-
+    
     def destroy_query(self, query):
         pass
 
@@ -688,7 +709,7 @@ class Context(Dispatcher):
 class Interpreter(parser.TraceDumper):
     '''Specialization of a trace parser that interprets the calls as it goes
     along.'''
-
+    
     ignoredCalls = set((
             ('pipe_screen', 'is_format_supported'),
             ('pipe_screen', 'get_name'),
@@ -709,7 +730,7 @@ class Interpreter(parser.TraceDumper):
 
     def register_object(self, address, object):
         self.objects[address] = object
-
+        
     def unregister_object(self, object):
         # TODO
         pass
@@ -720,7 +741,7 @@ class Interpreter(parser.TraceDumper):
         except KeyError:
             # Could happen, e.g., with user memory pointers
             return address
-
+    
     def interpret(self, trace):
         for call in trace.calls:
             self.interpret_call(call)
@@ -738,18 +759,18 @@ class Interpreter(parser.TraceDumper):
             parser.TraceDumper.handle_call(self, call)
             sys.stderr.flush()
             sys.stdout.flush()
-
-        args = [(str(name), self.interpret_arg(arg)) for name, arg in call.args]
-
+        
+        args = [(str(name), self.interpret_arg(arg)) for name, arg in call.args] 
+        
         if call.klass:
             name, obj = args[0]
             args = args[1:]
         else:
             obj = self.globl
-
+            
         method = getattr(obj, call.method)
         ret = method(**dict(args))
-
+        
         # Keep track of created pointer objects.
         if call.ret and isinstance(call.ret, model.Pointer):
             if ret is None:
@@ -764,7 +785,7 @@ class Interpreter(parser.TraceDumper):
 
     def verbosity(self, level):
         return self.options.verbosity >= level
-
+    
 
 class Main(parser.Main):
 

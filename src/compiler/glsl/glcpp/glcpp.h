@@ -27,11 +27,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "main/mtypes.h"
+#include "main/menums.h"
 
 #include "util/ralloc.h"
 
 #include "util/hash_table.h"
+
+#include "util/string_buffer.h"
+
+struct gl_context;
 
 #define yyscan_t void*
 
@@ -41,7 +45,7 @@ typedef struct expression_value {
 	intmax_t value;
 	char *undefined_macro;
 } expression_value_t;
-
+   
 
 typedef struct string_node {
 	const char *str;
@@ -193,16 +197,15 @@ struct glcpp_parser {
 	int first_non_space_token_this_line;
 	int newline_as_space;
 	int in_control_line;
+	bool in_define;
 	int paren_count;
 	int commented_newlines;
 	skip_node_t *skip_stack;
 	int skipping;
 	token_list_t *lex_from_list;
 	token_node_t *lex_from_node;
-	char *output;
-	char *info_log;
-	size_t output_length;
-	size_t info_log_length;
+	struct _mesa_string_buffer *output;
+	struct _mesa_string_buffer *info_log;
 	int error;
 	glcpp_extension_iterator extensions;
 	const struct gl_extensions *extension_list;

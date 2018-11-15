@@ -39,22 +39,13 @@
 #include "fd4_texture.h"
 #include "fd4_format.h"
 
-static void
-delete_shader_stateobj(struct fd4_shader_stateobj *so)
-{
-	ir3_shader_destroy(so->shader);
-	free(so);
-}
-
-static struct fd4_shader_stateobj *
+static struct ir3_shader *
 create_shader_stateobj(struct pipe_context *pctx, const struct pipe_shader_state *cso,
 		enum shader_t type)
 {
 	struct fd_context *ctx = fd_context(pctx);
 	struct ir3_compiler *compiler = ctx->screen->compiler;
-	struct fd4_shader_stateobj *so = CALLOC_STRUCT(fd4_shader_stateobj);
-	so->shader = ir3_shader_create(compiler, cso, type, &ctx->debug);
-	return so;
+	return ir3_shader_create(compiler, cso, type, &ctx->debug);
 }
 
 static void *
@@ -67,8 +58,8 @@ fd4_fp_state_create(struct pipe_context *pctx,
 static void
 fd4_fp_state_delete(struct pipe_context *pctx, void *hwcso)
 {
-	struct fd4_shader_stateobj *so = hwcso;
-	delete_shader_stateobj(so);
+	struct ir3_shader *so = hwcso;
+	ir3_shader_destroy(so);
 }
 
 static void *
@@ -81,45 +72,39 @@ fd4_vp_state_create(struct pipe_context *pctx,
 static void
 fd4_vp_state_delete(struct pipe_context *pctx, void *hwcso)
 {
-	struct fd4_shader_stateobj *so = hwcso;
-	delete_shader_stateobj(so);
+	struct ir3_shader *so = hwcso;
+	ir3_shader_destroy(so);
 }
 
 static void
 emit_shader(struct fd_ringbuffer *ring, const struct ir3_shader_variant *so)
 {
 	const struct ir3_info *si = &so->info;
-	enum adreno_state_block sb;
+	enum a4xx_state_block sb = fd4_stage2shadersb(so->type);
 	enum adreno_state_src src;
 	uint32_t i, sz, *bin;
 
-	if (so->type == SHADER_VERTEX) {
-		sb = SB_VERT_SHADER;
-	} else {
-		sb = SB_FRAG_SHADER;
-	}
-
 	if (fd_mesa_debug & FD_DBG_DIRECT) {
 		sz = si->sizedwords;
-		src = SS_DIRECT;
+		src = SS4_DIRECT;
 		bin = fd_bo_map(so->bo);
 	} else {
 		sz = 0;
-		src = 2;  // enums different on a4xx..
+		src = SS4_INDIRECT;
 		bin = NULL;
 	}
 
-	OUT_PKT3(ring, CP_LOAD_STATE, 2 + sz);
-	OUT_RING(ring, CP_LOAD_STATE_0_DST_OFF(0) |
-			CP_LOAD_STATE_0_STATE_SRC(src) |
-			CP_LOAD_STATE_0_STATE_BLOCK(sb) |
-			CP_LOAD_STATE_0_NUM_UNIT(so->instrlen));
+	OUT_PKT3(ring, CP_LOAD_STATE4, 2 + sz);
+	OUT_RING(ring, CP_LOAD_STATE4_0_DST_OFF(0) |
+			CP_LOAD_STATE4_0_STATE_SRC(src) |
+			CP_LOAD_STATE4_0_STATE_BLOCK(sb) |
+			CP_LOAD_STATE4_0_NUM_UNIT(so->instrlen));
 	if (bin) {
-		OUT_RING(ring, CP_LOAD_STATE_1_EXT_SRC_ADDR(0) |
-				CP_LOAD_STATE_1_STATE_TYPE(ST_SHADER));
+		OUT_RING(ring, CP_LOAD_STATE4_1_EXT_SRC_ADDR(0) |
+				CP_LOAD_STATE4_1_STATE_TYPE(ST4_SHADER));
 	} else {
 		OUT_RELOC(ring, so->bo, 0,
-				CP_LOAD_STATE_1_STATE_TYPE(ST_SHADER), 0);
+				CP_LOAD_STATE4_1_STATE_TYPE(ST4_SHADER), 0);
 	}
 
 	/* for how clever coverity is, it is sometimes rather dull, and

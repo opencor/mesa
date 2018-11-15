@@ -479,7 +479,7 @@ Mesa Version History
 	- v0.22 of 3Dfx Glide driver
 	- more X86 assembly language optimizations
 	- faster blending for some modes
-	- XMesaSetFXmode() to switch between 3Dfx window and full-screen mode
+	- XMesaSetFXmode() to switch between 3Dfx window and full-screen mode 
 	- added preliminary thread support
 	- added GLX_MESA_copy_sub_buffer extension
 	- some clipping optimizations

@@ -1,6 +1,6 @@
 /*
  Copyright (c) 2008, 2009 Apple Inc.
-
+ 
  Permission is hereby granted, free of charge, to any person
  obtaining a copy of this software and associated documentation files
  (the "Software"), to deal in the Software without restriction,
@@ -8,10 +8,10 @@
  publish, distribute, sublicense, and/or sell copies of the Software,
  and to permit persons to whom the Software is furnished to do so,
  subject to the following conditions:
-
+ 
  The above copyright notice and this permission notice shall be
  included in all copies or substantial portions of the Software.
-
+ 
  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -20,7 +20,7 @@
  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  DEALINGS IN THE SOFTWARE.
-
+ 
  Except as contained in this notice, the name(s) of the above
  copyright holders shall not be used in advertising or otherwise to
  promote the sale, use or other dealings in this Software without
@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <GL/gl.h>
+#include <util/debug.h>
 
 /* <rdar://problem/6953344> */
 #define glTexImage1D glTexImage1D_OSX
@@ -82,7 +83,7 @@ apple_visual_create_pfobj(CGLPixelFormatObj * pfobj, const struct glx_config * m
    int numattr = 0;
    GLint vsref = 0;
    CGLError error = 0;
-   bool use_core_profile = getenv("LIBGL_PROFILE_CORE");
+   bool use_core_profile = env_var_as_boolean("LIBGL_PROFILE_CORE", false);
 
    if (offscreen) {
       apple_glx_diagnostic
@@ -90,13 +91,13 @@ apple_visual_create_pfobj(CGLPixelFormatObj * pfobj, const struct glx_config * m
 
       attr[numattr++] = kCGLPFAOffScreen;
    }
-   else if (getenv("LIBGL_ALWAYS_SOFTWARE") != NULL) {
+   else if (env_var_as_boolean("LIBGL_ALWAYS_SOFTWARE", false)) {
       apple_glx_diagnostic
          ("Software rendering requested.  Using kCGLRendererGenericFloatID.\n");
       attr[numattr++] = kCGLPFARendererID;
       attr[numattr++] = kCGLRendererGenericFloatID;
    }
-   else if (getenv("LIBGL_ALLOW_SOFTWARE") != NULL) {
+   else if (env_var_as_boolean("LIBGL_ALLOW_SOFTWARE", false)) {
       apple_glx_diagnostic
          ("Software rendering is not being excluded.  Not using kCGLPFAAccelerated.\n");
    }
@@ -104,7 +105,7 @@ apple_visual_create_pfobj(CGLPixelFormatObj * pfobj, const struct glx_config * m
       attr[numattr++] = kCGLPFAAccelerated;
    }
 
-   /*
+   /* 
     * The program chose a config based on the fbconfigs or visuals.
     * Those are based on the attributes from CGL, so we probably
     * do want the closest match for the color, depth, and accum.
@@ -190,7 +191,7 @@ apple_visual_create_pfobj(CGLPixelFormatObj * pfobj, const struct glx_config * m
 
    if (!*pfobj) {
       snprintf(__crashreporter_info_buff__, sizeof(__crashreporter_info_buff__),
-               "No matching pixelformats found, perhaps try using LIBGL_ALLOW_SOFTWARE\n");
+               "No matching pixelformats found, perhaps try setting LIBGL_ALLOW_SOFTWARE=true\n");
       fprintf(stderr, "%s", __crashreporter_info_buff__);
       abort();
    }

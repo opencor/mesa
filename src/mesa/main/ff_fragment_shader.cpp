@@ -1,10 +1,10 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  * Copyright 2009 VMware, Inc.  All Rights Reserved.
  * Copyright © 2010-2011 Intel Corporation
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -12,11 +12,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -24,7 +24,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include "main/glheader.h"
@@ -33,6 +33,7 @@
 #include "main/macros.h"
 #include "main/samplerobj.h"
 #include "main/shaderobj.h"
+#include "main/state.h"
 #include "main/texenvprogram.h"
 #include "main/texobj.h"
 #include "main/uniforms.h"
@@ -172,14 +173,14 @@ static GLbitfield filter_fp_input_mask( GLbitfield fp_inputs,
    /* _NEW_PROGRAM */
    const GLboolean vertexShader =
          ctx->_Shader->CurrentProgram[MESA_SHADER_VERTEX] != NULL;
-   const GLboolean vertexProgram = ctx->VertexProgram._Enabled;
+   const GLboolean vertexProgram = _mesa_arb_vertex_program_enabled(ctx);
 
    if (!(vertexProgram || vertexShader)) {
       /* Fixed function vertex logic */
       GLbitfield possible_inputs = 0;
 
       /* _NEW_VARYING_VP_INPUTS */
-      GLbitfield64 varying_inputs = ctx->varying_vp_inputs;
+      GLbitfield varying_inputs = ctx->varying_vp_inputs;
 
       /* These get generated in the setup routine regardless of the
        * vertex program:
@@ -228,7 +229,11 @@ static GLbitfield filter_fp_input_mask( GLbitfield fp_inputs,
     * since vertex shader state validation comes after fragment state
     * validation (see additional comments in state.c).
     */
-   if (vertexShader)
+   if (ctx->_Shader->CurrentProgram[MESA_SHADER_GEOMETRY] != NULL)
+      vprog = ctx->_Shader->CurrentProgram[MESA_SHADER_GEOMETRY];
+   else if (ctx->_Shader->CurrentProgram[MESA_SHADER_TESS_EVAL] != NULL)
+      vprog = ctx->_Shader->CurrentProgram[MESA_SHADER_TESS_EVAL];
+   else if (vertexShader)
       vprog = ctx->_Shader->CurrentProgram[MESA_SHADER_VERTEX];
    else
       vprog = ctx->VertexProgram.Current;
@@ -267,7 +272,8 @@ static GLuint make_state_key( struct gl_context *ctx,  struct state_key *key )
       i = u_bit_scan(&mask);
       const struct gl_texture_unit *texUnit = &ctx->Texture.Unit[i];
       const struct gl_texture_object *texObj = texUnit->_Current;
-      const struct gl_tex_env_combine_packed *comb = &texUnit->_CurrentCombinePacked;
+      const struct gl_tex_env_combine_packed *comb =
+         &ctx->Texture.FixedFuncUnit[i]._CurrentCombinePacked;
 
       if (!texObj)
          continue;
@@ -495,7 +501,7 @@ static GLboolean args_match( const struct state_key *key, GLuint unit )
 	    return GL_FALSE;
 	 }
 	 break;
-      default:
+      default: 
 	 return GL_FALSE;	/* impossible */
       }
    }
@@ -579,7 +585,7 @@ emit_combine(texenv_fragment_program *p,
    case TEXENV_MODE_ADD_PRODUCTS_SIGNED_NV:
       return add(add(mul(src[0], src[1]), mul(src[2], src[3])),
 		 new(p->mem_ctx) ir_constant(-0.5f));
-   default:
+   default: 
       assert(0);
       return src[0];
    }
@@ -598,7 +604,7 @@ emit_texenv(texenv_fragment_program *p, GLuint unit)
    if (!key->unit[unit].enabled) {
       return get_source(p, TEXENV_SRC_PREVIOUS, 0);
    }
-
+   
    switch (key->unit[unit].ModeRGB) {
    case TEXENV_MODE_DOT3_RGB_EXT:
       alpha_shift = key->unit[unit].ScaleShiftA;
@@ -613,7 +619,7 @@ emit_texenv(texenv_fragment_program *p, GLuint unit)
       alpha_shift = key->unit[unit].ScaleShiftA;
       break;
    }
-
+   
    /* If we'll do rgb/alpha shifting don't saturate in emit_combine().
     * We don't want to clamp twice.
     */
@@ -861,7 +867,7 @@ load_texenv_source(texenv_fragment_program *p,
    case TEXENV_SRC_TEXTURE7:
       load_texture(p, src - TEXENV_SRC_TEXTURE0);
       break;
-
+      
    default:
       /* not a texture src - do nothing */
       break;
@@ -1115,7 +1121,7 @@ create_new_program(struct gl_context *ctx, struct state_key *key)
 
    reparent_ir(p.shader->ir, p.shader->ir);
 
-   p.shader->CompileStatus = compile_success;
+   p.shader->CompileStatus = COMPILE_SUCCESS;
    p.shader->Version = state->language_version;
    p.shader_program->Shaders =
       (gl_shader **)malloc(sizeof(*p.shader_program->Shaders));

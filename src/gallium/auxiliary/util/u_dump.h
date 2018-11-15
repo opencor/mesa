@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2009 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,13 +22,13 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /**
  * @file
  * Dump data in human/machine readable format.
- *
+ * 
  * @author Jose Fonseca <jfonseca@vmware.com>
  */
 
@@ -52,45 +52,58 @@ extern "C" {
 
 /*
  * p_defines.h
- *
- * XXX: These functions don't really dump anything -- just translate into
- * strings so a verb better than "dump" should be used instead, in order to
- * free up the namespace to the true dumper functions.
  */
 
 const char *
-util_dump_blend_factor(unsigned value, boolean shortened);
+util_str_blend_factor(unsigned value, boolean shortened);
 
 const char *
-util_dump_blend_func(unsigned value, boolean shortened);
+util_str_blend_func(unsigned value, boolean shortened);
 
 const char *
-util_dump_logicop(unsigned value, boolean shortened);
+util_str_logicop(unsigned value, boolean shortened);
 
 const char *
-util_dump_func(unsigned value, boolean shortened);
+util_str_func(unsigned value, boolean shortened);
 
 const char *
-util_dump_stencil_op(unsigned value, boolean shortened);
+util_str_stencil_op(unsigned value, boolean shortened);
 
 const char *
-util_dump_tex_target(unsigned value, boolean shortened);
+util_str_tex_target(unsigned value, boolean shortened);
 
 const char *
-util_dump_tex_wrap(unsigned value, boolean shortened);
+util_str_tex_wrap(unsigned value, boolean shortened);
 
 const char *
-util_dump_tex_mipfilter(unsigned value, boolean shortened);
+util_str_tex_mipfilter(unsigned value, boolean shortened);
 
 const char *
-util_dump_tex_filter(unsigned value, boolean shortened);
+util_str_tex_filter(unsigned value, boolean shortened);
 
 const char *
-util_dump_query_type(unsigned value, boolean shortened);
+util_str_query_type(unsigned value, boolean shortened);
 
 const char *
-util_dump_prim_mode(unsigned value, boolean shortened);
+util_str_query_value_type(unsigned value, boolean shortened);
 
+const char *
+util_str_prim_mode(unsigned value, boolean shortened);
+
+void
+util_dump_ns(FILE *f, uint64_t time);
+
+void
+util_dump_ptr(FILE *stream, const void *value);
+
+void
+util_dump_query_type(FILE *stream, unsigned value);
+
+void
+util_dump_query_value_type(FILE *stream, unsigned value);
+
+void
+util_dump_transfer_usage(FILE *stream, unsigned value);
 
 /*
  * p_state.h, through a FILE
@@ -173,9 +186,6 @@ util_dump_constant_buffer(FILE *stream,
                           const struct pipe_constant_buffer *state);
 
 void
-util_dump_index_buffer(FILE *stream, const struct pipe_index_buffer *state);
-
-void
 util_dump_vertex_buffer(FILE *stream,
                         const struct pipe_vertex_buffer *state);
 
@@ -189,6 +199,9 @@ util_dump_stream_output_target(FILE *stream,
 
 void
 util_dump_draw_info(FILE *stream, const struct pipe_draw_info *state);
+
+void
+util_dump_grid_info(FILE *stream, const struct pipe_grid_info *state);
 
 void
 util_dump_box(FILE *stream, const struct pipe_box *box);

@@ -72,7 +72,7 @@ get_texel_array(SWcontext *swrast, GLuint unit)
  * \param unit         the texture combiner unit
  * \param primary_rgba incoming fragment color array
  * \param texelBuffer  pointer to texel colors for all texture units
- *
+ * 
  * \param span         two fields are used in this function:
  *                       span->end: number of fragments to process
  *                       span->array->rgba: incoming/result fragment colors
@@ -84,7 +84,8 @@ texture_combine( struct gl_context *ctx, GLuint unit,
                  SWspan *span )
 {
    SWcontext *swrast = SWRAST_CONTEXT(ctx);
-   const struct gl_texture_unit *textureUnit = &(ctx->Texture.Unit[unit]);
+   const struct gl_fixedfunc_texture_unit *textureUnit =
+      &ctx->Texture.FixedFuncUnit[unit];
    const struct gl_tex_env_combine_state *combine = textureUnit->_CurrentCombine;
    float4_array argRGB[MAX_COMBINER_TERMS];
    float4_array argA[MAX_COMBINER_TERMS];

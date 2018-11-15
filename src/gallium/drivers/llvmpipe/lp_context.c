@@ -1,9 +1,9 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  * Copyright 2008 VMware, Inc.  All rights reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -11,11 +11,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /* Author:
@@ -96,7 +96,7 @@ static void llvmpipe_destroy( struct pipe_context *pipe )
    }
 
    for (i = 0; i < llvmpipe->num_vertex_buffers; i++) {
-      pipe_resource_reference(&llvmpipe->vertex_buffer[i].buffer, NULL);
+      pipe_vertex_buffer_unreference(&llvmpipe->vertex_buffer[i]);
    }
 
    lp_delete_setup_variants(llvmpipe);
@@ -119,10 +119,10 @@ do_flush( struct pipe_context *pipe,
 
 
 static void
-llvmpipe_render_condition ( struct pipe_context *pipe,
-                            struct pipe_query *query,
-                            boolean condition,
-                            uint mode )
+llvmpipe_render_condition(struct pipe_context *pipe,
+                          struct pipe_query *query,
+                          boolean condition,
+                          enum pipe_render_cond_flag mode)
 {
    struct llvmpipe_context *llvmpipe = llvmpipe_context( pipe );
 
@@ -217,7 +217,7 @@ llvmpipe_create_context(struct pipe_screen *screen, void *priv,
    draw_install_aapoint_stage(llvmpipe->draw, &llvmpipe->pipe);
    draw_install_pstipple_stage(llvmpipe->draw, &llvmpipe->pipe);
 
-   /* convert points and lines into triangles:
+   /* convert points and lines into triangles: 
     * (otherwise, draw points and lines natively)
     */
    draw_wide_point_sprites(llvmpipe->draw, FALSE);
@@ -226,6 +226,12 @@ llvmpipe_create_context(struct pipe_screen *screen, void *priv,
    draw_wide_line_threshold(llvmpipe->draw, 10000.0);
 
    lp_reset_counters();
+
+   /* If llvmpipe_set_scissor_states() is never called, we still need to
+    * make sure that derived scissor state is computed.
+    * See https://bugs.freedesktop.org/show_bug.cgi?id=101709
+    */
+   llvmpipe->dirty |= LP_NEW_SCISSOR;
 
    return &llvmpipe->pipe;
 

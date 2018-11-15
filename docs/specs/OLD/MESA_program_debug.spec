@@ -12,7 +12,7 @@ Contact
 
 Status
 
-    XXX - Not complete yet!!!
+    Obsolete.
 
 Version
 
@@ -92,7 +92,7 @@ Issues
        functions and no other GL commands.  It could be difficult to
        enforce this, however.  Therefore, calling any non-get GL
        command from within the callback will result in undefined
-       results.
+       results.    
 
     4. Is this extension amenable to hardware implementation?
 
@@ -133,7 +133,7 @@ New Tokens
     GetFloatv and GetIntegerv:
 
         FRAGMENT_PROGRAM_POSITION_MESA      0x8bb0
-        VERTEX_PROGRAM_POSITION_MESA        0x8bb4
+        VERTEX_PROGRAM_POSITION_MESA        0x8bb5
 
     Accepted by the <pname> parameter of GetPointerv:
 
@@ -215,7 +215,7 @@ State Requests)
         void GetProgramRegisterfvMESA(enum target, sizei len,
                                       const ubyte *registerName,
                                       float *v)
-
+        
     Is used to query the value of program variables and registers
     during program execution.  GetProgramRegisterfvMESA may only be
     called from within a callback function registered with

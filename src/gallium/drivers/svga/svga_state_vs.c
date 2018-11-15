@@ -105,6 +105,9 @@ get_compiled_dummy_vertex_shader(struct svga_context *svga,
    FREE((void *) vs->base.tokens);
    vs->base.tokens = dummy;
 
+   tgsi_scan_shader(vs->base.tokens, &vs->base.info);
+   vs->generic_outputs = svga_get_generic_outputs_mask(&vs->base.info);
+
    variant = translate_vertex_program(svga, vs, key);
    return variant;
 }
@@ -224,16 +227,15 @@ svga_reemit_vs_bindings(struct svga_context *svga)
    if (!svga_need_to_rebind_resources(svga)) {
       ret =  svga->swc->resource_rebind(svga->swc, NULL, gbshader,
                                         SVGA_RELOC_READ);
-      goto out;
+   }
+   else {
+      if (svga_have_vgpu10(svga))
+         ret = SVGA3D_vgpu10_SetShader(svga->swc, SVGA3D_SHADERTYPE_VS,
+                                       gbshader, shaderId);
+      else
+         ret = SVGA3D_SetGBShader(svga->swc, SVGA3D_SHADERTYPE_VS, gbshader);
    }
 
-   if (svga_have_vgpu10(svga))
-      ret = SVGA3D_vgpu10_SetShader(svga->swc, SVGA3D_SHADERTYPE_VS,
-                                    gbshader, shaderId);
-   else
-      ret = SVGA3D_SetGBShader(svga->swc, SVGA3D_SHADERTYPE_VS, gbshader);
-
- out:
    if (ret != PIPE_OK)
       return ret;
 
@@ -353,11 +355,14 @@ emit_hw_vs(struct svga_context *svga, unsigned dirty)
       /* No GS stream out */
       if (svga_have_vs_streamout(svga)) {
          /* Set VS stream out */
-         svga_set_stream_output(svga, vs->base.stream_output);
+         ret = svga_set_stream_output(svga, vs->base.stream_output);
       }
       else {
          /* turn off stream out */
-         svga_set_stream_output(svga, NULL);
+         ret = svga_set_stream_output(svga, NULL);
+      }
+      if (ret != PIPE_OK) {
+         goto done;
       }
    }
 
@@ -408,7 +413,7 @@ done:
    return ret;
 }
 
-struct svga_tracked_state svga_hw_vs =
+struct svga_tracked_state svga_hw_vs = 
 {
    "vertex shader (hwtnl)",
    (SVGA_NEW_VS |

@@ -64,7 +64,7 @@ gen6_gs_visitor::emit_prolog()
    this->vertex_output = src_reg(this,
                                  glsl_type::uint_type,
                                  (prog_data->vue_map.num_slots + 1) *
-                                 nir->info->gs.vertices_out);
+                                 nir->info.gs.vertices_out);
    this->vertex_output_offset = src_reg(this, glsl_type::uint_type);
    emit(MOV(dst_reg(this->vertex_output_offset), brw_imm_ud(0u)));
 
@@ -178,7 +178,7 @@ gen6_gs_visitor::gs_emit_vertex(int stream_id)
    dst_reg dst(this->vertex_output);
    dst.reladdr = ralloc(mem_ctx, src_reg);
    memcpy(dst.reladdr, &this->vertex_output_offset, sizeof(src_reg));
-   if (nir->info->gs.output_primitive == GL_POINTS) {
+   if (nir->info.gs.output_primitive == GL_POINTS) {
       /* If we are outputting points, then every vertex has PrimStart and
        * PrimEnd set.
        */
@@ -207,7 +207,7 @@ gen6_gs_visitor::gs_end_primitive()
    /* Calling EndPrimitive() is optional for point output. In this case we set
     * the PrimEnd flag when we process EmitVertex().
     */
-   if (nir->info->gs.output_primitive == GL_POINTS)
+   if (nir->info.gs.output_primitive == GL_POINTS)
       return;
 
    /* Otherwise we know that the last vertex we have processed was the last
@@ -219,7 +219,7 @@ gen6_gs_visitor::gs_end_primitive()
     * comparison below (hence the num_output_vertices + 1 in the comparison
     * below).
     */
-   unsigned num_output_vertices = nir->info->gs.vertices_out;
+   unsigned num_output_vertices = nir->info.gs.vertices_out;
    emit(CMP(dst_null_ud(), this->vertex_count,
             brw_imm_ud(num_output_vertices + 1), BRW_CONDITIONAL_L));
    vec4_instruction *inst = emit(CMP(dst_null_ud(),
@@ -323,7 +323,7 @@ gen6_gs_visitor::emit_thread_end()
     * first_vertex is not zero. This is only relevant for outputs other than
     * points because in the point case we set PrimEnd on all vertices.
     */
-   if (nir->info->gs.output_primitive != GL_POINTS) {
+   if (nir->info.gs.output_primitive != GL_POINTS) {
       emit(CMP(dst_null_ud(), this->first_vertex, brw_imm_ud(0u), BRW_CONDITIONAL_Z));
       emit(IF(BRW_PREDICATE_NORMAL));
       gs_end_primitive();
@@ -350,27 +350,27 @@ gen6_gs_visitor::emit_thread_end()
    int max_usable_mrf = FIRST_SPILL_MRF(devinfo->gen);
 
    /* Issue the FF_SYNC message and obtain the initial VUE handle. */
+   this->current_annotation = "gen6 thread end: ff_sync";
+
+   vec4_instruction *inst = NULL;
+   if (prog->info.has_transform_feedback_varyings) {
+      src_reg sol_temp(this, glsl_type::uvec4_type);
+      emit(GS_OPCODE_FF_SYNC_SET_PRIMITIVES,
+           dst_reg(this->svbi),
+           this->vertex_count,
+           this->prim_count,
+           sol_temp);
+      inst = emit(GS_OPCODE_FF_SYNC,
+                  dst_reg(this->temp), this->prim_count, this->svbi);
+   } else {
+      inst = emit(GS_OPCODE_FF_SYNC,
+                  dst_reg(this->temp), this->prim_count, brw_imm_ud(0u));
+   }
+   inst->base_mrf = base_mrf;
+
    emit(CMP(dst_null_ud(), this->vertex_count, brw_imm_ud(0u), BRW_CONDITIONAL_G));
    emit(IF(BRW_PREDICATE_NORMAL));
    {
-      this->current_annotation = "gen6 thread end: ff_sync";
-
-      vec4_instruction *inst;
-      if (prog->info.has_transform_feedback_varyings) {
-         src_reg sol_temp(this, glsl_type::uvec4_type);
-         emit(GS_OPCODE_FF_SYNC_SET_PRIMITIVES,
-              dst_reg(this->svbi),
-              this->vertex_count,
-              this->prim_count,
-              sol_temp);
-         inst = emit(GS_OPCODE_FF_SYNC,
-                     dst_reg(this->temp), this->prim_count, this->svbi);
-      } else {
-         inst = emit(GS_OPCODE_FF_SYNC,
-                     dst_reg(this->temp), this->prim_count, brw_imm_ud(0u));
-      }
-      inst->base_mrf = base_mrf;
-
       /* Loop over all buffered vertices and emit URB write messages */
       this->current_annotation = "gen6 thread end: urb writes init";
       src_reg vertex(this, glsl_type::uint_type);
@@ -414,7 +414,7 @@ gen6_gs_visitor::emit_thread_end()
                dst_reg reg = dst_reg(MRF, mrf);
                reg.type = output_reg[varying][0].type;
                data.type = reg.type;
-               vec4_instruction *inst = emit(MOV(reg, data));
+               inst = emit(MOV(reg, data));
                inst->force_writemask_all = true;
 
                mrf++;
@@ -460,7 +460,7 @@ gen6_gs_visitor::emit_thread_end()
     *
     * However, this would lead us to end the program with an ENDIF opcode,
     * which we want to avoid, so what we do is that we always request a new
-    * VUE handle every time we do a URB WRITE, even for the last vertex we emit.
+    * VUE handle every time, even if GS produces no output.
     * With this we make sure that whether we have emitted at least one vertex
     * or none at all, we have to finish the thread without writing to the URB,
     * which works for both cases by setting the COMPLETE and UNUSED flags in
@@ -476,7 +476,7 @@ gen6_gs_visitor::emit_thread_end()
       emit(GS_OPCODE_SET_DWORD_2, dst_reg(MRF, base_mrf), data);
    }
 
-   vec4_instruction *inst = emit(GS_OPCODE_THREAD_END);
+   inst = emit(GS_OPCODE_THREAD_END);
    inst->urb_write_flags = BRW_URB_WRITE_COMPLETE | BRW_URB_WRITE_UNUSED;
    inst->base_mrf = base_mrf;
    inst->mlen = 1;
@@ -516,9 +516,7 @@ gen6_gs_visitor::setup_payload()
 
    reg = setup_uniforms(reg);
 
-   reg = setup_varying_inputs(reg, attribute_map, attributes_per_reg);
-
-   lower_attributes_to_hw_regs(attribute_map, true);
+   reg = setup_varying_inputs(reg, attributes_per_reg);
 
    this->first_non_payload_grf = reg;
 }
@@ -625,7 +623,7 @@ gen6_gs_visitor::xfb_write()
    emit(BRW_OPCODE_ENDIF);
 
    /* Write transform feedback data for all processed vertices. */
-   for (int i = 0; i < (int)nir->info->gs.vertices_out; i++) {
+   for (int i = 0; i < (int)nir->info.gs.vertices_out; i++) {
       emit(MOV(dst_reg(sol_temp), brw_imm_d(i)));
       emit(CMP(dst_null_d(), sol_temp, this->vertex_count,
                BRW_CONDITIONAL_L));
@@ -689,18 +687,7 @@ gen6_gs_visitor::xfb_program(unsigned vertex, unsigned num_verts)
          emit(MOV(dst_reg(this->vertex_output_offset), brw_imm_d(offset)));
          memcpy(data.reladdr, &this->vertex_output_offset, sizeof(src_reg));
          data.type = output_reg[varying][0].type;
-
-         /* PSIZ, LAYER and VIEWPORT are packed in different channels of the
-          * same slot, so make sure we write the appropriate channel
-          */
-         if (varying == VARYING_SLOT_PSIZ)
-            data.swizzle = BRW_SWIZZLE_WWWW;
-         else if (varying == VARYING_SLOT_LAYER)
-            data.swizzle = BRW_SWIZZLE_YYYY;
-         else if (varying == VARYING_SLOT_VIEWPORT)
-            data.swizzle = BRW_SWIZZLE_ZZZZ;
-         else
-            data.swizzle = gs_prog_data->transform_feedback_swizzles[binding];
+         data.swizzle = gs_prog_data->transform_feedback_swizzles[binding];
 
          /* Write data */
          inst = emit(GS_OPCODE_SVB_WRITE, mrf_reg, data, sol_temp);

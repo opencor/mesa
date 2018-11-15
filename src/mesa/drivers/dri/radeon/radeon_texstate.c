@@ -199,10 +199,18 @@ do {							\
  * Texture unit state management
  */
 
+static GLenum
+texture_base_format(const struct gl_texture_object *t)
+{
+	return t->Image[0][t->BaseLevel]->_BaseFormat;
+}
+
 static GLboolean radeonUpdateTextureEnv( struct gl_context *ctx, int unit )
 {
    r100ContextPtr rmesa = R100_CONTEXT(ctx);
-   const struct gl_texture_unit *texUnit = &ctx->Texture.Unit[unit];
+   const struct gl_texture_unit *rtexUnit = &ctx->Texture.Unit[unit];
+   const struct gl_fixedfunc_texture_unit *texUnit =
+      &ctx->Texture.FixedFuncUnit[unit];
    GLuint color_combine, alpha_combine;
    const GLuint color_combine0 = RADEON_COLOR_ARG_A_ZERO | RADEON_COLOR_ARG_B_ZERO
          | RADEON_COLOR_ARG_C_CURRENT_COLOR | RADEON_BLEND_CTL_ADD
@@ -228,7 +236,7 @@ static GLboolean radeonUpdateTextureEnv( struct gl_context *ctx, int unit )
    rmesa->state.texture.unit[unit].format = 0;
    rmesa->state.texture.unit[unit].envMode = 0;
 
-   if ( !texUnit->_Current ) {
+   if ( !rtexUnit->_Current ) {
       color_combine = color_combine0;
       alpha_combine = alpha_combine0;
    }
@@ -251,7 +259,7 @@ static GLboolean radeonUpdateTextureEnv( struct gl_context *ctx, int unit )
 	 assert(op <= 3);
 	 switch ( srcRGBi ) {
 	 case GL_TEXTURE:
-	    if (texUnit->_Current->Image[0][0]->_BaseFormat == GL_ALPHA)
+	    if (texture_base_format(rtexUnit->_Current) == GL_ALPHA)
 	       color_arg[i] = radeon_zero_color[op];
 	    else
 	       color_arg[i] = radeon_texture_color[op][unit];
@@ -275,7 +283,7 @@ static GLboolean radeonUpdateTextureEnv( struct gl_context *ctx, int unit )
 	 case GL_TEXTURE1:
 	 case GL_TEXTURE2: {
 	    GLuint txunit = srcRGBi - GL_TEXTURE0;
-	    if (ctx->Texture.Unit[txunit]._Current->Image[0][0]->_BaseFormat == GL_ALPHA)
+	    if (texture_base_format(ctx->Texture.Unit[txunit]._Current) == GL_ALPHA)
 	       color_arg[i] = radeon_zero_color[op];
 	    else
 	 /* implement ogl 1.4/1.5 core spec here, not specification of
@@ -296,7 +304,7 @@ static GLboolean radeonUpdateTextureEnv( struct gl_context *ctx, int unit )
 	 assert(op <= 1);
 	 switch ( srcAi ) {
 	 case GL_TEXTURE:
-	    if (texUnit->_Current->Image[0][0]->_BaseFormat == GL_LUMINANCE)
+	    if (texture_base_format(rtexUnit->_Current) == GL_LUMINANCE)
 	       alpha_arg[i] = radeon_zero_alpha[op+1];
 	    else
 	       alpha_arg[i] = radeon_texture_alpha[op][unit];
@@ -318,9 +326,9 @@ static GLboolean radeonUpdateTextureEnv( struct gl_context *ctx, int unit )
 	    break;
 	 case GL_TEXTURE0:
 	 case GL_TEXTURE1:
-	 case GL_TEXTURE2: {
+	 case GL_TEXTURE2: {    
 	    GLuint txunit = srcAi - GL_TEXTURE0;
-	    if (ctx->Texture.Unit[txunit]._Current->Image[0][0]->_BaseFormat == GL_LUMINANCE)
+	    if (texture_base_format(ctx->Texture.Unit[txunit]._Current) == GL_LUMINANCE)
 	       alpha_arg[i] = radeon_zero_alpha[op+1];
 	    else
 	       alpha_arg[i] = radeon_texture_alpha[op][txunit];
@@ -668,7 +676,7 @@ void radeonSetTexBuffer(__DRIcontext *pDRICtx, GLint target, __DRIdrawable *dPri
                               RADEON_TXFORMAT_NON_POWER2)
 
 
-static void disable_tex_obj_state( r100ContextPtr rmesa,
+static void disable_tex_obj_state( r100ContextPtr rmesa, 
 				   int unit )
 {
    RADEON_STATECHANGE( rmesa, tex[unit] );
@@ -676,7 +684,7 @@ static void disable_tex_obj_state( r100ContextPtr rmesa,
    RADEON_STATECHANGE( rmesa, tcl );
    rmesa->hw.tcl.cmd[TCL_OUTPUT_VTXFMT] &= ~(RADEON_ST_BIT(unit) |
 					     RADEON_Q_BIT(unit));
-
+   
    if (rmesa->radeon.TclFallback & (RADEON_TCL_FALLBACK_TEXGEN_0<<unit)) {
      TCL_FALLBACK( &rmesa->radeon.glCtx, (RADEON_TCL_FALLBACK_TEXGEN_0<<unit), GL_FALSE);
      rmesa->recheck_texgen[unit] = GL_TRUE;
@@ -699,7 +707,7 @@ static void disable_tex_obj_state( r100ContextPtr rmesa,
       rmesa->TexGenEnabled &= ~(RADEON_TEXMAT_0_ENABLE<<unit);
       rmesa->TexGenEnabled &= ~(RADEON_TEXGEN_INPUT_MASK<<inputshift);
       rmesa->TexGenNeedNormals[unit] = 0;
-      rmesa->TexGenEnabled |=
+      rmesa->TexGenEnabled |= 
 	(RADEON_TEXGEN_INPUT_TEXCOORD_0+unit) << inputshift;
 
       if (tmp != rmesa->TexGenEnabled) {
@@ -756,7 +764,7 @@ static void import_tex_obj_state( r100ContextPtr rmesa,
 }
 
 
-static void set_texgen_matrix( r100ContextPtr rmesa,
+static void set_texgen_matrix( r100ContextPtr rmesa, 
 			       GLuint unit,
 			       const GLfloat *s_plane,
 			       const GLfloat *t_plane,
@@ -792,7 +800,8 @@ static void set_texgen_matrix( r100ContextPtr rmesa,
 static GLboolean radeon_validate_texgen( struct gl_context *ctx, GLuint unit )
 {
    r100ContextPtr rmesa = R100_CONTEXT(ctx);
-   struct gl_texture_unit *texUnit = &ctx->Texture.Unit[unit];
+   struct gl_fixedfunc_texture_unit *texUnit =
+      &ctx->Texture.FixedFuncUnit[unit];
    GLuint inputshift = RADEON_TEXGEN_0_INPUT_SHIFT + unit*4;
    GLuint tmp = rmesa->TexGenEnabled;
    static const GLfloat reflect[16] = {
@@ -925,8 +934,8 @@ static GLboolean setup_hardware_state(r100ContextPtr rmesa, radeonTexObj *t, int
 
 	 t->pp_txformat &= ~(RADEON_TXFORMAT_FORMAT_MASK |
 			     RADEON_TXFORMAT_ALPHA_IN_MAP);
-	 t->pp_txfilter &= ~RADEON_YUV_TO_RGB;
-
+	 t->pp_txfilter &= ~RADEON_YUV_TO_RGB;	 
+	 
 	 t->pp_txformat |= table[ firstImage->TexFormat ].format;
 	 t->pp_txfilter |= table[ firstImage->TexFormat ].filter;
       } else {
@@ -938,7 +947,7 @@ static GLboolean setup_hardware_state(r100ContextPtr rmesa, radeonTexObj *t, int
 
    t->pp_txfilter &= ~RADEON_MAX_MIP_LEVEL_MASK;
    t->pp_txfilter |= (t->maxLod - t->minLod) << RADEON_MAX_MIP_LEVEL_SHIFT;
-
+	
    t->pp_txformat &= ~(RADEON_TXFORMAT_WIDTH_MASK |
 		       RADEON_TXFORMAT_HEIGHT_MASK |
 		       RADEON_TXFORMAT_CUBIC_MAP_ENABLE |
@@ -1001,7 +1010,7 @@ static GLboolean radeon_validate_texture(struct gl_context *ctx, struct gl_textu
       return GL_FALSE;
 
    RADEON_STATECHANGE( rmesa, ctx );
-   rmesa->hw.ctx.cmd[CTX_PP_CNTL] |=
+   rmesa->hw.ctx.cmd[CTX_PP_CNTL] |= 
      (RADEON_TEX_0_ENABLE | RADEON_TEX_BLEND_0_ENABLE) << unit;
    RADEON_STATECHANGE( rmesa, tcl );
    rmesa->hw.tcl.cmd[TCL_OUTPUT_VTXFMT] |= RADEON_ST_BIT(unit);

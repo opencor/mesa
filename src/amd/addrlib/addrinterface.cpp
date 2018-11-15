@@ -534,11 +534,11 @@ ADDR_E_RETURNCODE ADDR_API AddrComputeDccInfo(
 
     if (pLib != NULL)
     {
-       returnCode = pLib->ComputeDccInfo(pIn, pOut);
+        returnCode = pLib->ComputeDccInfo(pIn, pOut);
     }
     else
     {
-       returnCode = ADDR_ERROR;
+        returnCode = ADDR_ERROR;
     }
 
     return returnCode;
@@ -1072,6 +1072,36 @@ ADDR_E_RETURNCODE ADDR_API AddrGetMaxAlignments(
     return returnCode;
 }
 
+/**
+****************************************************************************************************
+*   AddrGetMaxMetaAlignments
+*
+*   @brief
+*       Convert maximum alignments for metadata
+*
+*   @return
+*       ADDR_OK if successful, otherwise an error code of ADDR_E_RETURNCODE
+****************************************************************************************************
+*/
+ADDR_E_RETURNCODE ADDR_API AddrGetMaxMetaAlignments(
+    ADDR_HANDLE                     hLib, ///< address lib handle
+    ADDR_GET_MAX_ALINGMENTS_OUTPUT* pOut) ///< [out] output structure
+{
+    Addr::Lib* pLib = Lib::GetLib(hLib);
+
+    ADDR_E_RETURNCODE returnCode = ADDR_OK;
+
+    if (pLib != NULL)
+    {
+        returnCode = pLib->GetMaxMetaAlignments(pOut);
+    }
+    else
+    {
+        returnCode = ADDR_ERROR;
+    }
+
+    return returnCode;
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1675,3 +1705,37 @@ ADDR_E_RETURNCODE ADDR_API Addr2GetPreferredSurfaceSetting(
     return returnCode;
 }
 
+/**
+****************************************************************************************************
+*   Addr2IsValidDisplaySwizzleMode
+*
+*   @brief
+*       Return whether the swizzle mode is supported by DCE / DCN.
+****************************************************************************************************
+*/
+ADDR_E_RETURNCODE ADDR_API Addr2IsValidDisplaySwizzleMode(
+    ADDR_HANDLE     hLib,
+    AddrSwizzleMode swizzleMode,
+    UINT_32         bpp,
+    bool            *result)
+{
+    ADDR_E_RETURNCODE returnCode;
+
+    V2::Lib* pLib = V2::Lib::GetLib(hLib);
+
+    if (pLib != NULL)
+    {
+        ADDR2_COMPUTE_SURFACE_INFO_INPUT in;
+        in.swizzleMode = swizzleMode;
+        in.bpp = bpp;
+
+        *result = pLib->IsValidDisplaySwizzleMode(&in);
+        returnCode = ADDR_OK;
+    }
+    else
+    {
+        returnCode = ADDR_ERROR;
+    }
+
+    return returnCode;
+}

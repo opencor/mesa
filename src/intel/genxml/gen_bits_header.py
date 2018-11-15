@@ -67,7 +67,7 @@ from operator import itemgetter
 
 #include <stdint.h>
 
-#include "common/gen_device_info.h"
+#include "dev/gen_device_info.h"
 #include "util/macros.h"
 
 <%def name="emit_per_gen_prop_func(item, prop)">
@@ -80,6 +80,8 @@ static inline uint32_t ATTRIBUTE_PURE
 ${item.token_name}_${prop}(const struct gen_device_info *devinfo)
 {
    switch (devinfo->gen) {
+   case 11: return ${item.get_prop(prop, 11)};
+   case 10: return ${item.get_prop(prop, 10)};
    case 9: return ${item.get_prop(prop, 9)};
    case 8: return ${item.get_prop(prop, 8)};
    case 7:
@@ -106,13 +108,13 @@ ${item.token_name}_${prop}(const struct gen_device_info *devinfo)
 #ifdef __cplusplus
 extern "C" {
 #endif
-% for _, container in sorted(containers.iteritems(), key=itemgetter(0)):
+% for _, container in sorted(containers.items(), key=itemgetter(0)):
 
 /* ${container.name} */
 
 ${emit_per_gen_prop_func(container, 'length')}
 
-% for _, field in sorted(container.fields.iteritems(), key=itemgetter(0)):
+% for _, field in sorted(container.fields.items(), key=itemgetter(0)):
 
 /* ${container.name}::${field.name} */
 
@@ -167,10 +169,7 @@ class Gen(object):
 
     def __init__(self, z):
         # Convert potential "major.minor" string
-        z = float(z)
-        if z < 10:
-            z *= 10
-        self.tenx = int(z)
+        self.tenx = int(float(z) * 10)
 
     def __lt__(self, other):
         return self.tenx < other.tenx
@@ -221,7 +220,7 @@ class Container(object):
 
     def iter_prop(self, prop):
         if prop == 'length':
-            return self.length_by_gen.iteritems()
+            return self.length_by_gen.items()
         else:
             raise ValueError('Invalid property: "{0}"'.format(prop))
 
@@ -254,9 +253,9 @@ class Field(object):
 
     def iter_prop(self, prop):
         if prop == 'bits':
-            return self.bits_by_gen.iteritems()
+            return self.bits_by_gen.items()
         elif prop == 'start':
-            return self.start_by_gen.iteritems()
+            return self.start_by_gen.items()
         else:
             raise ValueError('Invalid property: "{0}"'.format(prop))
 
@@ -283,7 +282,7 @@ class XmlParser(object):
         self.container = None
 
     def parse(self, filename):
-        with open(filename) as f:
+        with open(filename, 'rb') as f:
             self.parser.ParseFile(f)
 
     def start_element(self, name, attrs):

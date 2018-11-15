@@ -42,9 +42,9 @@
 
 struct pipe_screen;
 struct etna_shader_variant;
+struct etna_sampler_ts;
 
 struct etna_index_buffer {
-   struct pipe_index_buffer ib;
    struct etna_reloc FE_INDEX_STREAM_BASE_ADDR;
    uint32_t FE_INDEX_STREAM_CONTROL;
    uint32_t FE_PRIMITIVE_RESTART_INDEX;
@@ -101,6 +101,11 @@ struct etna_shader_uniform_info {
 struct etna_context {
    struct pipe_context base;
 
+   /* GPU-specific implementation to emit texture state */
+   void (*emit_texture_state)(struct etna_context *pctx);
+   /* Get sampler TS pointer for sampler view */
+   struct etna_sampler_ts *(*ts_for_sampler_view)(struct pipe_sampler_view *pview);
+
    struct etna_specs specs;
    struct etna_screen *screen;
    struct etna_cmd_stream *stream;
@@ -125,6 +130,7 @@ struct etna_context {
       ETNA_DIRTY_SHADER          = (1 << 16),
       ETNA_DIRTY_TS              = (1 << 17),
       ETNA_DIRTY_TEXTURE_CACHES  = (1 << 18),
+      ETNA_DIRTY_DERIVE_TS       = (1 << 19),
    } dirty;
 
    uint32_t prim_hwsupport;
@@ -156,6 +162,7 @@ struct etna_context {
    struct compiled_viewport_state viewport;
    unsigned num_fragment_sampler_views;
    uint32_t active_sampler_views;
+   uint32_t dirty_sampler_views;
    struct pipe_sampler_view *sampler_view[PIPE_MAX_SAMPLERS];
    struct pipe_constant_buffer constant_buffer[PIPE_SHADER_TYPES];
    struct etna_vertexbuf_state vertex_buffer;
@@ -175,10 +182,14 @@ struct etna_context {
    struct {
       uint64_t prims_emitted;
       uint64_t draw_calls;
+      uint64_t rs_operations;
    } stats;
 
    struct pipe_debug_callback debug;
    int in_fence_fd;
+
+   /* list of active hardware queries */
+   struct list_head active_hw_queries;
 };
 
 static inline struct etna_context *

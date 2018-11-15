@@ -130,7 +130,7 @@ fail:
    return NULL;
 }
 
-void
+void 
 graw_set_display_func(void (* draw)(void))
 {
    graw.draw = draw;

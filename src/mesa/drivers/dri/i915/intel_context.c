@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
@@ -111,7 +111,7 @@ intel_flush_front(struct gl_context *ctx)
     __DRIscreen *const screen = intel->intelScreen->driScrnPriv;
 
     if (intel->front_buffer_dirty && _mesa_is_winsys_fbo(ctx->DrawBuffer)) {
-      if (flushFront(screen) &&
+      if (flushFront(screen) && 
           driDrawable &&
           driDrawable->loaderPrivate) {
          flushFront(screen)(driDrawable, driDrawable->loaderPrivate);
@@ -314,15 +314,18 @@ static const struct debug_control debug_control[] = {
 
 
 static void
-intelInvalidateState(struct gl_context * ctx, GLuint new_state)
+intelInvalidateState(struct gl_context * ctx)
 {
+   GLuint new_state = ctx->NewState;
     struct intel_context *intel = intel_context(ctx);
 
     if (ctx->swrast_context)
        _swrast_InvalidateState(ctx, new_state);
-   _vbo_InvalidateState(ctx, new_state);
 
    intel->NewGLState |= new_state;
+
+   if (new_state & (_NEW_SCISSOR | _NEW_BUFFERS | _NEW_VIEWPORT))
+      _mesa_update_draw_buffer_bounds(ctx, ctx->DrawBuffer);
 
    if (intel->vtbl.invalidate_state)
       intel->vtbl.invalidate_state( intel, new_state );
@@ -377,6 +380,7 @@ void
 intelInitDriverFunctions(struct dd_function_table *functions)
 {
    _mesa_init_driver_functions(functions);
+   _tnl_init_driver_draw_function(functions);
 
    functions->Flush = intel_glFlush;
    functions->Finish = intelFinish;
@@ -623,25 +627,16 @@ intelMakeCurrent(__DRIcontext * driContextPriv,
                  __DRIdrawable * driReadPriv)
 {
    struct intel_context *intel;
-   GET_CURRENT_CONTEXT(curCtx);
 
    if (driContextPriv)
       intel = (struct intel_context *) driContextPriv->driverPrivate;
    else
       intel = NULL;
 
-   /* According to the glXMakeCurrent() man page: "Pending commands to
-    * the previous context, if any, are flushed before it is released."
-    * But only flush if we're actually changing contexts.
-    */
-   if (intel_context(curCtx) && intel_context(curCtx) != intel) {
-      _mesa_flush(curCtx);
-   }
-
    if (driContextPriv) {
       struct gl_context *ctx = &intel->ctx;
       struct gl_framebuffer *fb, *readFb;
-
+      
       if (driDrawPriv == NULL && driReadPriv == NULL) {
 	 fb = _mesa_get_incomplete_framebuffer();
 	 readFb = _mesa_get_incomplete_framebuffer();

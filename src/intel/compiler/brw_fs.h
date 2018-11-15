@@ -50,6 +50,8 @@ offset(const fs_reg &reg, const brw::fs_builder &bld, unsigned delta)
    return offset(reg, bld.dispatch_width(), delta);
 }
 
+#define UBO_START ((1 << 16) - 4)
+
 /**
  * The fragment shader front-end.
  *
@@ -78,12 +80,8 @@ public:
 
    fs_reg vgrf(const glsl_type *const type);
    void import_uniforms(fs_visitor *v);
-   void setup_uniform_clipplane_values(gl_clip_plane *clip_planes);
-   void compute_clip_distance(gl_clip_plane *clip_planes);
-
-   fs_inst *get_instruction_generating_reg(fs_inst *start,
-					   fs_inst *end,
-					   const fs_reg &reg);
+   void setup_uniform_clipplane_values();
+   void compute_clip_distance();
 
    void VARYING_PULL_CONSTANT_LOAD(const brw::fs_builder &bld,
                                    const fs_reg &dst,
@@ -93,13 +91,13 @@ public:
    void DEP_RESOLVE_MOV(const brw::fs_builder &bld, int grf);
 
    bool run_fs(bool allow_spilling, bool do_rep_send);
-   bool run_vs(gl_clip_plane *clip_planes);
+   bool run_vs();
    bool run_tcs_single_patch();
    bool run_tes();
    bool run_gs();
-   bool run_cs();
+   bool run_cs(unsigned min_dispatch_width);
    void optimize();
-   void allocate_registers(bool allow_spilling);
+   void allocate_registers(unsigned min_dispatch_width, bool allow_spilling);
    void setup_fs_payload_gen4();
    void setup_fs_payload_gen6();
    void setup_vs_payload();
@@ -125,6 +123,8 @@ public:
    void split_virtual_grfs();
    bool compact_virtual_grfs();
    void assign_constant_locations();
+   bool get_pull_locs(const fs_reg &src, unsigned *out_surf_index,
+                      unsigned *out_pull_index);
    void lower_constant_loads();
    void invalidate_live_intervals();
    void calculate_live_intervals();
@@ -141,11 +141,14 @@ public:
                                    exec_list *acp);
    bool opt_drop_redundant_mov_to_flags();
    bool opt_register_renaming();
+   bool opt_bank_conflicts();
+   unsigned bank_conflict_cycles(const fs_inst *inst) const;
    bool register_coalesce();
    bool compute_to_mrf();
    bool eliminate_find_live_channel();
    bool dead_code_eliminate();
    bool remove_duplicate_mrf_writes();
+   bool remove_extra_rounding_modes();
 
    bool opt_sampler_eot();
    bool virtual_grf_interferes(int a, int b);
@@ -175,7 +178,6 @@ public:
    fs_reg *emit_samplepos_setup();
    fs_reg *emit_sampleid_setup();
    fs_reg *emit_samplemaskin_setup();
-   fs_reg *emit_vs_system_value(int location);
    void emit_interpolation_setup_gen4();
    void emit_interpolation_setup_gen6();
    void compute_sample_position(fs_reg dst, fs_reg int_sample_pos);
@@ -185,6 +187,7 @@ public:
    fs_reg resolve_source_modifiers(const fs_reg &src);
    void emit_discard_jump();
    bool opt_peephole_sel();
+   bool opt_peephole_csel();
    bool opt_peephole_predicated_break();
    bool opt_saturate_propagation();
    bool opt_cmod_propagation();
@@ -228,7 +231,7 @@ public:
    fs_reg get_nir_src(const nir_src &src);
    fs_reg get_nir_src_imm(const nir_src &src);
    fs_reg get_nir_dest(const nir_dest &dest);
-   fs_reg get_nir_image_deref(const nir_deref_var *deref);
+   fs_reg get_nir_image_deref(nir_deref_instr *deref);
    fs_reg get_indirect_offset(nir_intrinsic_instr *instr);
    void emit_percomp(const brw::fs_builder &bld, const fs_inst &inst,
                      unsigned wr_mask);
@@ -269,9 +272,9 @@ public:
 
    fs_reg get_timestamp(const brw::fs_builder &bld);
 
-   struct brw_reg interp_reg(int location, int channel);
+   fs_reg interp_reg(int location, int channel);
 
-   int implied_mrf_writes(fs_inst *inst);
+   int implied_mrf_writes(fs_inst *inst) const;
 
    virtual void dump_instructions();
    virtual void dump_instructions(const char *name);
@@ -312,6 +315,7 @@ public:
     */
    int *push_constant_loc;
 
+   fs_reg subgroup_id;
    fs_reg frag_depth;
    fs_reg frag_stencil;
    fs_reg sample_mask;
@@ -330,14 +334,15 @@ public:
 
    /** Register numbers for thread payload fields. */
    struct thread_payload {
-      uint8_t source_depth_reg;
-      uint8_t source_w_reg;
-      uint8_t aa_dest_stencil_reg;
-      uint8_t dest_depth_reg;
-      uint8_t sample_pos_reg;
-      uint8_t sample_mask_in_reg;
-      uint8_t barycentric_coord_reg[BRW_BARYCENTRIC_MODE_COUNT];
-      uint8_t local_invocation_id_reg;
+      uint8_t subspan_coord_reg[2];
+      uint8_t source_depth_reg[2];
+      uint8_t source_w_reg[2];
+      uint8_t aa_dest_stencil_reg[2];
+      uint8_t dest_depth_reg[2];
+      uint8_t sample_pos_reg[2];
+      uint8_t sample_mask_in_reg[2];
+      uint8_t barycentric_coord_reg[BRW_BARYCENTRIC_MODE_COUNT][2];
+      uint8_t local_invocation_id_reg[2];
 
       /** The number of thread payload registers the hardware will supply. */
       uint8_t num_regs;
@@ -361,7 +366,6 @@ public:
    bool spilled_any_registers;
 
    const unsigned dispatch_width; /**< 8, 16 or 32 */
-   unsigned min_dispatch_width;
    unsigned max_dispatch_width;
 
    int shader_time_index;
@@ -380,7 +384,6 @@ class fs_generator
 public:
    fs_generator(const struct brw_compiler *compiler, void *log_data,
                 void *mem_ctx,
-                const void *key,
                 struct brw_stage_prog_data *prog_data,
                 unsigned promoted_constants,
                 bool runtime_check_aads_emit,
@@ -389,7 +392,7 @@ public:
 
    void enable_debug(const char *shader_name);
    int generate_code(const cfg_t *cfg, int dispatch_width);
-   const unsigned *get_assembly(unsigned int *assembly_size);
+   const unsigned *get_assembly();
 
 private:
    void fire_fb_write(fs_inst *inst,
@@ -403,7 +406,7 @@ private:
    void generate_urb_write(fs_inst *inst, struct brw_reg payload);
    void generate_cs_terminate(fs_inst *inst, struct brw_reg payload);
    void generate_barrier(fs_inst *inst, struct brw_reg src);
-   void generate_linterp(fs_inst *inst, struct brw_reg dst,
+   bool generate_linterp(fs_inst *inst, struct brw_reg dst,
 			 struct brw_reg *src);
    void generate_tex(fs_inst *inst, struct brw_reg dst, struct brw_reg src,
                      struct brw_reg surface_index,
@@ -411,8 +414,10 @@ private:
    void generate_get_buffer_size(fs_inst *inst, struct brw_reg dst,
                                  struct brw_reg src,
                                  struct brw_reg surf_index);
-   void generate_ddx(enum opcode op, struct brw_reg dst, struct brw_reg src);
-   void generate_ddy(enum opcode op, struct brw_reg dst, struct brw_reg src);
+   void generate_ddx(const fs_inst *inst,
+                     struct brw_reg dst, struct brw_reg src);
+   void generate_ddy(const fs_inst *inst,
+                     struct brw_reg dst, struct brw_reg src);
    void generate_scratch_write(fs_inst *inst, struct brw_reg src);
    void generate_scratch_read(fs_inst *inst, struct brw_reg dst);
    void generate_scratch_read_gen7(fs_inst *inst, struct brw_reg dst);
@@ -463,6 +468,11 @@ private:
                               struct brw_reg reg,
                               struct brw_reg indirect_byte_offset);
 
+   void generate_shuffle(fs_inst *inst,
+                         struct brw_reg dst,
+                         struct brw_reg src,
+                         struct brw_reg idx);
+
    bool patch_discard_jumps_to_fb_writes();
 
    const struct brw_compiler *compiler;
@@ -471,7 +481,6 @@ private:
    const struct gen_device_info *devinfo;
 
    struct brw_codegen *p;
-   const void * const key;
    struct brw_stage_prog_data * const prog_data;
 
    unsigned dispatch_width; /**< 8, 16 or 32 */
@@ -485,17 +494,57 @@ private:
    void *mem_ctx;
 };
 
-void shuffle_32bit_load_result_to_64bit_data(const brw::fs_builder &bld,
-                                             const fs_reg &dst,
-                                             const fs_reg &src,
-                                             uint32_t components);
+namespace brw {
+   inline fs_reg
+   fetch_payload_reg(const brw::fs_builder &bld, uint8_t regs[2],
+                     brw_reg_type type = BRW_REGISTER_TYPE_F, unsigned n = 1)
+   {
+      if (!regs[0])
+         return fs_reg();
 
-void shuffle_64bit_data_for_32bit_write(const brw::fs_builder &bld,
-                                        const fs_reg &dst,
-                                        const fs_reg &src,
-                                        uint32_t components);
+      if (bld.dispatch_width() > 16) {
+         const fs_reg tmp = bld.vgrf(type, n);
+         const brw::fs_builder hbld = bld.exec_all().group(16, 0);
+         const unsigned m = bld.dispatch_width() / hbld.dispatch_width();
+         fs_reg *const components = new fs_reg[n * m];
+
+         for (unsigned c = 0; c < n; c++) {
+            for (unsigned g = 0; g < m; g++) {
+               components[c * m + g] =
+                  offset(retype(brw_vec8_grf(regs[g], 0), type), hbld, c);
+            }
+         }
+
+         hbld.LOAD_PAYLOAD(tmp, components, n * m, 0);
+
+         delete[] components;
+         return tmp;
+
+      } else {
+         return fs_reg(retype(brw_vec8_grf(regs[0], 0), type));
+      }
+   }
+}
+
+void shuffle_from_32bit_read(const brw::fs_builder &bld,
+                             const fs_reg &dst,
+                             const fs_reg &src,
+                             uint32_t first_component,
+                             uint32_t components);
+
+fs_reg shuffle_for_32bit_write(const brw::fs_builder &bld,
+                               const fs_reg &src,
+                               uint32_t first_component,
+                               uint32_t components);
+
 fs_reg setup_imm_df(const brw::fs_builder &bld,
                     double v);
+
+fs_reg setup_imm_b(const brw::fs_builder &bld,
+                   int8_t v);
+
+fs_reg setup_imm_ub(const brw::fs_builder &bld,
+                   uint8_t v);
 
 enum brw_barycentric_mode brw_barycentric_mode(enum glsl_interp_mode mode,
                                                nir_intrinsic_op op);

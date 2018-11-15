@@ -33,11 +33,72 @@
 #include "genxml/gen_macros.h"
 #include "genxml/genX_pack.h"
 
+#include "vk_util.h"
+
+#if GEN_GEN == 10
+/**
+ * From Gen10 Workarounds page in h/w specs:
+ * WaSampleOffsetIZ:
+ *    "Prior to the 3DSTATE_SAMPLE_PATTERN driver must ensure there are no
+ *     markers in the pipeline by programming a PIPE_CONTROL with stall."
+ */
+static void
+gen10_emit_wa_cs_stall_flush(struct anv_batch *batch)
+{
+
+   anv_batch_emit(batch, GENX(PIPE_CONTROL), pc) {
+      pc.CommandStreamerStallEnable = true;
+      pc.StallAtPixelScoreboard = true;
+   }
+}
+
+/**
+ * From Gen10 Workarounds page in h/w specs:
+ * WaSampleOffsetIZ:_cs_stall_flush
+ *    "When 3DSTATE_SAMPLE_PATTERN is programmed, driver must then issue an
+ *     MI_LOAD_REGISTER_IMM command to an offset between 0x7000 and 0x7FFF(SVL)
+ *     after the command to ensure the state has been delivered prior to any
+ *     command causing a marker in the pipeline."
+ */
+static void
+gen10_emit_wa_lri_to_cache_mode_zero(struct anv_batch *batch)
+{
+   /* Before changing the value of CACHE_MODE_0 register, GFX pipeline must
+    * be idle; i.e., full flush is required.
+    */
+   anv_batch_emit(batch, GENX(PIPE_CONTROL), pc) {
+      pc.DepthCacheFlushEnable = true;
+      pc.DCFlushEnable = true;
+      pc.RenderTargetCacheFlushEnable = true;
+      pc.InstructionCacheInvalidateEnable = true;
+      pc.StateCacheInvalidationEnable = true;
+      pc.TextureCacheInvalidationEnable = true;
+      pc.VFCacheInvalidationEnable = true;
+      pc.ConstantCacheInvalidationEnable =true;
+   }
+
+   /* Write to CACHE_MODE_0 (0x7000) */
+   uint32_t cache_mode_0 = 0;
+   anv_pack_struct(&cache_mode_0, GENX(CACHE_MODE_0));
+
+   anv_batch_emit(batch, GENX(MI_LOAD_REGISTER_IMM), lri) {
+      lri.RegisterOffset = GENX(CACHE_MODE_0_num);
+      lri.DataDWord      = cache_mode_0;
+   }
+}
+#endif
+
 VkResult
 genX(init_device_state)(struct anv_device *device)
 {
    GENX(MEMORY_OBJECT_CONTROL_STATE_pack)(NULL, &device->default_mocs,
                                           &GENX(MOCS));
+#if GEN_GEN >= 8
+   GENX(MEMORY_OBJECT_CONTROL_STATE_pack)(NULL, &device->external_mocs,
+                                          &GENX(EXTERNAL_MOCS));
+#else
+   device->external_mocs = device->default_mocs;
+#endif
 
    struct anv_batch batch;
 
@@ -51,6 +112,20 @@ genX(init_device_state)(struct anv_device *device)
 #endif
       ps.PipelineSelection = _3D;
    }
+
+#if GEN_GEN == 9
+   uint32_t cache_mode_1;
+   anv_pack_struct(&cache_mode_1, GENX(CACHE_MODE_1),
+                   .FloatBlendOptimizationEnable = true,
+                   .FloatBlendOptimizationEnableMask = true,
+                   .PartialResolveDisableInVC = true,
+                   .PartialResolveDisableInVCMask = true);
+
+   anv_batch_emit(&batch, GENX(MI_LOAD_REGISTER_IMM), lri) {
+      lri.RegisterOffset = GENX(CACHE_MODE_1_num);
+      lri.DataDWord      = cache_mode_1;
+   }
+#endif
 
    anv_batch_emit(&batch, GENX(3DSTATE_AA_LINE_PARAMETERS), aa);
 
@@ -66,6 +141,10 @@ genX(init_device_state)(struct anv_device *device)
 #if GEN_GEN >= 8
    anv_batch_emit(&batch, GENX(3DSTATE_WM_CHROMAKEY), ck);
 
+#if GEN_GEN == 10
+   gen10_emit_wa_cs_stall_flush(&batch);
+#endif
+
    /* See the Vulkan 1.0 spec Table 24.1 "Standard sample locations" and
     * VkPhysicalDeviceFeatures::standardSampleLocations.
     */
@@ -80,6 +159,37 @@ genX(init_device_state)(struct anv_device *device)
    }
 #endif
 
+#if GEN_GEN == 10
+   gen10_emit_wa_lri_to_cache_mode_zero(&batch);
+#endif
+
+   /* Set the "CONSTANT_BUFFER Address Offset Disable" bit, so
+    * 3DSTATE_CONSTANT_XS buffer 0 is an absolute address.
+    *
+    * This is only safe on kernels with context isolation support.
+    */
+   if (GEN_GEN >= 8 &&
+       device->instance->physicalDevice.has_context_isolation) {
+      UNUSED uint32_t tmp_reg;
+#if GEN_GEN >= 9
+      anv_pack_struct(&tmp_reg, GENX(CS_DEBUG_MODE2),
+                      .CONSTANT_BUFFERAddressOffsetDisable = true,
+                      .CONSTANT_BUFFERAddressOffsetDisableMask = true);
+      anv_batch_emit(&batch, GENX(MI_LOAD_REGISTER_IMM), lri) {
+         lri.RegisterOffset = GENX(CS_DEBUG_MODE2_num);
+         lri.DataDWord      = tmp_reg;
+      }
+#elif GEN_GEN == 8
+      anv_pack_struct(&tmp_reg, GENX(INSTPM),
+                      .CONSTANT_BUFFERAddressOffsetDisable = true,
+                      .CONSTANT_BUFFERAddressOffsetDisableMask = true);
+      anv_batch_emit(&batch, GENX(MI_LOAD_REGISTER_IMM), lri) {
+         lri.RegisterOffset = GENX(INSTPM_num);
+         lri.DataDWord      = tmp_reg;
+      }
+#endif
+   }
+
    anv_batch_emit(&batch, GENX(MI_BATCH_BUFFER_END), bbe);
 
    assert(batch.next <= batch.end);
@@ -87,7 +197,7 @@ genX(init_device_state)(struct anv_device *device)
    return anv_device_submit_simple_batch(device, &batch);
 }
 
-static inline uint32_t
+static uint32_t
 vk_to_gen_tex_filter(VkFilter filter, bool anisotropyEnable)
 {
    switch (filter) {
@@ -100,7 +210,7 @@ vk_to_gen_tex_filter(VkFilter filter, bool anisotropyEnable)
    }
 }
 
-static inline uint32_t
+static uint32_t
 vk_to_gen_max_anisotropy(float ratio)
 {
    return (anv_clamp_f(ratio, 2, 16) - 2) / 2;
@@ -152,68 +262,102 @@ VkResult genX(CreateSampler)(
 
    assert(pCreateInfo->sType == VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO);
 
-   sampler = vk_alloc2(&device->alloc, pAllocator, sizeof(*sampler), 8,
+   sampler = vk_zalloc2(&device->alloc, pAllocator, sizeof(*sampler), 8,
                         VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
    if (!sampler)
       return vk_error(VK_ERROR_OUT_OF_HOST_MEMORY);
 
+   sampler->n_planes = 1;
+
    uint32_t border_color_offset = device->border_colors.offset +
                                   pCreateInfo->borderColor * 64;
 
-   bool enable_min_filter_addr_rounding =
-      pCreateInfo->minFilter != VK_FILTER_NEAREST;
-   bool enable_mag_filter_addr_rounding =
-      pCreateInfo->magFilter != VK_FILTER_NEAREST;
+   vk_foreach_struct(ext, pCreateInfo->pNext) {
+      switch (ext->sType) {
+      case VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO: {
+         VkSamplerYcbcrConversionInfo *pSamplerConversion =
+            (VkSamplerYcbcrConversionInfo *) ext;
+         ANV_FROM_HANDLE(anv_ycbcr_conversion, conversion,
+                         pSamplerConversion->conversion);
 
-   struct GENX(SAMPLER_STATE) sampler_state = {
-      .SamplerDisable = false,
-      .TextureBorderColorMode = DX10OGL,
+         if (conversion == NULL)
+            break;
+
+         sampler->n_planes = conversion->format->n_planes;
+         sampler->conversion = conversion;
+         break;
+      }
+      default:
+         anv_debug_ignored_stype(ext->sType);
+         break;
+      }
+   }
+
+   for (unsigned p = 0; p < sampler->n_planes; p++) {
+      const bool plane_has_chroma =
+         sampler->conversion && sampler->conversion->format->planes[p].has_chroma;
+      const VkFilter min_filter =
+         plane_has_chroma ? sampler->conversion->chroma_filter : pCreateInfo->minFilter;
+      const VkFilter mag_filter =
+         plane_has_chroma ? sampler->conversion->chroma_filter : pCreateInfo->magFilter;
+      const bool enable_min_filter_addr_rounding = min_filter != VK_FILTER_NEAREST;
+      const bool enable_mag_filter_addr_rounding = mag_filter != VK_FILTER_NEAREST;
+      /* From Broadwell PRM, SAMPLER_STATE:
+       *   "Mip Mode Filter must be set to MIPFILTER_NONE for Planar YUV surfaces."
+       */
+      const uint32_t mip_filter_mode =
+         (sampler->conversion &&
+          isl_format_is_yuv(sampler->conversion->format->planes[0].isl_format)) ?
+         MIPFILTER_NONE : vk_to_gen_mipmap_mode[pCreateInfo->mipmapMode];
+
+      struct GENX(SAMPLER_STATE) sampler_state = {
+         .SamplerDisable = false,
+         .TextureBorderColorMode = DX10OGL,
 
 #if GEN_GEN >= 8
-      .LODPreClampMode = CLAMP_MODE_OGL,
+         .LODPreClampMode = CLAMP_MODE_OGL,
 #else
-      .LODPreClampEnable = CLAMP_ENABLE_OGL,
+         .LODPreClampEnable = CLAMP_ENABLE_OGL,
 #endif
 
 #if GEN_GEN == 8
-      .BaseMipLevel = 0.0,
+         .BaseMipLevel = 0.0,
 #endif
-      .MipModeFilter = vk_to_gen_mipmap_mode[pCreateInfo->mipmapMode],
-      .MagModeFilter = vk_to_gen_tex_filter(pCreateInfo->magFilter,
-                                            pCreateInfo->anisotropyEnable),
-      .MinModeFilter = vk_to_gen_tex_filter(pCreateInfo->minFilter,
-                                            pCreateInfo->anisotropyEnable),
-      .TextureLODBias = anv_clamp_f(pCreateInfo->mipLodBias, -16, 15.996),
-      .AnisotropicAlgorithm = EWAApproximation,
-      .MinLOD = anv_clamp_f(pCreateInfo->minLod, 0, 14),
-      .MaxLOD = anv_clamp_f(pCreateInfo->maxLod, 0, 14),
-      .ChromaKeyEnable = 0,
-      .ChromaKeyIndex = 0,
-      .ChromaKeyMode = 0,
-      .ShadowFunction = vk_to_gen_shadow_compare_op[pCreateInfo->compareOp],
-      .CubeSurfaceControlMode = OVERRIDE,
+         .MipModeFilter = mip_filter_mode,
+         .MagModeFilter = vk_to_gen_tex_filter(mag_filter, pCreateInfo->anisotropyEnable),
+         .MinModeFilter = vk_to_gen_tex_filter(min_filter, pCreateInfo->anisotropyEnable),
+         .TextureLODBias = anv_clamp_f(pCreateInfo->mipLodBias, -16, 15.996),
+         .AnisotropicAlgorithm = EWAApproximation,
+         .MinLOD = anv_clamp_f(pCreateInfo->minLod, 0, 14),
+         .MaxLOD = anv_clamp_f(pCreateInfo->maxLod, 0, 14),
+         .ChromaKeyEnable = 0,
+         .ChromaKeyIndex = 0,
+         .ChromaKeyMode = 0,
+         .ShadowFunction = vk_to_gen_shadow_compare_op[pCreateInfo->compareOp],
+         .CubeSurfaceControlMode = OVERRIDE,
 
-      .BorderColorPointer = border_color_offset,
+         .BorderColorPointer = border_color_offset,
 
 #if GEN_GEN >= 8
-      .LODClampMagnificationMode = MIPNONE,
+         .LODClampMagnificationMode = MIPNONE,
 #endif
 
-      .MaximumAnisotropy = vk_to_gen_max_anisotropy(pCreateInfo->maxAnisotropy),
-      .RAddressMinFilterRoundingEnable = enable_min_filter_addr_rounding,
-      .RAddressMagFilterRoundingEnable = enable_mag_filter_addr_rounding,
-      .VAddressMinFilterRoundingEnable = enable_min_filter_addr_rounding,
-      .VAddressMagFilterRoundingEnable = enable_mag_filter_addr_rounding,
-      .UAddressMinFilterRoundingEnable = enable_min_filter_addr_rounding,
-      .UAddressMagFilterRoundingEnable = enable_mag_filter_addr_rounding,
-      .TrilinearFilterQuality = 0,
-      .NonnormalizedCoordinateEnable = pCreateInfo->unnormalizedCoordinates,
-      .TCXAddressControlMode = vk_to_gen_tex_address[pCreateInfo->addressModeU],
-      .TCYAddressControlMode = vk_to_gen_tex_address[pCreateInfo->addressModeV],
-      .TCZAddressControlMode = vk_to_gen_tex_address[pCreateInfo->addressModeW],
-   };
+         .MaximumAnisotropy = vk_to_gen_max_anisotropy(pCreateInfo->maxAnisotropy),
+         .RAddressMinFilterRoundingEnable = enable_min_filter_addr_rounding,
+         .RAddressMagFilterRoundingEnable = enable_mag_filter_addr_rounding,
+         .VAddressMinFilterRoundingEnable = enable_min_filter_addr_rounding,
+         .VAddressMagFilterRoundingEnable = enable_mag_filter_addr_rounding,
+         .UAddressMinFilterRoundingEnable = enable_min_filter_addr_rounding,
+         .UAddressMagFilterRoundingEnable = enable_mag_filter_addr_rounding,
+         .TrilinearFilterQuality = 0,
+         .NonnormalizedCoordinateEnable = pCreateInfo->unnormalizedCoordinates,
+         .TCXAddressControlMode = vk_to_gen_tex_address[pCreateInfo->addressModeU],
+         .TCYAddressControlMode = vk_to_gen_tex_address[pCreateInfo->addressModeV],
+         .TCZAddressControlMode = vk_to_gen_tex_address[pCreateInfo->addressModeW],
+      };
 
-   GENX(SAMPLER_STATE_pack)(NULL, sampler->state, &sampler_state);
+      GENX(SAMPLER_STATE_pack)(NULL, sampler->state[p], &sampler_state);
+   }
 
    *pSampler = anv_sampler_to_handle(sampler);
 

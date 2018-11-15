@@ -28,7 +28,6 @@
 
 
 #include "glheader.h"
-#include "compiler.h"
 
 struct gl_context;
 struct gl_pixelstore_attrib;
@@ -121,7 +120,7 @@ _mesa_clip_copytexsubimage(const struct gl_context *ctx,
                            GLint *destX, GLint *destY,
                            GLint *srcX, GLint *srcY,
                            GLsizei *width, GLsizei *height);
-
+                           
 extern GLboolean
 _mesa_clip_to_region(GLint xmin, GLint ymin,
                      GLint xmax, GLint ymax,

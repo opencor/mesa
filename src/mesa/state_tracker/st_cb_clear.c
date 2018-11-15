@@ -1,9 +1,9 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  * Copyright 2009 VMware, Inc.  All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -11,11 +11,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
  /*
@@ -33,9 +33,11 @@
   *   Michel Dänzer
   */
 
+#include "main/errors.h"
 #include "main/glheader.h"
 #include "main/accum.h"
 #include "main/formats.h"
+#include "main/framebuffer.h"
 #include "main/macros.h"
 #include "main/glformats.h"
 #include "program/prog_instruction.h"
@@ -53,7 +55,6 @@
 #include "pipe/p_state.h"
 #include "pipe/p_defines.h"
 #include "util/u_format.h"
-#include "util/u_framebuffer.h"
 #include "util/u_inlines.h"
 #include "util/u_simple_shaders.h"
 
@@ -180,12 +181,14 @@ clear_with_quad(struct gl_context *ctx, unsigned clear_buffers)
    const struct gl_framebuffer *fb = ctx->DrawBuffer;
    const GLfloat fb_width = (GLfloat) fb->Width;
    const GLfloat fb_height = (GLfloat) fb->Height;
+
+   _mesa_update_draw_buffer_bounds(ctx, ctx->DrawBuffer);
+
    const GLfloat x0 = (GLfloat) ctx->DrawBuffer->_Xmin / fb_width * 2.0f - 1.0f;
    const GLfloat x1 = (GLfloat) ctx->DrawBuffer->_Xmax / fb_width * 2.0f - 1.0f;
    const GLfloat y0 = (GLfloat) ctx->DrawBuffer->_Ymin / fb_height * 2.0f - 1.0f;
    const GLfloat y1 = (GLfloat) ctx->DrawBuffer->_Ymax / fb_height * 2.0f - 1.0f;
-   unsigned num_layers =
-      util_framebuffer_get_num_layers(&st->state.framebuffer);
+   unsigned num_layers = st->state.fb_num_layers;
 
    /*
    printf("%s %s%s%s %f,%f %f,%f\n", __func__,
@@ -224,14 +227,7 @@ clear_with_quad(struct gl_context *ctx, unsigned clear_buffers)
             if (!(clear_buffers & (PIPE_CLEAR_COLOR0 << i)))
                continue;
 
-            if (ctx->Color.ColorMask[i][0])
-               blend.rt[i].colormask |= PIPE_MASK_R;
-            if (ctx->Color.ColorMask[i][1])
-               blend.rt[i].colormask |= PIPE_MASK_G;
-            if (ctx->Color.ColorMask[i][2])
-               blend.rt[i].colormask |= PIPE_MASK_B;
-            if (ctx->Color.ColorMask[i][3])
-               blend.rt[i].colormask |= PIPE_MASK_A;
+            blend.rt[i].colormask = GET_COLORMASK(ctx->Color.ColorMask, i);
          }
 
          if (ctx->Color.DitherFlag)
@@ -336,32 +332,6 @@ is_window_rectangle_enabled(struct gl_context *ctx)
 
 
 /**
- * Return if all of the color channels are masked.
- */
-static inline GLboolean
-is_color_disabled(struct gl_context *ctx, int i)
-{
-   return !ctx->Color.ColorMask[i][0] &&
-          !ctx->Color.ColorMask[i][1] &&
-          !ctx->Color.ColorMask[i][2] &&
-          !ctx->Color.ColorMask[i][3];
-}
-
-
-/**
- * Return if any of the color channels are masked.
- */
-static inline GLboolean
-is_color_masked(struct gl_context *ctx, int i)
-{
-   return !ctx->Color.ColorMask[i][0] ||
-          !ctx->Color.ColorMask[i][1] ||
-          !ctx->Color.ColorMask[i][2] ||
-          !ctx->Color.ColorMask[i][3];
-}
-
-
-/**
  * Return if all of the stencil bits are masked.
  */
 static inline GLboolean
@@ -410,9 +380,9 @@ st_Clear(struct gl_context *ctx, GLbitfield mask)
 
    if (mask & BUFFER_BITS_COLOR) {
       for (i = 0; i < ctx->DrawBuffer->_NumColorDrawBuffers; i++) {
-         GLint b = ctx->DrawBuffer->_ColorDrawBufferIndexes[i];
+         gl_buffer_index b = ctx->DrawBuffer->_ColorDrawBufferIndexes[i];
 
-         if (b >= 0 && mask & (1 << b)) {
+         if (b != BUFFER_NONE && mask & (1 << b)) {
             struct gl_renderbuffer *rb
                = ctx->DrawBuffer->Attachment[b].Renderbuffer;
             struct st_renderbuffer *strb = st_renderbuffer(rb);
@@ -421,12 +391,12 @@ st_Clear(struct gl_context *ctx, GLbitfield mask)
             if (!strb || !strb->surface)
                continue;
 
-            if (is_color_disabled(ctx, colormask_index))
+            if (!GET_COLORMASK(ctx->Color.ColorMask, colormask_index))
                continue;
 
             if (is_scissor_enabled(ctx, rb) ||
                 is_window_rectangle_enabled(ctx) ||
-                is_color_masked(ctx, colormask_index))
+                GET_COLORMASK(ctx->Color.ColorMask, colormask_index) != 0xf)
                quad_buffers |= PIPE_CLEAR_COLOR0 << i;
             else
                clear_buffers |= PIPE_CLEAR_COLOR0 << i;

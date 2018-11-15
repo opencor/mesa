@@ -235,26 +235,6 @@ util_format_is_subsampled_422(enum pipe_format format)
       desc->block.bits == 32;
 }
 
-boolean
-util_format_is_supported(enum pipe_format format, unsigned bind)
-{
-   if (util_format_is_s3tc(format) && !util_format_s3tc_enabled) {
-      return FALSE;
-   }
-
-#ifndef TEXTURE_FLOAT_ENABLED
-   if ((bind & PIPE_BIND_RENDER_TARGET) &&
-       format != PIPE_FORMAT_R9G9B9E5_FLOAT &&
-       format != PIPE_FORMAT_R11G11B10_FLOAT &&
-       util_format_is_float(format)) {
-      return FALSE;
-   }
-#endif
-
-   return TRUE;
-}
-
-
 /**
  * Calculates the MRD for the depth format. MRD is used in depth bias
  * for UNORM and unbound depth buffers. When the depth buffer is floating

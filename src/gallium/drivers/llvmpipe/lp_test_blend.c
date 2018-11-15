@@ -95,12 +95,12 @@ write_tsv_row(FILE *fp,
 
    fprintf(fp,
            "%s\t%s\t%s\t%s\t%s\t%s\n",
-           util_dump_blend_func(blend->rt[0].rgb_func, TRUE),
-           util_dump_blend_factor(blend->rt[0].rgb_src_factor, TRUE),
-           util_dump_blend_factor(blend->rt[0].rgb_dst_factor, TRUE),
-           util_dump_blend_func(blend->rt[0].alpha_func, TRUE),
-           util_dump_blend_factor(blend->rt[0].alpha_src_factor, TRUE),
-           util_dump_blend_factor(blend->rt[0].alpha_dst_factor, TRUE));
+           util_str_blend_func(blend->rt[0].rgb_func, TRUE),
+           util_str_blend_factor(blend->rt[0].rgb_src_factor, TRUE),
+           util_str_blend_factor(blend->rt[0].rgb_dst_factor, TRUE),
+           util_str_blend_func(blend->rt[0].alpha_func, TRUE),
+           util_str_blend_factor(blend->rt[0].alpha_src_factor, TRUE),
+           util_str_blend_factor(blend->rt[0].alpha_dst_factor, TRUE));
 
    fflush(fp);
 }
@@ -119,12 +119,12 @@ dump_blend_type(FILE *fp,
 
    fprintf(fp,
            " %s=%s %s=%s %s=%s %s=%s %s=%s %s=%s",
-           "rgb_func",         util_dump_blend_func(blend->rt[0].rgb_func, TRUE),
-           "rgb_src_factor",   util_dump_blend_factor(blend->rt[0].rgb_src_factor, TRUE),
-           "rgb_dst_factor",   util_dump_blend_factor(blend->rt[0].rgb_dst_factor, TRUE),
-           "alpha_func",       util_dump_blend_func(blend->rt[0].alpha_func, TRUE),
-           "alpha_src_factor", util_dump_blend_factor(blend->rt[0].alpha_src_factor, TRUE),
-           "alpha_dst_factor", util_dump_blend_factor(blend->rt[0].alpha_dst_factor, TRUE));
+           "rgb_func",         util_str_blend_func(blend->rt[0].rgb_func, TRUE),
+           "rgb_src_factor",   util_str_blend_factor(blend->rt[0].rgb_src_factor, TRUE),
+           "rgb_dst_factor",   util_str_blend_factor(blend->rt[0].rgb_dst_factor, TRUE),
+           "alpha_func",       util_str_blend_func(blend->rt[0].alpha_func, TRUE),
+           "alpha_src_factor", util_str_blend_factor(blend->rt[0].alpha_src_factor, TRUE),
+           "alpha_dst_factor", util_str_blend_factor(blend->rt[0].alpha_dst_factor, TRUE));
 
    fprintf(fp, " ...\n");
    fflush(fp);
@@ -703,7 +703,7 @@ test_some(unsigned verbose, FILE *fp,
       alpha_func = &blend_funcs[rand() % num_funcs];
       rgb_src_factor = &blend_factors[rand() % num_factors];
       alpha_src_factor = &blend_factors[rand() % num_factors];
-
+      
       do {
          rgb_dst_factor = &blend_factors[rand() % num_factors];
       } while(*rgb_dst_factor == PIPE_BLENDFACTOR_SRC_ALPHA_SATURATE);

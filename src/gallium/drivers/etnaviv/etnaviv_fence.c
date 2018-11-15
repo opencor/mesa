@@ -36,7 +36,6 @@
 
 struct pipe_fence_handle {
    struct pipe_reference reference;
-   struct etna_context *ctx;
    struct etna_screen *screen;
    int fence_fd;
    uint32_t timestamp;
@@ -65,10 +64,8 @@ static boolean
 etna_screen_fence_finish(struct pipe_screen *pscreen, struct pipe_context *ctx,
                          struct pipe_fence_handle *fence, uint64_t timeout)
 {
-   if (fence->fence_fd != -1) {
-      int ret = sync_wait(fence->fence_fd, timeout / 1000000);
-      return ret == 0;
-   }
+   if (fence->fence_fd != -1)
+	return !sync_wait(fence->fence_fd, timeout / 1000000);
 
    if (etna_pipe_wait_ns(fence->screen->pipe, fence->timestamp, timeout))
       return false;
@@ -78,8 +75,10 @@ etna_screen_fence_finish(struct pipe_screen *pscreen, struct pipe_context *ctx,
 
 void
 etna_create_fence_fd(struct pipe_context *pctx,
-                     struct pipe_fence_handle **pfence, int fd)
+                     struct pipe_fence_handle **pfence, int fd,
+                     enum pipe_fd_type type)
 {
+   assert(type == PIPE_FD_TYPE_NATIVE_SYNC);
    *pfence = etna_fence_create(pctx, dup(fd));
 }
 
@@ -111,7 +110,6 @@ etna_fence_create(struct pipe_context *pctx, int fence_fd)
 
    pipe_reference_init(&fence->reference, 1);
 
-   fence->ctx = ctx;
    fence->screen = ctx->screen;
    fence->timestamp = etna_cmd_stream_timestamp(ctx->stream);
    fence->fence_fd = fence_fd;

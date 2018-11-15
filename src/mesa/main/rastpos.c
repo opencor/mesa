@@ -35,7 +35,6 @@
 #include "mtypes.h"
 #include "rastpos.h"
 #include "state.h"
-#include "main/dispatch.h"
 #include "main/viewport.h"
 #include "util/bitscan.h"
 
@@ -266,7 +265,8 @@ static void
 compute_texgen(struct gl_context *ctx, const GLfloat vObj[4], const GLfloat vEye[4],
                const GLfloat normal[3], GLuint unit, GLfloat texcoord[4])
 {
-   const struct gl_texture_unit *texUnit = &ctx->Texture.Unit[unit];
+   const struct gl_fixedfunc_texture_unit *texUnit =
+      &ctx->Texture.FixedFuncUnit[unit];
 
    /* always compute sphere map terms, just in case */
    GLfloat u[3], two_nu, rx, ry, rz, m, mInv;
@@ -372,7 +372,7 @@ compute_texgen(struct gl_context *ctx, const GLfloat vObj[4], const GLfloat vEye
 void
 _mesa_RasterPos(struct gl_context *ctx, const GLfloat vObj[4])
 {
-   if (ctx->VertexProgram._Enabled) {
+   if (_mesa_arb_vertex_program_enabled(ctx)) {
       /* XXX implement this */
       _mesa_problem(ctx, "Vertex programs not implemented for glRasterPos");
       return;
@@ -464,7 +464,7 @@ _mesa_RasterPos(struct gl_context *ctx, const GLfloat vObj[4])
          for (u = 0; u < ctx->Const.MaxTextureCoordUnits; u++) {
             GLfloat tc[4];
             COPY_4V(tc, ctx->Current.Attrib[VERT_ATTRIB_TEX0 + u]);
-            if (ctx->Texture.Unit[u].TexGenEnabled) {
+            if (ctx->Texture.FixedFuncUnit[u].TexGenEnabled) {
                compute_texgen(ctx, vObj, eye, norm, u, tc);
             }
             TRANSFORM_POINT(ctx->Current.RasterTexCoords[u],
@@ -628,7 +628,7 @@ _mesa_RasterPos3sv(const GLshort *v)
 void GLAPIENTRY
 _mesa_RasterPos4dv(const GLdouble *v)
 {
-   rasterpos((GLfloat) v[0], (GLfloat) v[1],
+   rasterpos((GLfloat) v[0], (GLfloat) v[1], 
 		     (GLfloat) v[2], (GLfloat) v[3]);
 }
 
@@ -641,7 +641,7 @@ _mesa_RasterPos4fv(const GLfloat *v)
 void GLAPIENTRY
 _mesa_RasterPos4iv(const GLint *v)
 {
-   rasterpos((GLfloat) v[0], (GLfloat) v[1],
+   rasterpos((GLfloat) v[0], (GLfloat) v[1], 
 		     (GLfloat) v[2], (GLfloat) v[3]);
 }
 
@@ -854,7 +854,7 @@ _mesa_WindowPos3sv(const GLshort *v)
 void GLAPIENTRY
 _mesa_WindowPos4dvMESA(const GLdouble *v)
 {
-   window_pos4f((GLfloat) v[0], (GLfloat) v[1],
+   window_pos4f((GLfloat) v[0], (GLfloat) v[1], 
 			 (GLfloat) v[2], (GLfloat) v[3]);
 }
 
@@ -867,7 +867,7 @@ _mesa_WindowPos4fvMESA(const GLfloat *v)
 void GLAPIENTRY
 _mesa_WindowPos4ivMESA(const GLint *v)
 {
-   window_pos4f((GLfloat) v[0], (GLfloat) v[1],
+   window_pos4f((GLfloat) v[0], (GLfloat) v[1], 
 			 (GLfloat) v[2], (GLfloat) v[3]);
 }
 

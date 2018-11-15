@@ -1,84 +1,37 @@
 /****************************************************************************
-* Copyright (C) 2014-2015 Intel Corporation.   All Rights Reserved.
-*
-* Permission is hereby granted, free of charge, to any person obtaining a
-* copy of this software and associated documentation files (the "Software"),
-* to deal in the Software without restriction, including without limitation
-* the rights to use, copy, modify, merge, publish, distribute, sublicense,
-* and/or sell copies of the Software, and to permit persons to whom the
-* Software is furnished to do so, subject to the following conditions:
-*
-* The above copyright notice and this permission notice (including the next
-* paragraph) shall be included in all copies or substantial portions of the
-* Software.
-*
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
-* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-* IN THE SOFTWARE.
-*
-* @file JitManager.h
-*
-* @brief JitManager contains the LLVM data structures used for JIT generation
-*
-* Notes:
-*
-******************************************************************************/
+ * Copyright (C) 2014-2015 Intel Corporation.   All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice (including the next
+ * paragraph) shall be included in all copies or substantial portions of the
+ * Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+ * IN THE SOFTWARE.
+ *
+ * @file JitManager.h
+ *
+ * @brief JitManager contains the LLVM data structures used for JIT generation
+ *
+ * Notes:
+ *
+ ******************************************************************************/
 #pragma once
 
-#if defined(_WIN32)
-#pragma warning(disable : 4146 4244 4267 4800 4996)
-#endif
-
-// llvm 3.7+ reuses "DEBUG" as an enum value
-#pragma push_macro("DEBUG")
-#undef DEBUG
-
-#include "llvm/IR/DataLayout.h"
-#include "llvm/IR/Instructions.h"
-#include "llvm/IR/LLVMContext.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Type.h"
-#include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/IntrinsicInst.h"
-
-#include "llvm/Config/llvm-config.h"
-#ifndef LLVM_VERSION_MAJOR
-#include "llvm/Config/config.h"
-#endif
-
-#ifndef HAVE_LLVM
-#define HAVE_LLVM ((LLVM_VERSION_MAJOR << 8) | LLVM_VERSION_MINOR)
-#endif
-
-#include "llvm/IR/Verifier.h"
-#include "llvm/ExecutionEngine/MCJIT.h"
-#include "llvm/Support/FileSystem.h"
-#define LLVM_F_NONE sys::fs::F_None
-
-#include "llvm/Analysis/Passes.h"
-
-#include "llvm/IR/LegacyPassManager.h"
-using FunctionPassManager = llvm::legacy::FunctionPassManager;
-using PassManager = llvm::legacy::PassManager;
-
-#include "llvm/CodeGen/Passes.h"
-#include "llvm/ExecutionEngine/ExecutionEngine.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/TargetSelect.h"
-#include "llvm/Transforms/IPO.h"
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/Support/Host.h"
-#include "llvm/Support/DynamicLibrary.h"
-
-
-#include "common/os.h"
+#include "jit_pch.hpp"
 #include "common/isa.hpp"
 
-#pragma pop_macro("DEBUG")
 
 //////////////////////////////////////////////////////////////////////////
 /// JitInstructionSet
@@ -94,45 +47,75 @@ public:
     {
         std::transform(isaRequest.begin(), isaRequest.end(), isaRequest.begin(), ::tolower);
 
-        if(isaRequest == "avx")
+        if (isaRequest == "avx")
         {
-            bForceAVX = true;
-            bForceAVX2 = false;
+            bForceAVX    = true;
+            bForceAVX2   = false;
             bForceAVX512 = false;
         }
-        else if(isaRequest == "avx2")
+        else if (isaRequest == "avx2")
         {
-            bForceAVX = false;
-            bForceAVX2 = true;
+            bForceAVX    = false;
+            bForceAVX2   = true;
             bForceAVX512 = false;
         }
-        #if 0
-        else if(isaRequest == "avx512")
+        else if (isaRequest == "avx512")
         {
-            bForceAVX = false;
-            bForceAVX2 = false;
+            bForceAVX    = false;
+            bForceAVX2   = false;
             bForceAVX512 = true;
         }
-        #endif
     };
 
     bool AVX2(void) { return bForceAVX ? 0 : InstructionSet::AVX2(); }
     bool AVX512F(void) { return (bForceAVX | bForceAVX2) ? 0 : InstructionSet::AVX512F(); }
+    bool AVX512ER(void) { return (bForceAVX | bForceAVX2) ? 0 : InstructionSet::AVX512ER(); }
     bool BMI2(void) { return bForceAVX ? 0 : InstructionSet::BMI2(); }
 
 private:
-    bool bForceAVX = false;
-    bool bForceAVX2 = false;
-    bool bForceAVX512 = false;
+    bool        bForceAVX    = false;
+    bool        bForceAVX2   = false;
+    bool        bForceAVX512 = false;
     std::string isaRequest;
 };
-
-
 
 struct JitLLVMContext : llvm::LLVMContext
 {
 };
 
+//////////////////////////////////////////////////////////////////////////
+/// JitCache
+//////////////////////////////////////////////////////////////////////////
+struct JitManager; // Forward Decl
+class JitCache : public llvm::ObjectCache
+{
+public:
+    /// constructor
+    JitCache();
+    virtual ~JitCache() {}
+
+    void Init(JitManager* pJitMgr, const llvm::StringRef& cpu, llvm::CodeGenOpt::Level level)
+    {
+        mCpu      = cpu.str();
+        mpJitMgr  = pJitMgr;
+        mOptLevel = level;
+    }
+
+    /// notifyObjectCompiled - Provides a pointer to compiled code for Module M.
+    void notifyObjectCompiled(const llvm::Module* M, llvm::MemoryBufferRef Obj) override;
+
+    /// Returns a pointer to a newly allocated MemoryBuffer that contains the
+    /// object which corresponds with Module M, or 0 if an object is not
+    /// available.
+    std::unique_ptr<llvm::MemoryBuffer> getObject(const llvm::Module* M) override;
+
+private:
+    std::string                 mCpu;
+    llvm::SmallString<MAX_PATH> mCacheDir;
+    uint32_t                    mCurrentModuleCRC = 0;
+    JitManager*                 mpJitMgr          = nullptr;
+    llvm::CodeGenOpt::Level     mOptLevel         = llvm::CodeGenOpt::None;
+};
 
 //////////////////////////////////////////////////////////////////////////
 /// JitManager
@@ -142,37 +125,56 @@ struct JitManager
     JitManager(uint32_t w, const char* arch, const char* core);
     ~JitManager(){};
 
-    JitLLVMContext          mContext;   ///< LLVM compiler
-    llvm::IRBuilder<>       mBuilder;   ///< LLVM IR Builder
-    llvm::ExecutionEngine*  mpExec;
+    JitLLVMContext         mContext; ///< LLVM compiler
+    llvm::IRBuilder<>      mBuilder; ///< LLVM IR Builder
+    llvm::ExecutionEngine* mpExec;
+    JitCache               mCache;
 
     // Need to be rebuilt after a JIT and before building new IR
     llvm::Module* mpCurrentModule;
-    bool mIsModuleFinalized;
-    uint32_t mJitNumber;
+    bool          mIsModuleFinalized;
+    uint32_t      mJitNumber;
 
-    uint32_t                 mVWidth;
+    uint32_t mVWidth;
 
-    // Built in types.
-    llvm::Type*                mInt8Ty;
-    llvm::Type*                mInt32Ty;
-    llvm::Type*                mInt64Ty;
-    llvm::Type*                mFP32Ty;
-
-    llvm::Type* mSimtFP32Ty;
-    llvm::Type* mSimtInt32Ty;
-
-    llvm::Type* mSimdVectorInt32Ty;
-    llvm::Type* mSimdVectorTy;
+    bool mUsingAVX512 = false;
 
     // fetch shader types
-    llvm::FunctionType*        mFetchShaderTy;
+    llvm::FunctionType* mFetchShaderTy;
 
     JitInstructionSet mArch;
-    std::string mCore;
+
+    // Debugging support
+    std::unordered_map<llvm::StructType*, llvm::DIType*> mDebugStructMap;
 
     void SetupNewModule();
 
-    void DumpAsm(llvm::Function* pFunction, const char* fileName);
-    static void DumpToFile(llvm::Function *f, const char *fileName);
+    void               DumpAsm(llvm::Function* pFunction, const char* fileName);
+    static void        DumpToFile(llvm::Function* f, const char* fileName);
+    static void        DumpToFile(llvm::Module* M, const char* fileName);
+    static std::string GetOutputDir();
+
+    // Debugging support methods
+    llvm::DIType* GetDebugType(llvm::Type* pTy);
+    llvm::DIType* GetDebugIntegerType(llvm::Type* pTy);
+    llvm::DIType* GetDebugArrayType(llvm::Type* pTy);
+    llvm::DIType* GetDebugVectorType(llvm::Type* pTy);
+    llvm::DIType* GetDebugFunctionType(llvm::Type* pTy);
+
+    llvm::DIType* GetDebugStructType(llvm::Type* pType)
+    {
+        llvm::StructType* pStructTy = llvm::cast<llvm::StructType>(pType);
+        if (mDebugStructMap.find(pStructTy) == mDebugStructMap.end())
+        {
+            return nullptr;
+        }
+        return mDebugStructMap[pStructTy];
+    }
+
+    llvm::DIType*
+    CreateDebugStructType(llvm::StructType*                                    pType,
+                          const std::string&                                   name,
+                          llvm::DIFile*                                        pFile,
+                          uint32_t                                             lineNum,
+                          const std::vector<std::pair<std::string, uint32_t>>& members);
 };

@@ -19,14 +19,10 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-if HAVE_SHARED_GLAPI
-SHARED_GLAPI_CFLAGS = -DGLX_SHARED_GLAPI
-SHARED_GLAPI_LIB = $(top_builddir)/src/mapi/shared-glapi/libglapi.la
-endif
 
 SUBDIRS =
 
-EXTRA_DIST = SConscript
+EXTRA_DIST = SConscript meson.build
 
 if HAVE_XF86VIDMODE
 EXTRA_DEFINES_XF86VIDMODE = -DXF86VIDMODE
@@ -42,7 +38,6 @@ AM_CFLAGS = \
 	-I$(top_builddir)/src/mapi/glapi \
 	-I$(top_srcdir)/src/mapi/glapi \
 	$(VISIBILITY_CFLAGS) \
-	$(SHARED_GLAPI_CFLAGS) \
 	$(EXTRA_DEFINES_XF86VIDMODE) \
 	-D_REENTRANT \
 	-DDEFAULT_DRIVER_DIR=\"$(DRI_DRIVER_SEARCH_DIR)\" \
@@ -99,7 +94,10 @@ libglx_la_SOURCES = \
 	singlepix.c \
 	vertarr.c
 
-libglx_la_LIBADD = $(top_builddir)/src/loader/libloader.la
+libglx_la_LIBADD = \
+	$(top_builddir)/src/loader/libloader.la \
+	$(top_builddir)/src/util/libmesautil.la \
+	$(top_builddir)/src/util/libxmlconfig.la
 
 if HAVE_DRISW
 libglx_la_SOURCES += \
@@ -180,7 +178,7 @@ GL_LIBS = \
 	$(LIBDRM_LIBS) \
 	libglx.la \
 	$(top_builddir)/src/mapi/glapi/libglapi.la \
-	$(SHARED_GLAPI_LIB) \
+	$(top_builddir)/src/mapi/shared-glapi/libglapi.la \
 	$(GL_LIB_DEPS)
 
 GL_LDFLAGS = \

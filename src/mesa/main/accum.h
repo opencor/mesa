@@ -1,7 +1,7 @@
 /**
  * \file accum.h
  * Accumulation buffer operations.
- *
+ * 
  * \if subset
  * (No-op)
  *
@@ -39,17 +39,12 @@
 
 #include "main/glheader.h"
 
-struct _glapi_table;
 struct gl_context;
-struct gl_renderbuffer;
 
 extern void GLAPIENTRY
 _mesa_ClearAccum( GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha );
 void GLAPIENTRY
 _mesa_Accum( GLenum op, GLfloat value );
-
-extern void
-_mesa_accum(struct gl_context *ctx, GLenum op, GLfloat value);
 
 extern void
 _mesa_clear_accum_buffer(struct gl_context *ctx);

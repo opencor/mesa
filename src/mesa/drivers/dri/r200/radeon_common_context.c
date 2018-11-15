@@ -33,7 +33,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 **************************************************************************/
 
 #include "radeon_common.h"
-#include "xmlpool.h"		/* for symbolic values of enum-type options */
+#include "util/xmlpool.h"		/* for symbolic values of enum-type options */
 #include "utils.h"
 #include "drivers/common/meta.h"
 #include "main/context.h"
@@ -182,7 +182,7 @@ GLboolean radeonInitContext(radeonContextPtr radeon,
         radeon->texture_depth = driQueryOptioni (&radeon->optionCache,
 					        "texture_depth");
         if (radeon->texture_depth == DRI_CONF_TEXTURE_DEPTH_FB)
-                radeon->texture_depth = ( glVisual->rgbBits > 16 ) ?
+                radeon->texture_depth = (glVisual == NULL || glVisual->rgbBits > 16) ?
 	        DRI_CONF_TEXTURE_DEPTH_32 : DRI_CONF_TEXTURE_DEPTH_16;
 
 	radeon->texture_row_align = 32;
@@ -309,7 +309,7 @@ GLboolean radeonUnbindContext(__DRIcontext * driContextPriv)
 static unsigned
 radeon_bits_per_pixel(const struct radeon_renderbuffer *rb)
 {
-   return _mesa_get_format_bytes(rb->base.Base.Format) * 8;
+   return _mesa_get_format_bytes(rb->base.Base.Format) * 8; 
 }
 
 /*
@@ -352,7 +352,7 @@ void radeon_prepare_render(radeonContextPtr radeon)
      * that will happen next will probably dirty the front buffer.  So
      * mark it as dirty here.
      */
-    if (radeon->is_front_buffer_rendering)
+    if (_mesa_is_front_buffer_drawing(radeon->glCtx.DrawBuffer))
 	radeon->front_buffer_dirty = GL_TRUE;
 }
 
@@ -389,10 +389,10 @@ radeon_update_renderbuffers(__DRIcontext *context, __DRIdrawable *drawable,
 		struct radeon_renderbuffer *stencil_rb;
 
 		i = 0;
-		if ((front_only || radeon->is_front_buffer_rendering ||
-		     radeon->is_front_buffer_reading ||
-		     !draw->color_rb[1])
-		    && draw->color_rb[0]) {
+                if ((front_only || _mesa_is_front_buffer_drawing(&draw->base) ||
+                     _mesa_is_front_buffer_reading(&draw->base) ||
+                     !draw->color_rb[1])
+                    && draw->color_rb[0]) {
 			attachments[i++] = __DRI_BUFFER_FRONT_LEFT;
 			attachments[i++] = radeon_bits_per_pixel(draw->color_rb[0]);
 		}

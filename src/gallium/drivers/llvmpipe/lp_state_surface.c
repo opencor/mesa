@@ -1,5 +1,5 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  *
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /* Authors:  Keith Whitwell <keithw@vmware.com>
@@ -61,7 +61,7 @@ llvmpipe_set_framebuffer_state(struct pipe_context *pipe,
       /*
        * If no depth buffer is bound, send the utility function the default
        * format for no bound depth (PIPE_FORMAT_NONE).
-       */
+       */ 
       enum pipe_format depth_format = fb->zsbuf ?
          fb->zsbuf->format : PIPE_FORMAT_NONE;
       const struct util_format_description *depth_desc =
@@ -91,7 +91,7 @@ llvmpipe_set_framebuffer_state(struct pipe_context *pipe,
        */
       lp->floating_point_depth =
          (util_get_depth_format_type(depth_desc) == UTIL_FORMAT_TYPE_FLOAT);
-
+ 
       lp->mrd = util_get_depth_format_mrd(depth_desc);
 
       /* Tell the draw module how deep the Z/depth buffer is. */

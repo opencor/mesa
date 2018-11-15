@@ -36,7 +36,6 @@
 #include <GL/gl.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "compiler.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -350,6 +349,7 @@ typedef enum
    MESA_FORMAT_B4G4R4X4_UNORM,                       /* xxxx RRRR GGGG BBBB */
    MESA_FORMAT_A4R4G4B4_UNORM,                       /* BBBB GGGG RRRR AAAA */
    MESA_FORMAT_A1B5G5R5_UNORM,                       /* RRRR RGGG GGBB BBBA */
+   MESA_FORMAT_X1B5G5R5_UNORM,                       /* BBBB BGGG GGRR RRRX */
    MESA_FORMAT_B5G5R5A1_UNORM,                       /* ARRR RRGG GGGB BBBB */
    MESA_FORMAT_B5G5R5X1_UNORM,                       /* xRRR RRGG GGGB BBBB */
    MESA_FORMAT_A1R5G5B5_UNORM,                       /* BBBB BGGG GGRR RRRA */
@@ -395,7 +395,7 @@ typedef enum
    MESA_FORMAT_BGR_UNORM8,    /* ubyte[i*3] = B, [i*3+1] = G, [i*3+2] = R */
    MESA_FORMAT_RGB_UNORM8,    /* ubyte[i*3] = R, [i*3+1] = G, [i*3+2] = B */
    MESA_FORMAT_RGBA_UNORM16,  /* ushort[i] = R, [1] = G, [2] = B, [3] = A */
-   MESA_FORMAT_RGBX_UNORM16,
+   MESA_FORMAT_RGBX_UNORM16,  
 
    MESA_FORMAT_Z_UNORM16,     /* ushort[i] = Z */
    MESA_FORMAT_Z_UNORM32,     /* uint[i] = Z */
@@ -721,6 +721,9 @@ _mesa_is_format_integer(mesa_format format);
 extern bool
 _mesa_is_format_etc2(mesa_format format);
 
+bool
+_mesa_is_format_astc_2d(mesa_format format);
+
 GLenum
 _mesa_is_format_color_format(mesa_format format);
 
@@ -749,6 +752,9 @@ extern mesa_format
 _mesa_get_srgb_format_linear(mesa_format format);
 
 extern mesa_format
+_mesa_get_linear_format_srgb(mesa_format format);
+
+extern mesa_format
 _mesa_get_uncompressed_format(mesa_format format);
 
 extern GLuint
@@ -761,6 +767,9 @@ GLboolean
 _mesa_format_matches_format_and_type(mesa_format mesa_format,
 				     GLenum format, GLenum type,
 				     GLboolean swapBytes, GLenum *error);
+
+mesa_format
+_mesa_format_fallback_rgbx_to_rgba(mesa_format format);
 
 #ifdef __cplusplus
 }

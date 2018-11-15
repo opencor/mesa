@@ -25,15 +25,38 @@
 #define BRW_PROGRAM_H
 
 #include "compiler/brw_compiler.h"
+#include "nir.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 struct brw_context;
+struct blob;
+struct blob_reader;
 
-bool brw_do_channel_expressions(struct exec_list *instructions);
-bool brw_do_vector_splitting(struct exec_list *instructions);
+enum brw_param_domain {
+   BRW_PARAM_DOMAIN_BUILTIN = 0,
+   BRW_PARAM_DOMAIN_PARAMETER,
+   BRW_PARAM_DOMAIN_UNIFORM,
+   BRW_PARAM_DOMAIN_IMAGE,
+};
+
+#define BRW_PARAM(domain, val)   (BRW_PARAM_DOMAIN_##domain << 24 | (val))
+#define BRW_PARAM_DOMAIN(param)  ((uint32_t)(param) >> 24)
+#define BRW_PARAM_VALUE(param)   ((uint32_t)(param) & 0x00ffffff)
+
+#define BRW_PARAM_PARAMETER(idx, comp) \
+   BRW_PARAM(PARAMETER, ((idx) << 2) | (comp))
+#define BRW_PARAM_PARAMETER_IDX(param)    (BRW_PARAM_VALUE(param) >> 2)
+#define BRW_PARAM_PARAMETER_COMP(param)   (BRW_PARAM_VALUE(param) & 0x3)
+
+#define BRW_PARAM_UNIFORM(idx)            BRW_PARAM(UNIFORM, (idx))
+#define BRW_PARAM_UNIFORM_IDX(param)      BRW_PARAM_VALUE(param)
+
+#define BRW_PARAM_IMAGE(idx, offset) BRW_PARAM(IMAGE, ((idx) << 8) | (offset))
+#define BRW_PARAM_IMAGE_IDX(value)        (BRW_PARAM_VALUE(value) >> 8)
+#define BRW_PARAM_IMAGE_OFFSET(value)     (BRW_PARAM_VALUE(value) & 0xf)
 
 struct nir_shader *brw_create_nir(struct brw_context *brw,
                                   const struct gl_shader_program *shader_prog,
@@ -41,7 +64,9 @@ struct nir_shader *brw_create_nir(struct brw_context *brw,
                                   gl_shader_stage stage,
                                   bool is_scalar);
 
-void brw_setup_tex_for_precompile(struct brw_context *brw,
+void brw_shader_gather_info(nir_shader *nir, struct gl_program *prog);
+
+void brw_setup_tex_for_precompile(const struct gen_device_info *devinfo,
                                   struct brw_sampler_prog_key_data *tex,
                                   struct gl_program *prog);
 
@@ -57,6 +82,16 @@ brw_assign_common_binding_table_offsets(const struct gen_device_info *devinfo,
                                         const struct gl_program *prog,
                                         struct brw_stage_prog_data *stage_prog_data,
                                         uint32_t next_binding_table_offset);
+
+void
+brw_prog_key_set_id(union brw_any_prog_key *key, gl_shader_stage stage,
+                    unsigned id);
+
+void
+brw_populate_default_key(const struct gen_device_info *devinfo,
+                         union brw_any_prog_key *prog_key,
+                         struct gl_shader_program *sh_prog,
+                         struct gl_program *prog);
 
 void
 brw_stage_prog_data_free(const void *prog_data);
@@ -80,9 +115,25 @@ GLboolean brw_link_shader(struct gl_context *ctx, struct gl_shader_program *prog
 void brw_upload_tcs_prog(struct brw_context *brw);
 void brw_tcs_populate_key(struct brw_context *brw,
                           struct brw_tcs_prog_key *key);
+void brw_tcs_populate_default_key(const struct gen_device_info *devinfo,
+                                  struct brw_tcs_prog_key *key,
+                                  struct gl_shader_program *sh_prog,
+                                  struct gl_program *prog);
 void brw_upload_tes_prog(struct brw_context *brw);
 void brw_tes_populate_key(struct brw_context *brw,
                           struct brw_tes_prog_key *key);
+void brw_tes_populate_default_key(const struct gen_device_info *devinfo,
+                                  struct brw_tes_prog_key *key,
+                                  struct gl_shader_program *sh_prog,
+                                  struct gl_program *prog);
+
+void brw_write_blob_program_data(struct blob *binary, gl_shader_stage stage,
+                                 const void *program,
+                                 struct brw_stage_prog_data *prog_data);
+bool brw_read_blob_program_data(struct blob_reader *binary,
+                                struct gl_program *prog, gl_shader_stage stage,
+                                const uint8_t **program,
+                                struct brw_stage_prog_data *prog_data);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -7,7 +7,7 @@ perform triangle setup functions not implemented in the software
 rasterizer.
 
 The module implements a full set of functions to plug into the
-t_vb_render.c driver interface (tnl->Driver.Render.*).
+t_vb_render.c driver interface (tnl->Driver.Render.*).  
 
 There are strong advantages to decoupling the software rasterizer from
 the t&l module, primarily allowing hardware drivers better control
@@ -22,7 +22,7 @@ primitives directly.
 
 Hardware rasterization drivers typically use this module in situations
 where no hardware rasterization is possible, ie during total
-fallbacks.
+fallbacks. 
 
 STATE
 
@@ -38,7 +38,7 @@ over the task of rasterization entirely:
 
         void _swrast_Wakeup( struct gl_context *ctx );
 
-
+   
 This module tracks state changes internally and maintains derived
 values based on the current state.  For this to work, the driver
 ensure the following funciton is called whenever the state changes and
@@ -56,7 +56,7 @@ The module offers a minimal driver interface:
 
 	 void (*Start)( struct gl_context *ctx );
 	 void (*Finish)( struct gl_context *ctx );
-
+	 
 These are called before and after the completion of all swrast drawing
 activity.  As swrast doesn't call callbacks during triangle, line or
 point rasterization, these are necessary to provide locking hooks for

@@ -49,7 +49,7 @@ struct d3dadapter9_context
 struct NineAdapter9
 {
     struct NineUnknown base;
-
+    
     struct d3dadapter9_context *ctx;
 };
 static inline struct NineAdapter9 *

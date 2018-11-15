@@ -119,8 +119,7 @@ struct index_cache {
    u_generate_func generate;
    unsigned gen_nr;
 
-   /* If non-null, this buffer is filled by calling
-    *   generate(nr, map(buffer))
+   /* If non-null, this buffer is filled by calling generate(nr, map(buffer))
     */
    struct pipe_resource *buffer;
 };
@@ -221,26 +220,25 @@ svga_need_unfilled_fallback(const struct svga_hwtnl *hwtnl,
 
 
 enum pipe_error
-svga_hwtnl_prim( struct svga_hwtnl *hwtnl,
-                 const SVGA3dPrimitiveRange *range,
-                 unsigned vcount,
-                 unsigned min_index,
-                 unsigned max_index,
-                 struct pipe_resource *ib,
-                 unsigned start_instance, unsigned instance_count);
+svga_hwtnl_prim(struct svga_hwtnl *hwtnl,
+                const SVGA3dPrimitiveRange *range,
+                unsigned vcount,
+                unsigned min_index,
+                unsigned max_index,
+                struct pipe_resource *ib,
+                unsigned start_instance, unsigned instance_count);
 
 enum pipe_error
-svga_hwtnl_simple_draw_range_elements( struct svga_hwtnl *hwtnl,
-                                       struct pipe_resource *indexBuffer,
-                                       unsigned index_size,
-                                       int index_bias,
-                                       unsigned min_index,
-                                       unsigned max_index,
-                                       enum pipe_prim_type prim,
-                                       unsigned start,
-                                       unsigned count,
-                                       unsigned start_instance,
-                                       unsigned instance_count);
-
+svga_hwtnl_simple_draw_range_elements(struct svga_hwtnl *hwtnl,
+                                      struct pipe_resource *indexBuffer,
+                                      unsigned index_size,
+                                      int index_bias,
+                                      unsigned min_index,
+                                      unsigned max_index,
+                                      enum pipe_prim_type prim,
+                                      unsigned start,
+                                      unsigned count,
+                                      unsigned start_instance,
+                                      unsigned instance_count);
 
 #endif

@@ -36,8 +36,9 @@
 void
 gen8_cmd_buffer_emit_viewport(struct anv_cmd_buffer *cmd_buffer)
 {
-   uint32_t count = cmd_buffer->state.dynamic.viewport.count;
-   const VkViewport *viewports = cmd_buffer->state.dynamic.viewport.viewports;
+   uint32_t count = cmd_buffer->state.gfx.dynamic.viewport.count;
+   const VkViewport *viewports =
+      cmd_buffer->state.gfx.dynamic.viewport.viewports;
    struct anv_state sf_clip_state =
       anv_cmd_buffer_alloc_dynamic_state(cmd_buffer, count * 64, 64);
 
@@ -49,10 +50,10 @@ gen8_cmd_buffer_emit_viewport(struct anv_cmd_buffer *cmd_buffer)
       struct GENX(SF_CLIP_VIEWPORT) sf_clip_viewport = {
          .ViewportMatrixElementm00 = vp->width / 2,
          .ViewportMatrixElementm11 = vp->height / 2,
-         .ViewportMatrixElementm22 = 1.0,
+         .ViewportMatrixElementm22 = vp->maxDepth - vp->minDepth,
          .ViewportMatrixElementm30 = vp->x + vp->width / 2,
          .ViewportMatrixElementm31 = vp->y + vp->height / 2,
-         .ViewportMatrixElementm32 = 0.0,
+         .ViewportMatrixElementm32 = vp->minDepth,
          .XMinClipGuardband = -1.0f,
          .XMaxClipGuardband = 1.0f,
          .YMinClipGuardband = -1.0f,
@@ -79,8 +80,9 @@ void
 gen8_cmd_buffer_emit_depth_viewport(struct anv_cmd_buffer *cmd_buffer,
                                     bool depth_clamp_enable)
 {
-   uint32_t count = cmd_buffer->state.dynamic.viewport.count;
-   const VkViewport *viewports = cmd_buffer->state.dynamic.viewport.viewports;
+   uint32_t count = cmd_buffer->state.gfx.dynamic.viewport.count;
+   const VkViewport *viewports =
+      cmd_buffer->state.gfx.dynamic.viewport.viewports;
    struct anv_state cc_state =
       anv_cmd_buffer_alloc_dynamic_state(cmd_buffer, count * 8, 32);
 
@@ -102,54 +104,6 @@ gen8_cmd_buffer_emit_depth_viewport(struct anv_cmd_buffer *cmd_buffer,
       cc.CCViewportPointer = cc_state.offset;
    }
 }
-#endif
-
-static void
-__emit_genx_sf_state(struct anv_cmd_buffer *cmd_buffer)
-{
-      uint32_t sf_dw[GENX(3DSTATE_SF_length)];
-      struct GENX(3DSTATE_SF) sf = {
-         GENX(3DSTATE_SF_header),
-         .LineWidth = cmd_buffer->state.dynamic.line_width,
-      };
-      GENX(3DSTATE_SF_pack)(NULL, sf_dw, &sf);
-      /* FIXME: gen9.fs */
-      anv_batch_emit_merge(&cmd_buffer->batch, sf_dw,
-                           cmd_buffer->state.pipeline->gen8.sf);
-}
-
-void
-gen9_emit_sf_state(struct anv_cmd_buffer *cmd_buffer);
-
-#if GEN_GEN == 9
-
-void
-gen9_emit_sf_state(struct anv_cmd_buffer *cmd_buffer)
-{
-   __emit_genx_sf_state(cmd_buffer);
-}
-
-#endif
-
-#if GEN_GEN == 8
-
-static void
-__emit_sf_state(struct anv_cmd_buffer *cmd_buffer)
-{
-   if (cmd_buffer->device->info.is_cherryview)
-      gen9_emit_sf_state(cmd_buffer);
-   else
-      __emit_genx_sf_state(cmd_buffer);
-}
-
-#else
-
-static void
-__emit_sf_state(struct anv_cmd_buffer *cmd_buffer)
-{
-   __emit_genx_sf_state(cmd_buffer);
-}
-
 #endif
 
 void
@@ -215,7 +169,7 @@ genX(cmd_buffer_enable_pma_fix)(struct anv_cmd_buffer *cmd_buffer, bool enable)
    }
 }
 
-static inline bool
+UNUSED static bool
 want_depth_pma_fix(struct anv_cmd_buffer *cmd_buffer)
 {
    assert(GEN_GEN == 8);
@@ -266,7 +220,7 @@ want_depth_pma_fix(struct anv_cmd_buffer *cmd_buffer)
       return false;
 
    /* 3DSTATE_PS_EXTRA::PixelShaderValid */
-   struct anv_pipeline *pipeline = cmd_buffer->state.pipeline;
+   struct anv_pipeline *pipeline = cmd_buffer->state.gfx.base.pipeline;
    if (!anv_pipeline_has_stage(pipeline, MESA_SHADER_FRAGMENT))
       return false;
 
@@ -304,9 +258,11 @@ want_depth_pma_fix(struct anv_cmd_buffer *cmd_buffer)
           wm_prog_data->computed_depth_mode != PSCDEPTH_OFF;
 }
 
-static inline bool
+UNUSED static bool
 want_stencil_pma_fix(struct anv_cmd_buffer *cmd_buffer)
 {
+   if (GEN_GEN > 9)
+      return false;
    assert(GEN_GEN == 9);
 
    /* From the Skylake PRM Vol. 2c CACHE_MODE_1::STC PMA Optimization Enable:
@@ -371,10 +327,10 @@ want_stencil_pma_fix(struct anv_cmd_buffer *cmd_buffer)
    /* HiZ is enabled so we had better have a depth buffer with HiZ */
    const struct anv_image_view *ds_iview =
       anv_cmd_buffer_get_depth_stencil_view(cmd_buffer);
-   assert(ds_iview && ds_iview->image->aux_usage == ISL_AUX_USAGE_HIZ);
+   assert(ds_iview && ds_iview->image->planes[0].aux_usage == ISL_AUX_USAGE_HIZ);
 
    /* 3DSTATE_PS_EXTRA::PixelShaderValid */
-   struct anv_pipeline *pipeline = cmd_buffer->state.pipeline;
+   struct anv_pipeline *pipeline = cmd_buffer->state.gfx.base.pipeline;
    if (!anv_pipeline_has_stage(pipeline, MESA_SHADER_FRAGMENT))
       return false;
 
@@ -427,21 +383,36 @@ want_stencil_pma_fix(struct anv_cmd_buffer *cmd_buffer)
 void
 genX(cmd_buffer_flush_dynamic_state)(struct anv_cmd_buffer *cmd_buffer)
 {
-   struct anv_pipeline *pipeline = cmd_buffer->state.pipeline;
+   struct anv_pipeline *pipeline = cmd_buffer->state.gfx.base.pipeline;
+   struct anv_dynamic_state *d = &cmd_buffer->state.gfx.dynamic;
 
-   if (cmd_buffer->state.dirty & (ANV_CMD_DIRTY_PIPELINE |
-                                  ANV_CMD_DIRTY_DYNAMIC_LINE_WIDTH)) {
-      __emit_sf_state(cmd_buffer);
+   if (cmd_buffer->state.gfx.dirty & (ANV_CMD_DIRTY_PIPELINE |
+                                      ANV_CMD_DIRTY_DYNAMIC_LINE_WIDTH)) {
+      uint32_t sf_dw[GENX(3DSTATE_SF_length)];
+      struct GENX(3DSTATE_SF) sf = {
+         GENX(3DSTATE_SF_header),
+      };
+#if GEN_GEN == 8
+      if (cmd_buffer->device->info.is_cherryview) {
+         sf.CHVLineWidth = d->line_width;
+      } else {
+         sf.LineWidth = d->line_width;
+      }
+#else
+      sf.LineWidth = d->line_width,
+#endif
+      GENX(3DSTATE_SF_pack)(NULL, sf_dw, &sf);
+      anv_batch_emit_merge(&cmd_buffer->batch, sf_dw, pipeline->gen8.sf);
    }
 
-   if (cmd_buffer->state.dirty & (ANV_CMD_DIRTY_PIPELINE |
-                                  ANV_CMD_DIRTY_DYNAMIC_DEPTH_BIAS)){
+   if (cmd_buffer->state.gfx.dirty & (ANV_CMD_DIRTY_PIPELINE |
+                                      ANV_CMD_DIRTY_DYNAMIC_DEPTH_BIAS)){
       uint32_t raster_dw[GENX(3DSTATE_RASTER_length)];
       struct GENX(3DSTATE_RASTER) raster = {
          GENX(3DSTATE_RASTER_header),
-         .GlobalDepthOffsetConstant = cmd_buffer->state.dynamic.depth_bias.bias,
-         .GlobalDepthOffsetScale = cmd_buffer->state.dynamic.depth_bias.slope,
-         .GlobalDepthOffsetClamp = cmd_buffer->state.dynamic.depth_bias.clamp
+         .GlobalDepthOffsetConstant = d->depth_bias.bias,
+         .GlobalDepthOffsetScale = d->depth_bias.slope,
+         .GlobalDepthOffsetClamp = d->depth_bias.clamp
       };
       GENX(3DSTATE_RASTER_pack)(NULL, raster_dw, &raster);
       anv_batch_emit_merge(&cmd_buffer->batch, raster_dw,
@@ -454,20 +425,19 @@ genX(cmd_buffer_flush_dynamic_state)(struct anv_cmd_buffer *cmd_buffer)
     * using a big old #if switch here.
     */
 #if GEN_GEN == 8
-   if (cmd_buffer->state.dirty & (ANV_CMD_DIRTY_DYNAMIC_BLEND_CONSTANTS |
-                                  ANV_CMD_DIRTY_DYNAMIC_STENCIL_REFERENCE)) {
-      struct anv_dynamic_state *d = &cmd_buffer->state.dynamic;
+   if (cmd_buffer->state.gfx.dirty & (ANV_CMD_DIRTY_DYNAMIC_BLEND_CONSTANTS |
+                                      ANV_CMD_DIRTY_DYNAMIC_STENCIL_REFERENCE)) {
       struct anv_state cc_state =
          anv_cmd_buffer_alloc_dynamic_state(cmd_buffer,
                                             GENX(COLOR_CALC_STATE_length) * 4,
                                             64);
       struct GENX(COLOR_CALC_STATE) cc = {
-         .BlendConstantColorRed = cmd_buffer->state.dynamic.blend_constants[0],
-         .BlendConstantColorGreen = cmd_buffer->state.dynamic.blend_constants[1],
-         .BlendConstantColorBlue = cmd_buffer->state.dynamic.blend_constants[2],
-         .BlendConstantColorAlpha = cmd_buffer->state.dynamic.blend_constants[3],
+         .BlendConstantColorRed = d->blend_constants[0],
+         .BlendConstantColorGreen = d->blend_constants[1],
+         .BlendConstantColorBlue = d->blend_constants[2],
+         .BlendConstantColorAlpha = d->blend_constants[3],
          .StencilReferenceValue = d->stencil_reference.front & 0xff,
-         .BackFaceStencilReferenceValue = d->stencil_reference.back & 0xff,
+         .BackfaceStencilReferenceValue = d->stencil_reference.back & 0xff,
       };
       GENX(COLOR_CALC_STATE_pack)(NULL, cc_state.map, &cc);
 
@@ -479,12 +449,11 @@ genX(cmd_buffer_flush_dynamic_state)(struct anv_cmd_buffer *cmd_buffer)
       }
    }
 
-   if (cmd_buffer->state.dirty & (ANV_CMD_DIRTY_PIPELINE |
-                                  ANV_CMD_DIRTY_RENDER_TARGETS |
-                                  ANV_CMD_DIRTY_DYNAMIC_STENCIL_COMPARE_MASK |
-                                  ANV_CMD_DIRTY_DYNAMIC_STENCIL_WRITE_MASK)) {
+   if (cmd_buffer->state.gfx.dirty & (ANV_CMD_DIRTY_PIPELINE |
+                                      ANV_CMD_DIRTY_RENDER_TARGETS |
+                                      ANV_CMD_DIRTY_DYNAMIC_STENCIL_COMPARE_MASK |
+                                      ANV_CMD_DIRTY_DYNAMIC_STENCIL_WRITE_MASK)) {
       uint32_t wm_depth_stencil_dw[GENX(3DSTATE_WM_DEPTH_STENCIL_length)];
-      struct anv_dynamic_state *d = &cmd_buffer->state.dynamic;
 
       struct GENX(3DSTATE_WM_DEPTH_STENCIL wm_depth_stencil) = {
          GENX(3DSTATE_WM_DEPTH_STENCIL_header),
@@ -509,36 +478,35 @@ genX(cmd_buffer_flush_dynamic_state)(struct anv_cmd_buffer *cmd_buffer)
                                       want_depth_pma_fix(cmd_buffer));
    }
 #else
-   if (cmd_buffer->state.dirty & ANV_CMD_DIRTY_DYNAMIC_BLEND_CONSTANTS) {
+   if (cmd_buffer->state.gfx.dirty & ANV_CMD_DIRTY_DYNAMIC_BLEND_CONSTANTS) {
       struct anv_state cc_state =
          anv_cmd_buffer_alloc_dynamic_state(cmd_buffer,
-                                            GEN9_COLOR_CALC_STATE_length * 4,
+                                            GENX(COLOR_CALC_STATE_length) * 4,
                                             64);
-      struct GEN9_COLOR_CALC_STATE cc = {
-         .BlendConstantColorRed = cmd_buffer->state.dynamic.blend_constants[0],
-         .BlendConstantColorGreen = cmd_buffer->state.dynamic.blend_constants[1],
-         .BlendConstantColorBlue = cmd_buffer->state.dynamic.blend_constants[2],
-         .BlendConstantColorAlpha = cmd_buffer->state.dynamic.blend_constants[3],
+      struct GENX(COLOR_CALC_STATE) cc = {
+         .BlendConstantColorRed = d->blend_constants[0],
+         .BlendConstantColorGreen = d->blend_constants[1],
+         .BlendConstantColorBlue = d->blend_constants[2],
+         .BlendConstantColorAlpha = d->blend_constants[3],
       };
-      GEN9_COLOR_CALC_STATE_pack(NULL, cc_state.map, &cc);
+      GENX(COLOR_CALC_STATE_pack)(NULL, cc_state.map, &cc);
 
       anv_state_flush(cmd_buffer->device, cc_state);
 
-      anv_batch_emit(&cmd_buffer->batch, GEN9_3DSTATE_CC_STATE_POINTERS, ccp) {
+      anv_batch_emit(&cmd_buffer->batch, GENX(3DSTATE_CC_STATE_POINTERS), ccp) {
          ccp.ColorCalcStatePointer = cc_state.offset;
          ccp.ColorCalcStatePointerValid = true;
       }
    }
 
-   if (cmd_buffer->state.dirty & (ANV_CMD_DIRTY_PIPELINE |
-                                  ANV_CMD_DIRTY_RENDER_TARGETS |
-                                  ANV_CMD_DIRTY_DYNAMIC_STENCIL_COMPARE_MASK |
-                                  ANV_CMD_DIRTY_DYNAMIC_STENCIL_WRITE_MASK |
-                                  ANV_CMD_DIRTY_DYNAMIC_STENCIL_REFERENCE)) {
-      uint32_t dwords[GEN9_3DSTATE_WM_DEPTH_STENCIL_length];
-      struct anv_dynamic_state *d = &cmd_buffer->state.dynamic;
-      struct GEN9_3DSTATE_WM_DEPTH_STENCIL wm_depth_stencil = {
-         GEN9_3DSTATE_WM_DEPTH_STENCIL_header,
+   if (cmd_buffer->state.gfx.dirty & (ANV_CMD_DIRTY_PIPELINE |
+                                      ANV_CMD_DIRTY_RENDER_TARGETS |
+                                      ANV_CMD_DIRTY_DYNAMIC_STENCIL_COMPARE_MASK |
+                                      ANV_CMD_DIRTY_DYNAMIC_STENCIL_WRITE_MASK |
+                                      ANV_CMD_DIRTY_DYNAMIC_STENCIL_REFERENCE)) {
+      uint32_t dwords[GENX(3DSTATE_WM_DEPTH_STENCIL_length)];
+      struct GENX(3DSTATE_WM_DEPTH_STENCIL) wm_depth_stencil = {
+         GENX(3DSTATE_WM_DEPTH_STENCIL_header),
 
          .StencilTestMask = d->stencil_compare_mask.front & 0xff,
          .StencilWriteMask = d->stencil_write_mask.front & 0xff,
@@ -553,7 +521,7 @@ genX(cmd_buffer_flush_dynamic_state)(struct anv_cmd_buffer *cmd_buffer)
             (d->stencil_write_mask.front || d->stencil_write_mask.back) &&
             pipeline->writes_stencil,
       };
-      GEN9_3DSTATE_WM_DEPTH_STENCIL_pack(NULL, dwords, &wm_depth_stencil);
+      GENX(3DSTATE_WM_DEPTH_STENCIL_pack)(NULL, dwords, &wm_depth_stencil);
 
       anv_batch_emit_merge(&cmd_buffer->batch, dwords,
                            pipeline->gen9.wm_depth_stencil);
@@ -563,15 +531,15 @@ genX(cmd_buffer_flush_dynamic_state)(struct anv_cmd_buffer *cmd_buffer)
    }
 #endif
 
-   if (cmd_buffer->state.dirty & (ANV_CMD_DIRTY_PIPELINE |
-                                  ANV_CMD_DIRTY_INDEX_BUFFER)) {
+   if (cmd_buffer->state.gfx.dirty & (ANV_CMD_DIRTY_PIPELINE |
+                                      ANV_CMD_DIRTY_INDEX_BUFFER)) {
       anv_batch_emit(&cmd_buffer->batch, GENX(3DSTATE_VF), vf) {
          vf.IndexedDrawCutIndexEnable  = pipeline->primitive_restart;
          vf.CutIndex                   = cmd_buffer->state.restart_index;
       }
    }
 
-   cmd_buffer->state.dirty = 0;
+   cmd_buffer->state.gfx.dirty = 0;
 }
 
 void genX(CmdBindIndexBuffer)(
@@ -597,13 +565,13 @@ void genX(CmdBindIndexBuffer)(
 
    anv_batch_emit(&cmd_buffer->batch, GENX(3DSTATE_INDEX_BUFFER), ib) {
       ib.IndexFormat                = vk_to_gen_index_type[indexType];
-      ib.MemoryObjectControlState   = GENX(MOCS);
-      ib.BufferStartingAddress      =
-         (struct anv_address) { buffer->bo, buffer->offset + offset };
+      ib.IndexBufferMOCS            = anv_mocs_for_bo(cmd_buffer->device,
+                                                      buffer->address.bo);
+      ib.BufferStartingAddress      = anv_address_add(buffer->address, offset);
       ib.BufferSize                 = buffer->size - offset;
    }
 
-   cmd_buffer->state.dirty |= ANV_CMD_DIRTY_INDEX_BUFFER;
+   cmd_buffer->state.gfx.dirty |= ANV_CMD_DIRTY_INDEX_BUFFER;
 }
 
 /* Set of stage bits for which are pipelined, i.e. they get queued by the
@@ -642,7 +610,7 @@ void genX(CmdSetEvent)(
       pc.DestinationAddressType  = DAT_PPGTT,
       pc.PostSyncOperation       = WriteImmediateData,
       pc.Address = (struct anv_address) {
-         &cmd_buffer->device->dynamic_state_block_pool.bo,
+         &cmd_buffer->device->dynamic_state_pool.block_pool.bo,
          event->state.offset
       };
       pc.ImmediateData           = VK_EVENT_SET;
@@ -666,7 +634,7 @@ void genX(CmdResetEvent)(
       pc.DestinationAddressType  = DAT_PPGTT;
       pc.PostSyncOperation       = WriteImmediateData;
       pc.Address = (struct anv_address) {
-         &cmd_buffer->device->dynamic_state_block_pool.bo,
+         &cmd_buffer->device->dynamic_state_pool.block_pool.bo,
          event->state.offset
       };
       pc.ImmediateData           = VK_EVENT_RESET;
@@ -695,7 +663,7 @@ void genX(CmdWaitEvents)(
          sem.CompareOperation    = COMPARE_SAD_EQUAL_SDD,
          sem.SemaphoreDataDword  = VK_EVENT_SET,
          sem.SemaphoreAddress = (struct anv_address) {
-            &cmd_buffer->device->dynamic_state_block_pool.bo,
+            &cmd_buffer->device->dynamic_state_pool.block_pool.bo,
             event->state.offset
          };
       }

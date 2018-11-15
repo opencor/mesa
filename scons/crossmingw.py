@@ -63,7 +63,7 @@ def find(env):
     return ''
 
 def shlib_generator(target, source, env, for_signature):
-    cmd = SCons.Util.CLVar(['$SHLINK', '$SHLINKFLAGS'])
+    cmd = SCons.Util.CLVar(['$SHLINK', '$SHLINKFLAGS']) 
 
     dll = env.FindIxes(target, 'SHLIBPREFIX', 'SHLIBSUFFIX')
     if dll: cmd.extend(['-o', dll])
@@ -83,13 +83,13 @@ def shlib_emitter(target, source, env):
     no_import_lib = env.get('no_import_lib', 0)
 
     if not dll:
-        raise SCons.Errors.UserError, "A shared library should have exactly one target with the suffix: %s" % env.subst("$SHLIBSUFFIX")
-
+        raise SCons.Errors.UserError("A shared library should have exactly one target with the suffix: %s" % env.subst("$SHLIBSUFFIX"))
+    
     if not no_import_lib and \
        not env.FindIxes(target, 'LIBPREFIX', 'LIBSUFFIX'):
 
         # Append an import library to the list of targets.
-        target.append(env.ReplaceIxes(dll,
+        target.append(env.ReplaceIxes(dll,  
                                       'SHLIBPREFIX', 'SHLIBSUFFIX',
                                       'LIBPREFIX', 'LIBSUFFIX'))
 
@@ -100,12 +100,12 @@ def shlib_emitter(target, source, env):
     def_source = env.FindIxes(source, 'WIN32DEFPREFIX', 'WIN32DEFSUFFIX')
     def_target = env.FindIxes(target, 'WIN32DEFPREFIX', 'WIN32DEFSUFFIX')
     if not def_source and not def_target:
-        target.append(env.ReplaceIxes(dll,
+        target.append(env.ReplaceIxes(dll,  
                                       'SHLIBPREFIX', 'SHLIBSUFFIX',
                                       'WIN32DEFPREFIX', 'WIN32DEFSUFFIX'))
-
+    
     return (target, source)
-
+                         
 
 shlib_action = SCons.Action.Action(shlib_generator, '$SHLINKCOMSTR', generator=1)
 
@@ -125,7 +125,7 @@ def generate(env):
 
         # The mingw bin directory must be added to the path:
         path = env['ENV'].get('PATH', [])
-        if not path:
+        if not path: 
             path = []
         if SCons.Util.is_String(path):
             path = string.split(path, os.pathsep)
@@ -159,7 +159,7 @@ def generate(env):
     env['RCFLAGS'] = SCons.Util.CLVar('')
     env['RCCOM'] = '$RC $_CPPDEFFLAGS $_CPPINCFLAGS ${INCPREFIX}${SOURCE.dir} $RCFLAGS -i $SOURCE -o $TARGET'
     env['BUILDERS']['RES'] = res_builder
-
+    
     # Some setting from the platform also have to be overridden:
     env['OBJPREFIX']      = ''
     env['OBJSUFFIX']      = '.o'

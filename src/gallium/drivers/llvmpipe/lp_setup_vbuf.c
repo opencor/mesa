@@ -46,7 +46,7 @@
 #define LP_MAX_VBUF_INDEXES 1024
 #define LP_MAX_VBUF_SIZE    4096
 
-
+  
 
 /** cast wrapper */
 static struct lp_setup_context *
@@ -86,7 +86,7 @@ lp_setup_allocate_vertices(struct vbuf_render *vbr,
 
    setup->vertex_size = vertex_size;
    setup->nr_vertices = nr_vertices;
-
+   
    return setup->vertex_buffer != NULL;
 }
 
@@ -103,8 +103,8 @@ lp_setup_map_vertices(struct vbuf_render *vbr)
    return setup->vertex_buffer;
 }
 
-static void
-lp_setup_unmap_vertices(struct vbuf_render *vbr,
+static void 
+lp_setup_unmap_vertices(struct vbuf_render *vbr, 
                        ushort min_index,
                        ushort max_index )
 {
@@ -115,7 +115,7 @@ lp_setup_unmap_vertices(struct vbuf_render *vbr,
 
 
 static void
-lp_setup_set_primitive(struct vbuf_render *vbr, unsigned prim)
+lp_setup_set_primitive(struct vbuf_render *vbr, enum pipe_prim_type prim)
 {
    lp_setup_context(vbr)->prim = prim;
 }
@@ -237,7 +237,7 @@ lp_setup_draw_elements(struct vbuf_render *vbr, const ushort *indices, uint nr)
 
    case PIPE_PRIM_QUADS:
       /* GL quads don't follow provoking vertex convention */
-      if (flatshade_first) {
+      if (flatshade_first) { 
          /* emit last quad vertex as first triangle vertex */
          for (i = 3; i < nr; i += 4) {
             setup->triangle( setup,
@@ -269,7 +269,7 @@ lp_setup_draw_elements(struct vbuf_render *vbr, const ushort *indices, uint nr)
 
    case PIPE_PRIM_QUAD_STRIP:
       /* GL quad strips don't follow provoking vertex convention */
-      if (flatshade_first) {
+      if (flatshade_first) { 
          /* emit last quad vertex as first triangle vertex */
          for (i = 3; i < nr; i += 2) {
             setup->triangle( setup,
@@ -301,7 +301,7 @@ lp_setup_draw_elements(struct vbuf_render *vbr, const ushort *indices, uint nr)
       /* Almost same as tri fan but the _first_ vertex specifies the flat
        * shading color.
        */
-      if (flatshade_first) {
+      if (flatshade_first) { 
          /* emit first polygon  vertex as first triangle vertex */
          for (i = 2; i < nr; i += 1) {
             setup->triangle( setup,
@@ -434,7 +434,7 @@ lp_setup_draw_arrays(struct vbuf_render *vbr, uint start, uint nr)
 
    case PIPE_PRIM_QUADS:
       /* GL quads don't follow provoking vertex convention */
-      if (flatshade_first) {
+      if (flatshade_first) { 
          /* emit last quad vertex as first triangle vertex */
          for (i = 3; i < nr; i += 4) {
             setup->triangle( setup,
@@ -464,7 +464,7 @@ lp_setup_draw_arrays(struct vbuf_render *vbr, uint start, uint nr)
 
    case PIPE_PRIM_QUAD_STRIP:
       /* GL quad strips don't follow provoking vertex convention */
-      if (flatshade_first) {
+      if (flatshade_first) { 
          /* emit last quad vertex as first triangle vertex */
          for (i = 3; i < nr; i += 2) {
             setup->triangle( setup,
@@ -496,7 +496,7 @@ lp_setup_draw_arrays(struct vbuf_render *vbr, uint start, uint nr)
       /* Almost same as tri fan but the _first_ vertex specifies the flat
        * shading color.
        */
-      if (flatshade_first) {
+      if (flatshade_first) { 
          /* emit first polygon  vertex as first triangle vertex */
          for (i = 2; i < nr; i += 1) {
             setup->triangle( setup,
@@ -571,7 +571,7 @@ lp_setup_pipeline_statistics(
       stats->gs_invocations;
    llvmpipe->pipeline_statistics.gs_primitives +=
       stats->gs_primitives;
-   if (!llvmpipe_rasterization_disabled(llvmpipe)) {
+   if (!setup->rasterizer_discard) {
       llvmpipe->pipeline_statistics.c_invocations +=
          stats->c_invocations;
    } else {

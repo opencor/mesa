@@ -35,7 +35,6 @@
 #ifndef SVGA_WINSYS_H_
 #define SVGA_WINSYS_H_
 
-
 #include "svga_types.h"
 #include "svga_reg.h"
 #include "svga3d_reg.h"
@@ -87,7 +86,8 @@ struct winsys_handle;
 #define SVGA_QUERY_FLAG_SET        (1 << 0)
 #define SVGA_QUERY_FLAG_REF        (1 << 1)
 
-#define SVGA_HINT_FLAG_CAN_PRE_FLUSH (1 << 0)  /* Can preemptively flush */
+#define SVGA_HINT_FLAG_CAN_PRE_FLUSH   (1 << 0)  /* Can preemptively flush */
+#define SVGA_HINT_FLAG_EXPORT_FENCE_FD (1 << 1)  /* Export a Fence FD */
 
 /**
  * SVGA mks statistics info
@@ -101,6 +101,7 @@ struct svga_winsys_stats_timeframe {
 
 enum svga_stats_count {
    SVGA_STATS_COUNT_BLENDSTATE,
+   SVGA_STATS_COUNT_BLITBLITTERCOPY,
    SVGA_STATS_COUNT_DEPTHSTENCILSTATE,
    SVGA_STATS_COUNT_RASTERIZERSTATE,
    SVGA_STATS_COUNT_SAMPLER,
@@ -112,11 +113,16 @@ enum svga_stats_count {
 };
 
 enum svga_stats_time {
+   SVGA_STATS_TIME_BLIT,
+   SVGA_STATS_TIME_BLITBLITTER,
+   SVGA_STATS_TIME_BLITFALLBACK,
    SVGA_STATS_TIME_BUFFERSFLUSH,
    SVGA_STATS_TIME_BUFFERTRANSFERMAP,
    SVGA_STATS_TIME_BUFFERTRANSFERUNMAP,
    SVGA_STATS_TIME_CONTEXTFINISH,
    SVGA_STATS_TIME_CONTEXTFLUSH,
+   SVGA_STATS_TIME_COPYREGION,
+   SVGA_STATS_TIME_COPYREGIONFALLBACK,
    SVGA_STATS_TIME_CREATEBACKEDSURFACEVIEW,
    SVGA_STATS_TIME_CREATEBUFFER,
    SVGA_STATS_TIME_CREATECONTEXT,
@@ -134,6 +140,7 @@ enum svga_stats_time {
    SVGA_STATS_TIME_EMITFS,
    SVGA_STATS_TIME_EMITGS,
    SVGA_STATS_TIME_EMITVS,
+   SVGA_STATS_TIME_EMULATESURFACEVIEW,
    SVGA_STATS_TIME_FENCEFINISH,
    SVGA_STATS_TIME_GENERATEINDICES,
    SVGA_STATS_TIME_HWTNLDRAWARRAYS,
@@ -165,6 +172,7 @@ enum svga_stats_time {
 
 #define SVGA_STATS_COUNT_NAMES                \
    SVGA_STATS_PREFIX "BlendState",            \
+   SVGA_STATS_PREFIX "BlitBlitterCopy",       \
    SVGA_STATS_PREFIX "DepthStencilState",     \
    SVGA_STATS_PREFIX "RasterizerState",       \
    SVGA_STATS_PREFIX "Sampler",               \
@@ -174,11 +182,16 @@ enum svga_stats_time {
    SVGA_STATS_PREFIX "VertexElement"          \
 
 #define SVGA_STATS_TIME_NAMES                       \
+   SVGA_STATS_PREFIX "Blit",                        \
+   SVGA_STATS_PREFIX "BlitBlitter",                 \
+   SVGA_STATS_PREFIX "BlitFallback",                \
    SVGA_STATS_PREFIX "BuffersFlush",                \
    SVGA_STATS_PREFIX "BufferTransferMap",           \
    SVGA_STATS_PREFIX "BufferTransferUnmap",         \
    SVGA_STATS_PREFIX "ContextFinish",               \
    SVGA_STATS_PREFIX "ContextFlush",                \
+   SVGA_STATS_PREFIX "CopyRegion",                  \
+   SVGA_STATS_PREFIX "CopyRegionFallback",          \
    SVGA_STATS_PREFIX "CreateBackedSurfaceView",     \
    SVGA_STATS_PREFIX "CreateBuffer",                \
    SVGA_STATS_PREFIX "CreateContext",               \
@@ -196,6 +209,7 @@ enum svga_stats_time {
    SVGA_STATS_PREFIX "EmitFS",                      \
    SVGA_STATS_PREFIX "EmitGS",                      \
    SVGA_STATS_PREFIX "EmitVS",                      \
+   SVGA_STATS_PREFIX "EmulateSurfaceView",          \
    SVGA_STATS_PREFIX "FenceFinish",                 \
    SVGA_STATS_PREFIX "GenerateIndices",             \
    SVGA_STATS_PREFIX "HWtnlDrawArrays",             \
@@ -240,7 +254,7 @@ struct svga_winsys_context
 
    void *
    (*reserve)(struct svga_winsys_context *swc,
-	      uint32_t nr_bytes, uint32_t nr_relocs );
+              uint32_t nr_bytes, uint32_t nr_relocs );
 
    /**
     * Returns current size of command buffer, in bytes.
@@ -258,10 +272,10 @@ struct svga_winsys_context
     */
    void
    (*surface_relocation)(struct svga_winsys_context *swc,
-	                 uint32 *sid,
+                         uint32 *sid,
                          uint32 *mobid,
-	                 struct svga_winsys_surface *surface,
-	                 unsigned flags);
+                         struct svga_winsys_surface *surface,
+                         unsigned flags);
 
    /**
     * Emit a relocation for a guest memory region.
@@ -273,9 +287,9 @@ struct svga_winsys_context
     */
    void
    (*region_relocation)(struct svga_winsys_context *swc,
-	                struct SVGAGuestPtr *ptr,
-	                struct svga_winsys_buffer *buffer,
-	                uint32 offset,
+                        struct SVGAGuestPtr *ptr,
+                        struct svga_winsys_buffer *buffer,
+                        uint32 offset,
                         unsigned flags);
 
    /**
@@ -286,10 +300,10 @@ struct svga_winsys_context
     */
    void
    (*shader_relocation)(struct svga_winsys_context *swc,
-	                uint32 *shid,
-			uint32 *mobid,
-			uint32 *offset,
-	                struct svga_winsys_gb_shader *shader,
+                        uint32 *shid,
+                        uint32 *mobid,
+                        uint32 *offset,
+                        struct svga_winsys_gb_shader *shader,
                         unsigned flags);
 
    /**
@@ -314,11 +328,11 @@ struct svga_winsys_context
     */
    void
    (*mob_relocation)(struct svga_winsys_context *swc,
-		     SVGAMobId *id,
-		     uint32 *offset_into_mob,
-		     struct svga_winsys_buffer *buffer,
-		     uint32 offset,
-		     unsigned flags);
+                     SVGAMobId *id,
+                     uint32 *offset_into_mob,
+                     struct svga_winsys_buffer *buffer,
+                     uint32 offset,
+                     unsigned flags);
 
    /**
     * Emit a relocation for a guest-backed query object.
@@ -328,8 +342,8 @@ struct svga_winsys_context
     */
    void
    (*query_relocation)(struct svga_winsys_context *swc,
-	               SVGAMobId *id,
-	               struct svga_winsys_gb_query *query);
+                       SVGAMobId *id,
+                       struct svga_winsys_gb_query *query);
 
    /**
     * Bind queries to context.
@@ -345,7 +359,7 @@ struct svga_winsys_context
 
    enum pipe_error
    (*flush)(struct svga_winsys_context *swc,
-	    struct pipe_fence_handle **pfence);
+            struct pipe_fence_handle **pfence);
 
    /**
     * Context ID used to fill in the commands
@@ -359,6 +373,11 @@ struct svga_winsys_context
     * Flags to hint the current context state
     */
    uint32 hints;
+
+   /**
+    * File descriptor for imported fence
+    */
+   int32 imported_fence_fd;
 
    /**
     ** BEGIN new functions for guest-backed surfaces.
@@ -394,7 +413,7 @@ struct svga_winsys_context
    /**
     * Invalidate the content of this surface
     */
-   void
+   enum pipe_error
    (*surface_invalidate)(struct svga_winsys_context *swc,
                          struct svga_winsys_surface *surface);
 
@@ -434,6 +453,10 @@ struct svga_winsys_context
 
    /** The more recent command issued to command buffer */
    SVGAFifo3dCmdId last_command;
+
+   /** For HUD queries */
+   uint64_t num_commands;
+   uint64_t num_draw_commands;
 };
 
 
@@ -465,7 +488,6 @@ struct svga_winsys_screen
     */
    struct svga_winsys_context *
    (*context_create)(struct svga_winsys_screen *sws);
-
 
    /**
     * This creates a "surface" object in the SVGA3D device.
@@ -547,8 +569,8 @@ struct svga_winsys_screen
     */
    void
    (*surface_reference)(struct svga_winsys_screen *sws,
-			struct svga_winsys_surface **pdst,
-			struct svga_winsys_surface *src);
+                        struct svga_winsys_surface **pdst,
+                        struct svga_winsys_surface *src);
 
    /**
     * Check if a resource (texture, buffer) of the given size
@@ -572,9 +594,9 @@ struct svga_winsys_screen
     */
    struct svga_winsys_buffer *
    (*buffer_create)( struct svga_winsys_screen *sws,
-	             unsigned alignment,
-	             unsigned usage,
-	             unsigned size );
+                     unsigned alignment,
+                     unsigned usage,
+                     unsigned size );
 
    /**
     * Map the entire data store of a buffer object into the client's address.
@@ -582,8 +604,8 @@ struct svga_winsys_screen
     */
    void *
    (*buffer_map)( struct svga_winsys_screen *sws,
-	          struct svga_winsys_buffer *buf,
-		  unsigned usage );
+                  struct svga_winsys_buffer *buf,
+                  unsigned usage );
 
    void
    (*buffer_unmap)( struct svga_winsys_screen *sws,
@@ -591,7 +613,7 @@ struct svga_winsys_screen
 
    void
    (*buffer_destroy)( struct svga_winsys_screen *sws,
-	              struct svga_winsys_buffer *buf );
+                      struct svga_winsys_buffer *buf );
 
 
    /**
@@ -613,13 +635,41 @@ struct svga_winsys_screen
 
    /**
     * Wait for the fence to finish.
+    * \param timeout in nanoseconds (may be PIPE_TIMEOUT_INFINITE).
+    *                0 to return immediately, if the API suports it.
     * \param flags  driver-specific meaning
     * \return zero on success.
     */
    int (*fence_finish)( struct svga_winsys_screen *sws,
                         struct pipe_fence_handle *fence,
+                        uint64_t timeout,
                         unsigned flag );
 
+   /**
+    * Get the file descriptor associated with the fence
+    * \param duplicate duplicate the fd before returning it
+    * \return zero on success.
+    */
+   int (*fence_get_fd)( struct svga_winsys_screen *sws,
+                        struct pipe_fence_handle *fence,
+                        boolean duplicate );
+
+   /**
+    * Create a fence using the given file descriptor
+    * \return zero on success.
+    */
+   void (*fence_create_fd)( struct svga_winsys_screen *sws,
+                            struct pipe_fence_handle **fence,
+                            int32_t fd );
+
+   /**
+    * Accumulates fence FD from other devices into the current context
+    * \param context_fd FD the context will be waiting on
+    * \return zero on success
+    */
+   int (*fence_server_sync)( struct svga_winsys_screen *sws,
+                             int32_t *context_fd,
+                             struct pipe_fence_handle *fence );
 
    /**
     ** BEGIN new functions for guest-backed surfaces.
@@ -636,9 +686,9 @@ struct svga_winsys_screen
     */
    struct svga_winsys_gb_shader *
    (*shader_create)(struct svga_winsys_screen *sws,
-		    SVGA3dShaderType shaderType,
-		    const uint32 *bytecode,
-		    uint32 bytecodeLen);
+                    SVGA3dShaderType shaderType,
+                    const uint32 *bytecode,
+                    uint32 bytecodeLen);
 
    /**
     * Destroy a GB shader. It's safe to call this function even
@@ -646,7 +696,7 @@ struct svga_winsys_screen
     */
    void
    (*shader_destroy)(struct svga_winsys_screen *sws,
-		     struct svga_winsys_gb_shader *shader);
+                     struct svga_winsys_gb_shader *shader);
 
    /**
     * Create and define a GB query.
@@ -659,7 +709,7 @@ struct svga_winsys_screen
     */
    void
    (*query_destroy)(struct svga_winsys_screen *sws,
-		    struct svga_winsys_gb_query *query);
+                    struct svga_winsys_gb_query *query);
 
    /**
     * Initialize the query state of the query that resides in the slot
@@ -711,6 +761,7 @@ struct svga_winsys_screen
    boolean have_generate_mipmap_cmd;
    boolean have_set_predication_cmd;
    boolean have_transfer_from_buffer_cmd;
+   boolean have_fence_fd;
 };
 
 
@@ -722,8 +773,8 @@ svga_winsys_context(struct pipe_context *context);
 
 struct pipe_resource *
 svga_screen_buffer_wrap_surface(struct pipe_screen *screen,
-				enum SVGA3dSurfaceFormat format,
-				struct svga_winsys_surface *srf);
+                                enum SVGA3dSurfaceFormat format,
+                                struct svga_winsys_surface *srf);
 
 struct svga_winsys_surface *
 svga_screen_buffer_get_winsys_surface(struct pipe_resource *buffer);

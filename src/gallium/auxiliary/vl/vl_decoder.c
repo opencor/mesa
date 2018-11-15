@@ -70,7 +70,7 @@ vl_create_decoder(struct pipe_context *pipe,
 
    assert(pipe);
    assert(width > 0 && height > 0);
-
+   
    pot_buffers = !pipe->screen->get_video_param
    (
       pipe->screen,

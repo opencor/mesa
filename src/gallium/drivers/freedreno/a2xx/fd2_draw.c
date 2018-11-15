@@ -69,8 +69,8 @@ emit_vertexbufs(struct fd_context *ctx)
 		struct pipe_vertex_buffer *vb =
 				&vertexbuf->vb[elem->vertex_buffer_index];
 		bufs[i].offset = vb->buffer_offset;
-		bufs[i].size = fd_bo_size(fd_resource(vb->buffer)->bo);
-		bufs[i].prsc = vb->buffer;
+		bufs[i].size = fd_bo_size(fd_resource(vb->buffer.resource)->bo);
+		bufs[i].prsc = vb->buffer.resource;
 	}
 
 	// NOTE I believe the 0x78 (or 0x9c in solid_vp) relates to the
@@ -80,7 +80,8 @@ emit_vertexbufs(struct fd_context *ctx)
 }
 
 static bool
-fd2_draw_vbo(struct fd_context *ctx, const struct pipe_draw_info *info)
+fd2_draw_vbo(struct fd_context *ctx, const struct pipe_draw_info *info,
+             unsigned index_offset)
 {
 	struct fd_ringbuffer *ring = ctx->batch->draw;
 
@@ -100,15 +101,17 @@ fd2_draw_vbo(struct fd_context *ctx, const struct pipe_draw_info *info)
 	OUT_PKT0(ring, REG_A2XX_TC_CNTL_STATUS, 1);
 	OUT_RING(ring, A2XX_TC_CNTL_STATUS_L2_INVALIDATE);
 
-	OUT_WFI (ring);
+	if (!is_a20x(ctx->screen)) {
+		OUT_WFI (ring);
 
-	OUT_PKT3(ring, CP_SET_CONSTANT, 3);
-	OUT_RING(ring, CP_REG(REG_A2XX_VGT_MAX_VTX_INDX));
-	OUT_RING(ring, info->max_index);        /* VGT_MAX_VTX_INDX */
-	OUT_RING(ring, info->min_index);        /* VGT_MIN_VTX_INDX */
+		OUT_PKT3(ring, CP_SET_CONSTANT, 3);
+		OUT_RING(ring, CP_REG(REG_A2XX_VGT_MAX_VTX_INDX));
+		OUT_RING(ring, info->max_index);        /* VGT_MAX_VTX_INDX */
+		OUT_RING(ring, info->min_index);        /* VGT_MIN_VTX_INDX */
+	}
 
 	fd_draw_emit(ctx->batch, ring, ctx->primtypes[info->mode],
-				 IGNORE_VISIBILITY, info);
+				 IGNORE_VISIBILITY, info, index_offset);
 
 	OUT_PKT3(ring, CP_SET_CONSTANT, 2);
 	OUT_RING(ring, CP_REG(REG_A2XX_UNKNOWN_2010));
@@ -116,11 +119,13 @@ fd2_draw_vbo(struct fd_context *ctx, const struct pipe_draw_info *info)
 
 	emit_cacheflush(ring);
 
+	fd_context_all_clean(ctx);
+
 	return true;
 }
 
 
-static void
+static bool
 fd2_clear(struct fd_context *ctx, unsigned buffers,
 		const union pipe_color_union *color, double depth, unsigned stencil)
 {
@@ -130,7 +135,7 @@ fd2_clear(struct fd_context *ctx, unsigned buffers,
 	uint32_t reg, colr = 0;
 
 	if ((buffers & PIPE_CLEAR_COLOR) && fb->nr_cbufs)
-		colr  = pack_rgba(fb->cbufs[0]->format, color->f);
+		colr = pack_rgba(PIPE_FORMAT_R8G8B8A8_UNORM, color->f);
 
 	/* emit generic state now: */
 	fd2_emit_state(ctx, ctx->dirty &
@@ -154,9 +159,18 @@ fd2_clear(struct fd_context *ctx, unsigned buffers,
 	OUT_PKT0(ring, REG_A2XX_TC_CNTL_STATUS, 1);
 	OUT_RING(ring, A2XX_TC_CNTL_STATUS_L2_INVALIDATE);
 
-	OUT_PKT3(ring, CP_SET_CONSTANT, 2);
-	OUT_RING(ring, CP_REG(REG_A2XX_CLEAR_COLOR));
-	OUT_RING(ring, colr);
+	if (is_a20x(ctx->screen)) {
+		OUT_PKT3(ring, CP_SET_CONSTANT, 5);
+		OUT_RING(ring, 0x00000480);
+		OUT_RING(ring, color->ui[0]);
+		OUT_RING(ring, color->ui[1]);
+		OUT_RING(ring, color->ui[2]);
+		OUT_RING(ring, color->ui[3]);
+	} else {
+		OUT_PKT3(ring, CP_SET_CONSTANT, 2);
+		OUT_RING(ring, CP_REG(REG_A2XX_CLEAR_COLOR));
+		OUT_RING(ring, colr);
+	}
 
 	OUT_PKT3(ring, CP_SET_CONSTANT, 2);
 	OUT_RING(ring, CP_REG(REG_A2XX_A220_RB_LRZ_VSC_CONTROL));
@@ -261,10 +275,12 @@ fd2_clear(struct fd_context *ctx, unsigned buffers,
 		OUT_RING(ring, 0x0);
 	}
 
-	OUT_PKT3(ring, CP_SET_CONSTANT, 3);
-	OUT_RING(ring, CP_REG(REG_A2XX_VGT_MAX_VTX_INDX));
-	OUT_RING(ring, 3);                 /* VGT_MAX_VTX_INDX */
-	OUT_RING(ring, 0);                 /* VGT_MIN_VTX_INDX */
+	if (!is_a20x(ctx->screen)) {
+		OUT_PKT3(ring, CP_SET_CONSTANT, 3);
+		OUT_RING(ring, CP_REG(REG_A2XX_VGT_MAX_VTX_INDX));
+		OUT_RING(ring, 3);                 /* VGT_MAX_VTX_INDX */
+		OUT_RING(ring, 0);                 /* VGT_MIN_VTX_INDX */
+	}
 
 	fd_draw(ctx->batch, ring, DI_PT_RECTLIST, IGNORE_VISIBILITY,
 			DI_SRC_SEL_AUTO_INDEX, 3, 0, INDEX_SIZE_IGN, 0, 0, NULL);
@@ -276,6 +292,20 @@ fd2_clear(struct fd_context *ctx, unsigned buffers,
 	OUT_PKT3(ring, CP_SET_CONSTANT, 2);
 	OUT_RING(ring, CP_REG(REG_A2XX_RB_COPY_CONTROL));
 	OUT_RING(ring, 0x00000000);
+
+	ctx->dirty |= FD_DIRTY_ZSA |
+			FD_DIRTY_VIEWPORT |
+			FD_DIRTY_RASTERIZER |
+			FD_DIRTY_SAMPLE_MASK |
+			FD_DIRTY_PROG |
+			FD_DIRTY_CONST |
+			FD_DIRTY_BLEND |
+			FD_DIRTY_FRAMEBUFFER;
+
+	ctx->dirty_shader[PIPE_SHADER_VERTEX]   |= FD_DIRTY_SHADER_PROG;
+	ctx->dirty_shader[PIPE_SHADER_FRAGMENT] |= FD_DIRTY_SHADER_PROG | FD_DIRTY_SHADER_CONST;
+
+	return true;
 }
 
 void

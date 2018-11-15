@@ -12,13 +12,13 @@
   - Make drivers smaller and simpler.
     Current DRI drivers are rather complicated. They're large, contain
     duplicated code and are burdened with implementing many concepts tightly
-    tied to the OpenGL 1.x/2.x API.
+    tied to the OpenGL 1.x/2.x API. 
 
   - Model modern graphics hardware.
     The new driver architecture is an abstraction of modern graphics hardware,
     rather than an OpenGL->hardware translator. The new driver interface will
     assume the presence of programmable vertex/fragment shaders and flexible
-    memory objects.
+    memory objects. 
 
   - Support multiple graphics APIs.
     The OpenGL 3.0 API will be very different from OpenGL 1.x/2.x. We'd like a
@@ -30,7 +30,7 @@
   - \ref overview
 
   - \ref statetracker
-
+  
   - Pipe drivers:
     - \ref softpipe
     - \ref i915g
@@ -38,7 +38,7 @@
   - Winsys drivers:
     - X11 winsys driver (xm_winsys.c)
     - Intel DRI winsys driver (intel_context.h, intel_winsys_pipe.c)
-
+  
   - Ancillary Modules:
     - \ref draw
     - \ref tgsi
@@ -60,15 +60,15 @@
   header file. The pipe_context structure is an abstract base class with
   methods for:
 
-  - Setting rendering state (texture sampler state, vertex array info, drawing surfaces, etc.)
+  - Setting rendering state (texture sampler state, vertex array info, drawing surfaces, etc.) 
 
-  - Setting shader state, using the TGSI binary shader representation.
+  - Setting shader state, using the TGSI binary shader representation. 
 
-  - Vertex array and indexed vertex array drawing.
+  - Vertex array and indexed vertex array drawing. 
 
-  - Region (memory) management for textures, renderbuffers, vertex buffers, etc.
+  - Region (memory) management for textures, renderbuffers, vertex buffers, etc. 
 
-  - Hardware queries (number of texture units, max texture size, etc).
+  - Hardware queries (number of texture units, max texture size, etc). 
 
   The p_state.h header defines all the state objects (such as polygon
   rasterization options, blend modes, etc) and resources (drawing surfaces,
@@ -113,7 +113,7 @@
   hardware driver isn't available. The softpipe driver will make extensive use
   of run-time code generation to efficiently execute vertex, fragment and
   rasterization operations.
-
+  
   \sa sp_winsys.h
 */
 
@@ -144,7 +144,7 @@
   - Vertex buffer binding
   - Vertex element layout (vertex fetch) constant state objects
   - DrawArrays and DrawElements
-  - Rasterizer constant state objects.
+  - Rasterizer constant state objects. 
 
   The Draw module is effectively the part of \ref softpipe which is concerned with
   vertex processing, split off into a separate module so that it can be reused
@@ -155,7 +155,7 @@
   required to obtain transformed vertices and yet it is anticipated that using
   hardware transformation even if available would reduce performance, usually
   because the setup costs or latency are prohibitive. For this reason the Mesa
-  state_tracker also instantiates a copy of this module.
+  state_tracker also instantiates a copy of this module. 
 
   \sa draw_context.h
 */
@@ -169,7 +169,7 @@
   GPU-specific instructions. For hardware that lacks vertex or fragment shader
   support, the TGSI's executor can be used. The TGSI executor includes support
   for SSE code generation. Support for other processors (such as Cell) will be
-  added in the future.
+  added in the future. 
 
   \sa tgsi_parse.h
   \sa <a href="http://www.tungstengraphics.com/wiki/files/tgsi.pdf">TGSI specification</a>
@@ -178,7 +178,7 @@
 /** \page callgraph Glxgears callgraph example
 
   Below is a call graph of the glxgears application together with the Gallium3D's softpipe reference driver.
-
+  
   \htmlonly
   The functions in the graph below are clickable.
   \endhtmlonly

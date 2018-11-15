@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
@@ -30,9 +30,12 @@
 #define ST_MESA_TO_TGSI_H
 
 #include "main/glheader.h"
+#include "main/mtypes.h"
 
 #include "pipe/p_compiler.h"
 #include "pipe/p_defines.h"
+
+#include "compiler/glsl_types.h"
 
 #if defined __cplusplus
 extern "C" {
@@ -51,18 +54,20 @@ st_translate_mesa_program(
    struct ureg_program *ureg,
    const struct gl_program *program,
    GLuint numInputs,
-   const GLuint inputMapping[],
+   const ubyte inputMapping[],
    const ubyte inputSemanticName[],
    const ubyte inputSemanticIndex[],
-   const GLuint interpMode[],
+   const ubyte interpMode[],
    GLuint numOutputs,
-   const GLuint outputMapping[],
+   const ubyte outputMapping[],
    const ubyte outputSemanticName[],
    const ubyte outputSemanticIndex[]);
 
-unsigned
-st_translate_texture_target(GLuint textarget, GLboolean shadow);
+enum tgsi_texture_type
+st_translate_texture_target(gl_texture_index textarget, GLboolean shadow);
 
+enum tgsi_return_type
+st_translate_texture_type(enum glsl_base_type type);
 
 #if defined __cplusplus
 } /* extern "C" */

@@ -218,7 +218,7 @@ vlVaAssociateSubpicture(VADriverContextP ctx, VASubpictureID subpicture,
    tex_temp.flags = 0;
    if (!drv->pipe->screen->is_format_supported(
           drv->pipe->screen, tex_temp.format, tex_temp.target,
-          tex_temp.nr_samples, tex_temp.bind)) {
+          tex_temp.nr_samples, tex_temp.nr_storage_samples, tex_temp.bind)) {
       mtx_unlock(&drv->mutex);
       return VA_STATUS_ERROR_ALLOCATION_FAILED;
    }
@@ -283,6 +283,7 @@ vlVaDeassociateSubpicture(VADriverContextP ctx, VASubpictureID subpicture,
       while (surf->subpics.size && util_dynarray_top(&surf->subpics, vlVaSubpicture *) == NULL)
          (void)util_dynarray_pop(&surf->subpics, vlVaSubpicture *);
    }
+   pipe_sampler_view_reference(&sub->sampler,NULL);
    mtx_unlock(&drv->mutex);
 
    return VA_STATUS_SUCCESS;

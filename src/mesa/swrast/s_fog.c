@@ -24,6 +24,7 @@
 
 
 #include "c99_math.h"
+#include "main/errors.h"
 #include "main/glheader.h"
 #include "main/macros.h"
 
@@ -59,7 +60,7 @@ _swrast_z_to_fogfactor(struct gl_context *ctx, GLfloat z)
       return f;
    default:
       _mesa_problem(ctx, "Bad fog mode in _swrast_z_to_fogfactor");
-      return 0.0;
+      return 0.0; 
    }
 }
 

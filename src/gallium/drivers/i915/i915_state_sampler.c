@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include "pipe/p_context.h"
@@ -102,12 +102,12 @@ static void update_sampler(struct i915_context *i915,
 
     /* 3D textures don't seem to respect the border color.
     * Fallback if there's ever a danger that they might refer to
-    * it.
-    *
+    * it.  
+    * 
     * Effectively this means fallback on 3D clamp or
     * clamp_to_border.
     *
-    * XXX: Check if this is true on i945.
+    * XXX: Check if this is true on i945.  
     * XXX: Check if this bug got fixed in release silicon.
     */
 #if 0
@@ -122,7 +122,7 @@ static void update_sampler(struct i915_context *i915,
            wt == PIPE_TEX_WRAP_CLAMP ||
            wr == PIPE_TEX_WRAP_CLAMP ||
            ws == PIPE_TEX_WRAP_CLAMP_TO_BORDER ||
-           wt == PIPE_TEX_WRAP_CLAMP_TO_BORDER ||
+           wt == PIPE_TEX_WRAP_CLAMP_TO_BORDER || 
            wr == PIPE_TEX_WRAP_CLAMP_TO_BORDER)) {
          if (i915->conformance_mode > 0) {
             assert(0);
@@ -307,7 +307,8 @@ static void update_map(struct i915_context *i915,
    int first_level = view->u.tex.first_level;
    const uint num_levels = pt->last_level - first_level;
    unsigned max_lod = num_levels * 4;
-   bool is_npot = (!util_is_power_of_two(pt->width0) || !util_is_power_of_two(pt->height0));
+   bool is_npot = (!util_is_power_of_two_or_zero(pt->width0) ||
+                   !util_is_power_of_two_or_zero(pt->height0));
    uint format, pitch;
 
    /*

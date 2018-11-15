@@ -205,7 +205,7 @@ NineDevice9_ctor( struct NineDevice9 *This,
     if (!This->cso_sw) { return E_OUTOFMEMORY; }
 
     /* Create first, it messes up our state. */
-    This->hud = hud_create(This->context.pipe, This->context.cso); /* NULL result is fine */
+    This->hud = hud_create(This->context.cso, NULL); /* NULL result is fine */
 
     /* Available memory counter. Updated only for allocations with this device
      * instance. This is the Win 7 behavior.
@@ -473,12 +473,8 @@ NineDevice9_ctor( struct NineDevice9 *This,
     /* Allocate upload helper for drivers that suck (from st pov ;). */
 
     This->driver_caps.user_vbufs = GET_PCAP(USER_VERTEX_BUFFERS) && !This->csmt_active;
-    This->driver_caps.user_cbufs = GET_PCAP(USER_CONSTANT_BUFFERS);
     This->driver_caps.user_sw_vbufs = This->screen_sw->get_param(This->screen_sw, PIPE_CAP_USER_VERTEX_BUFFERS);
-    This->driver_caps.user_sw_cbufs = This->screen_sw->get_param(This->screen_sw, PIPE_CAP_USER_CONSTANT_BUFFERS);
     This->vertex_uploader = This->csmt_active ? This->pipe_secondary->stream_uploader : This->context.pipe->stream_uploader;
-    if (!This->driver_caps.user_cbufs)
-        This->constbuf_alignment = GET_PCAP(CONSTANT_BUFFER_OFFSET_ALIGNMENT);
     This->driver_caps.window_space_position_support = GET_PCAP(TGSI_VS_WINDOW_SPACE_POSITION);
     This->driver_caps.vs_integer = pScreen->get_shader_param(pScreen, PIPE_SHADER_VERTEX, PIPE_SHADER_CAP_INTEGERS);
     This->driver_caps.ps_integer = pScreen->get_shader_param(pScreen, PIPE_SHADER_FRAGMENT, PIPE_SHADER_CAP_INTEGERS);
@@ -787,6 +783,10 @@ NineDevice9_SetCursorPosition( struct NineDevice9 *This,
     struct NineSwapChain9 *swap = This->swapchains[0];
 
     DBG("This=%p X=%d Y=%d Flags=%d\n", This, X, Y, Flags);
+
+    if (This->cursor.pos.x == X &&
+        This->cursor.pos.y == Y)
+        return;
 
     This->cursor.pos.x = X;
     This->cursor.pos.y = Y;
@@ -1584,6 +1584,7 @@ NineDevice9_StretchRect( struct NineDevice9 *This,
     user_assert(screen->is_format_supported(screen, src_res->format,
                                             src_res->target,
                                             src_res->nr_samples,
+                                            src_res->nr_storage_samples,
                                             PIPE_BIND_SAMPLER_VIEW),
                 D3DERR_INVALIDCALL);
 
@@ -1709,6 +1710,7 @@ NineDevice9_StretchRect( struct NineDevice9 *This,
         user_assert(screen->is_format_supported(screen, dst_res->format,
                                                 dst_res->target,
                                                 dst_res->nr_samples,
+                                                dst_res->nr_storage_samples,
                                                 zs ? PIPE_BIND_DEPTH_STENCIL :
                                                 PIPE_BIND_RENDER_TARGET),
                     D3DERR_INVALIDCALL);
@@ -2815,26 +2817,27 @@ NineDevice9_DrawPrimitiveUP( struct NineDevice9 *This,
 
     vtxbuf.stride = VertexStreamZeroStride;
     vtxbuf.buffer_offset = 0;
-    vtxbuf.buffer = NULL;
-    vtxbuf.user_buffer = pVertexStreamZeroData;
+    vtxbuf.is_user_buffer = true;
+    vtxbuf.buffer.user = pVertexStreamZeroData;
 
     if (!This->driver_caps.user_vbufs) {
+        vtxbuf.is_user_buffer = false;
+        vtxbuf.buffer.resource = NULL;
         u_upload_data(This->vertex_uploader,
                       0,
                       (prim_count_to_vertex_count(PrimitiveType, PrimitiveCount)) * VertexStreamZeroStride, /* XXX */
                       4,
-                      vtxbuf.user_buffer,
+                      pVertexStreamZeroData,
                       &vtxbuf.buffer_offset,
-                      &vtxbuf.buffer);
+                      &vtxbuf.buffer.resource);
         u_upload_unmap(This->vertex_uploader);
-        vtxbuf.user_buffer = NULL;
     }
 
     NineBeforeDraw(This);
     nine_context_draw_primitive_from_vtxbuf(This, PrimitiveType, PrimitiveCount, &vtxbuf);
     NineAfterDraw(This);
 
-    pipe_resource_reference(&vtxbuf.buffer, NULL);
+    pipe_vertex_buffer_unreference(&vtxbuf);
 
     NineDevice9_PauseRecording(This);
     NineDevice9_SetStreamSource(This, 0, NULL, 0, 0);
@@ -2855,7 +2858,6 @@ NineDevice9_DrawIndexedPrimitiveUP( struct NineDevice9 *This,
                                     UINT VertexStreamZeroStride )
 {
     struct pipe_vertex_buffer vbuf;
-    struct pipe_index_buffer ibuf;
 
     DBG("iface %p, PrimitiveType %u, MinVertexIndex %u, NumVertices %u "
         "PrimitiveCount %u, pIndexData %p, IndexDataFormat %u "
@@ -2872,38 +2874,38 @@ NineDevice9_DrawIndexedPrimitiveUP( struct NineDevice9 *This,
 
     vbuf.stride = VertexStreamZeroStride;
     vbuf.buffer_offset = 0;
-    vbuf.buffer = NULL;
-    vbuf.user_buffer = pVertexStreamZeroData;
+    vbuf.is_user_buffer = true;
+    vbuf.buffer.user = pVertexStreamZeroData;
 
-    ibuf.index_size = (IndexDataFormat == D3DFMT_INDEX16) ? 2 : 4;
-    ibuf.offset = 0;
-    ibuf.buffer = NULL;
-    ibuf.user_buffer = pIndexData;
+    unsigned index_size = (IndexDataFormat == D3DFMT_INDEX16) ? 2 : 4;
+    struct pipe_resource *ibuf = NULL;
 
     if (!This->driver_caps.user_vbufs) {
         const unsigned base = MinVertexIndex * VertexStreamZeroStride;
+        vbuf.is_user_buffer = false;
+        vbuf.buffer.resource = NULL;
         u_upload_data(This->vertex_uploader,
                       base,
                       NumVertices * VertexStreamZeroStride, /* XXX */
                       4,
-                      (const uint8_t *)vbuf.user_buffer + base,
+                      (const uint8_t *)pVertexStreamZeroData + base,
                       &vbuf.buffer_offset,
-                      &vbuf.buffer);
+                      &vbuf.buffer.resource);
         u_upload_unmap(This->vertex_uploader);
         /* Won't be used: */
         vbuf.buffer_offset -= base;
-        vbuf.user_buffer = NULL;
     }
+
+    unsigned index_offset = 0;
     if (This->csmt_active) {
         u_upload_data(This->pipe_secondary->stream_uploader,
                       0,
-                      (prim_count_to_vertex_count(PrimitiveType, PrimitiveCount)) * ibuf.index_size,
+                      (prim_count_to_vertex_count(PrimitiveType, PrimitiveCount)) * index_size,
                       4,
-                      ibuf.user_buffer,
-                      &ibuf.offset,
-                      &ibuf.buffer);
+                      pIndexData,
+                      &index_offset,
+                      &ibuf);
         u_upload_unmap(This->pipe_secondary->stream_uploader);
-        ibuf.user_buffer = NULL;
     }
 
     NineBeforeDraw(This);
@@ -2912,11 +2914,14 @@ NineDevice9_DrawIndexedPrimitiveUP( struct NineDevice9 *This,
                                                            NumVertices,
                                                            PrimitiveCount,
                                                            &vbuf,
-                                                           &ibuf);
+                                                           ibuf,
+                                                           ibuf ? NULL : (void*)pIndexData,
+                                                           index_offset,
+                                                           index_size);
     NineAfterDraw(This);
 
-    pipe_resource_reference(&vbuf.buffer, NULL);
-    pipe_resource_reference(&ibuf.buffer, NULL);
+    pipe_vertex_buffer_unreference(&vbuf);
+    pipe_resource_reference(&ibuf, NULL);
 
     NineDevice9_PauseRecording(This);
     NineDevice9_SetIndices(This, NULL);
@@ -3009,7 +3014,7 @@ NineDevice9_ProcessVertices( struct NineDevice9 *This,
         templ.bind = PIPE_BIND_STREAM_OUTPUT;
         templ.usage = PIPE_USAGE_STREAM;
         templ.height0 = templ.depth0 = templ.array_size = 1;
-        templ.last_level = templ.nr_samples = 0;
+        templ.last_level = templ.nr_samples = templ.nr_storage_samples = 0;
 
         resource = screen_sw->resource_create(screen_sw, &templ);
         if (!resource)
@@ -3029,9 +3034,8 @@ NineDevice9_ProcessVertices( struct NineDevice9 *This,
     draw.restart_index = 0;
     draw.count_from_stream_output = NULL;
     draw.indirect = NULL;
-    draw.indirect_params = NULL;
     draw.instance_count = 1;
-    draw.indexed = FALSE;
+    draw.index_size = 0;
     draw.start = 0;
     draw.index_bias = 0;
     draw.min_index = 0;

@@ -30,7 +30,7 @@
 #include <CL/cl.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#endif
+#endif  
 
 #ifdef __cplusplus
 extern "C" {

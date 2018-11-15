@@ -1,7 +1,7 @@
 /**
  * \file extensions.h
  * Extension handling.
- *
+ * 
  * \if subset
  * (No-op)
  *
@@ -36,7 +36,7 @@
 #ifndef _EXTENSIONS_H_
 #define _EXTENSIONS_H_
 
-#include "glheader.h"
+#include "mtypes.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,11 +47,13 @@ struct gl_extensions;
 
 extern void _mesa_enable_sw_extensions(struct gl_context *ctx);
 
-extern void _mesa_one_time_init_extension_overrides(void);
+extern void _mesa_one_time_init_extension_overrides(struct gl_context *ctx);
 
 extern void _mesa_init_extensions(struct gl_extensions *extentions);
 
 extern GLubyte *_mesa_make_extension_string(struct gl_context *ctx);
+
+extern void _mesa_override_extensions(struct gl_context *ctx);
 
 extern GLuint
 _mesa_get_extension_count(struct gl_context *ctx);
@@ -76,7 +78,7 @@ struct mesa_extension {
     */
    uint8_t version[API_OPENGL_LAST + 1];
 
-   /** Year the extension was proposed or approved.  Used to sort the
+   /** Year the extension was proposed or approved.  Used to sort the 
     * extension string chronologically. */
    uint16_t year;
 };
@@ -104,6 +106,15 @@ _mesa_has_##name_str(const struct gl_context *ctx) \
 #include "extensions_table.h"
 #undef EXT
 
+/* Sometimes the driver wants to query the extension override status before
+ * a context is created. These variables are filled with extension override
+ * information before context creation.
+ *
+ * This can be useful during extension bring-up when an extension is
+ * partially implemented, but cannot yet be advertised as supported.
+ *
+ * Use it with care and keep access read-only.
+ */
 extern struct gl_extensions _mesa_extension_override_enables;
 extern struct gl_extensions _mesa_extension_override_disables;
 

@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,14 +22,13 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
 #ifndef ST_CB_FBO_H
 #define ST_CB_FBO_H
 
-#include "main/compiler.h"
 #include "main/fbobject.h"
 #include "main/glheader.h"
 #include "main/mtypes.h"
@@ -48,7 +47,12 @@ struct st_renderbuffer
 {
    struct gl_renderbuffer Base;
    struct pipe_resource *texture;
-   struct pipe_surface *surface; /* temporary view into texture */
+   /* This points to either "surface_linear" or "surface_srgb".
+    * It doesn't hold the pipe_surface reference. The other two do.
+    */
+   struct pipe_surface *surface;
+   struct pipe_surface *surface_linear;
+   struct pipe_surface *surface_srgb;
    GLboolean defined;        /**< defined contents? */
 
    struct pipe_transfer *transfer; /**< only used when mapping the resource */
@@ -74,6 +78,11 @@ st_renderbuffer(struct gl_renderbuffer *rb)
    return (struct st_renderbuffer *) rb;
 }
 
+static inline struct pipe_resource *
+st_get_renderbuffer_resource(struct gl_renderbuffer *rb)
+{
+   return st_renderbuffer(rb)->texture;
+}
 
 /**
  * Cast wrapper to convert a struct gl_framebuffer to an st_framebuffer.
@@ -93,7 +102,7 @@ st_ws_framebuffer(struct gl_framebuffer *fb)
 
 
 extern struct gl_renderbuffer *
-st_new_renderbuffer_fb(enum pipe_format format, int samples, boolean sw);
+st_new_renderbuffer_fb(enum pipe_format format, unsigned samples, boolean sw);
 
 extern void
 st_update_renderbuffer_surface(struct st_context *st,

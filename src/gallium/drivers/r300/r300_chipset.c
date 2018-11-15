@@ -49,7 +49,7 @@ static void r300_apply_hyperz_blacklist(struct r300_capabilities* caps)
     };
     int i;
     char proc_name[128];
-
+    
     if (!os_get_process_name(proc_name, sizeof(proc_name)))
         return;
 

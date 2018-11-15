@@ -383,7 +383,7 @@ static void r300_clear(struct pipe_context* pipe,
 
         /* Reserve CS space. */
         if (!r300->rws->cs_check_space(r300->cs, dwords)) {
-            r300_flush(&r300->context, RADEON_FLUSH_ASYNC, NULL);
+            r300_flush(&r300->context, PIPE_FLUSH_ASYNC, NULL);
         }
 
         /* Emit clear packets. */
@@ -567,17 +567,17 @@ static void r300_resource_copy_region(struct pipe_context *pipe,
      * colorbuffers. */
 
     util_blitter_default_dst_texture(&dst_templ, dst, dst_level, dstz);
-    util_blitter_default_src_texture(&src_templ, src, src_level);
+    util_blitter_default_src_texture(r300->blitter, &src_templ, src, src_level);
 
     layout = util_format_description(dst_templ.format)->layout;
 
     /* Handle non-renderable plain formats. */
     if (layout == UTIL_FORMAT_LAYOUT_PLAIN &&
         (!screen->is_format_supported(screen, src_templ.format, src->target,
-                                      src->nr_samples,
+                                      src->nr_samples, src->nr_storage_samples,
                                       PIPE_BIND_SAMPLER_VIEW) ||
          !screen->is_format_supported(screen, dst_templ.format, dst->target,
-                                      dst->nr_samples,
+                                      dst->nr_samples, dst->nr_storage_samples,
                                       PIPE_BIND_RENDER_TARGET))) {
         switch (util_format_get_blocksize(dst_templ.format)) {
             case 1:
@@ -644,9 +644,11 @@ static void r300_resource_copy_region(struct pipe_context *pipe,
     /* Fallback for textures. */
     if (!screen->is_format_supported(screen, dst_templ.format,
                                      dst->target, dst->nr_samples,
+                                     dst->nr_storage_samples,
                                      PIPE_BIND_RENDER_TARGET) ||
 	!screen->is_format_supported(screen, src_templ.format,
                                      src->target, src->nr_samples,
+                                     src->nr_storage_samples,
                                      PIPE_BIND_SAMPLER_VIEW)) {
         assert(0 && "this shouldn't happen, update r300_is_blit_supported");
         util_resource_copy_region(pipe, dst, dst_level, dstx, dsty, dstz,

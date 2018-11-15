@@ -296,20 +296,20 @@ New Tokens
 
     New error codes:
 
-    EGL_BAD_SCREEN_MESA
-    EGL_BAD_MODE_MESA
+    EGL_BAD_SCREEN_MESA        
+    EGL_BAD_MODE_MESA          
 
     Screen-related tokens:
 
-    EGL_SCREEN_COUNT_MESA
-    EGL_SCREEN_POSITION_MESA
-    EGL_SCREEN_BIT_MESA
+    EGL_SCREEN_COUNT_MESA      
+    EGL_SCREEN_POSITION_MESA   
+    EGL_SCREEN_BIT_MESA        
     EGL_SCREEN_POSITION_GRANULARITY_MESA
 
     Mode-related tokens:
 
-    EGL_MODE_ID_MESA
-    EGL_REFRESH_RATE_MESA
+    EGL_MODE_ID_MESA           
+    EGL_REFRESH_RATE_MESA      
     EGL_INTERLACED_MESA
     EGL_OPTIMAL_MESA
     EGL_NO_MODE_MESA
@@ -418,7 +418,7 @@ Additions to Chapter X of the EGL 1.1 Specification
     Any other token will generate the error EGL_BAD_ATTRIBUTE.
     The default width and height are zero.
 
-
+    
 
     EGLBoolean eglShowSurfaceMESA(EGLDisplay dpy, EGLScreenMESA screen,
                                   EGLSurface surface, EGLModeMESA mode)

@@ -1,6 +1,6 @@
 /*
  Copyright (c) 2008-2011 Apple Inc.
-
+ 
  Permission is hereby granted, free of charge, to any person
  obtaining a copy of this software and associated documentation files
  (the "Software"), to deal in the Software without restriction,
@@ -8,10 +8,10 @@
  publish, distribute, sublicense, and/or sell copies of the Software,
  and to permit persons to whom the Software is furnished to do so,
  subject to the following conditions:
-
+ 
  The above copyright notice and this permission notice shall be
  included in all copies or substantial portions of the Software.
-
+ 
  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -20,7 +20,7 @@
  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  DEALINGS IN THE SOFTWARE.
-
+ 
  Except as contained in this notice, the name(s) of the above
  copyright holders shall not be used in advertising or otherwise to
  promote the sale, use or other dealings in this Software without
@@ -28,7 +28,7 @@
 */
 
 /*
- * This file works with the glXMakeContextCurrent readable drawable.
+ * This file works with the glXMakeContextCurrent readable drawable. 
  *
  * The way it works is by swapping the currentDrawable for the currentReadable
  * drawable if they are different.
@@ -58,8 +58,8 @@ SetRead(struct apple_xgl_saved_state *saved)
     */
    saved->swapped = false;
 
-   /*
-    * If the readable drawable isn't the same as the drawable then
+   /* 
+    * If the readable drawable isn't the same as the drawable then 
     * the user has requested a readable drawable with glXMakeContextCurrent().
     * We emulate this behavior by switching the current drawable.
     */
@@ -90,7 +90,7 @@ UnsetRead(struct apple_xgl_saved_state *saved)
                                          gc->currentDrawable)) {
          /*
           * An error occurred restoring the drawable.
-          * It's unclear what to do about that.
+          * It's unclear what to do about that. 
           */
       }
    }

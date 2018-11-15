@@ -62,7 +62,7 @@ class type_signature_iter(object):
    def __iter__(self):
       return self
 
-   def next(self):
+   def __next__(self):
       if self.i < len(self.source_types):
          i = self.i
          self.i += 1
@@ -75,6 +75,8 @@ class type_signature_iter(object):
          return (dest_type, self.num_operands * (self.source_types[i],))
       else:
          raise StopIteration()
+
+   next = __next__
 
 
 uint_type = type("unsigned", "u", "GLSL_TYPE_UINT")
@@ -114,7 +116,7 @@ constant_template_common = mako.template.Template("""\
 constant_template_vector_scalar = mako.template.Template("""\
    case ${op.get_enum_name()}:
     % if "mixed" in op.flags:
-        % for i in xrange(op.num_operands):
+        % for i in range(op.num_operands):
       assert(op[${i}]->type->base_type == ${op.source_types[0].glsl_type} ||
             % for src_type in op.source_types[1:-1]:
              op[${i}]->type->base_type == ${src_type.glsl_type} ||
@@ -180,7 +182,7 @@ constant_template_mul = mako.template.Template("""\
          for (unsigned j = 0; j < p; j++) {
             for (unsigned i = 0; i < n; i++) {
                for (unsigned k = 0; k < m; k++) {
-                  if (op[0]->type->base_type == GLSL_TYPE_DOUBLE)
+                  if (op[0]->type->is_double())
                      data.d[i+n*j] += op[0]->value.d[i+n*k]*op[1]->value.d[k+m*j];
                   else
                      data.f[i+n*j] += op[0]->value.f[i+n*k]*op[1]->value.f[k+m*j];
@@ -276,12 +278,9 @@ constant_template_vector = mako.template.Template("""\
 # This template is for ir_triop_lrp.
 constant_template_lrp = mako.template.Template("""\
    case ${op.get_enum_name()}: {
-      assert(op[0]->type->base_type == GLSL_TYPE_FLOAT ||
-             op[0]->type->base_type == GLSL_TYPE_DOUBLE);
-      assert(op[1]->type->base_type == GLSL_TYPE_FLOAT ||
-             op[1]->type->base_type == GLSL_TYPE_DOUBLE);
-      assert(op[2]->type->base_type == GLSL_TYPE_FLOAT ||
-             op[2]->type->base_type == GLSL_TYPE_DOUBLE);
+      assert(op[0]->type->is_float() || op[0]->type->is_double());
+      assert(op[1]->type->is_float() || op[1]->type->is_double());
+      assert(op[2]->type->is_float() || op[2]->type->is_double());
 
       unsigned c2_inc = op[2]->type->is_scalar() ? 0 : 1;
       for (unsigned c = 0, c2 = 0; c < components; c2 += c2_inc, c++) {
@@ -546,6 +545,12 @@ ir_expression_operation = [
    operation("pack_double_2x32", 1, printable_name="packDouble2x32", source_types=(uint_type,), dest_type=double_type, c_expression="memcpy(&data.d[0], &op[0]->value.u[0], sizeof(double))", flags=frozenset((horizontal_operation, non_assign_operation))),
    operation("unpack_double_2x32", 1, printable_name="unpackDouble2x32", source_types=(double_type,), dest_type=uint_type, c_expression="memcpy(&data.u[0], &op[0]->value.d[0], sizeof(double))", flags=frozenset((horizontal_operation, non_assign_operation))),
 
+   # Sampler/Image packing, part of ARB_bindless_texture.
+   operation("pack_sampler_2x32", 1, printable_name="packSampler2x32", source_types=(uint_type,), dest_type=uint64_type, c_expression="memcpy(&data.u64[0], &op[0]->value.u[0], sizeof(uint64_t))", flags=frozenset((horizontal_operation, non_assign_operation))),
+   operation("pack_image_2x32", 1, printable_name="packImage2x32", source_types=(uint_type,), dest_type=uint64_type, c_expression="memcpy(&data.u64[0], &op[0]->value.u[0], sizeof(uint64_t))", flags=frozenset((horizontal_operation, non_assign_operation))),
+   operation("unpack_sampler_2x32", 1, printable_name="unpackSampler2x32", source_types=(uint64_type,), dest_type=uint_type, c_expression="memcpy(&data.u[0], &op[0]->value.u64[0], sizeof(uint64_t))", flags=frozenset((horizontal_operation, non_assign_operation))),
+   operation("unpack_image_2x32", 1, printable_name="unpackImage2x32", source_types=(uint64_type,), dest_type=uint_type, c_expression="memcpy(&data.u[0], &op[0]->value.u64[0], sizeof(uint64_t))", flags=frozenset((horizontal_operation, non_assign_operation))),
+
    operation("frexp_sig", 1),
    operation("frexp_exp", 1),
 
@@ -569,15 +574,6 @@ ir_expression_operation = [
    # operand0 is the unsized array's ir_value for the calculation
    # of its length.
    operation("ssbo_unsized_array_length", 1),
-
-   # ARB_shader_ballot operations
-   operation("ballot", 1, source_types=(bool_type,), dest_type=uint64_type),
-   operation("read_first_invocation", 1),
-
-   # Vote among threads on the value of the boolean argument.
-   operation("vote_any", 1),
-   operation("vote_all", 1),
-   operation("vote_eq", 1),
 
    # 64-bit integer packing ops.
    operation("pack_int_2x32", 1, printable_name="packInt2x32", source_types=(int_type,), dest_type=int64_type, c_expression="memcpy(&data.i64[0], &op[0]->value.i[0], sizeof(int64_t))", flags=frozenset((horizontal_operation, non_assign_operation))),
@@ -608,8 +604,6 @@ ir_expression_operation = [
    # Binary comparison operators which return a boolean vector.
    # The type of both operands must be equal.
    operation("less", 2, printable_name="<", source_types=numeric_types, dest_type=bool_type, c_expression="{src0} < {src1}"),
-   operation("greater", 2, printable_name=">", source_types=numeric_types, dest_type=bool_type, c_expression="{src0} > {src1}"),
-   operation("lequal", 2, printable_name="<=", source_types=numeric_types, dest_type=bool_type, c_expression="{src0} <= {src1}"),
    operation("gequal", 2, printable_name=">=", source_types=numeric_types, dest_type=bool_type, c_expression="{src0} >= {src1}"),
    operation("equal", 2, printable_name="==", source_types=all_types, dest_type=bool_type, c_expression="{src0} == {src1}"),
    operation("nequal", 2, printable_name="!=", source_types=all_types, dest_type=bool_type, c_expression="{src0} != {src1}"),
@@ -669,9 +663,6 @@ ir_expression_operation = [
    # operand0 is the fs input
    # operand1 is the sample ID
    operation("interpolate_at_sample", 2),
-
-   # ARB_shader_ballot operation
-   operation("read_invocation", 2),
 
    # Fused floating-point multiply-add, part of ARB_gpu_shader5.
    operation("fma", 3, source_types=real_types, c_expression="{src0} * {src1} + {src2}"),

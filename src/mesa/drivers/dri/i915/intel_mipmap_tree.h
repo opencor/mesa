@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2006 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #ifndef INTEL_MIPMAP_TREE_H
@@ -38,7 +38,7 @@
  *
  * - Code to size and layout a region to hold a set of mipmaps.
  * - Query to determine if a new image fits in an existing tree.
- * - More refcounting
+ * - More refcounting 
  *     - maybe able to remove refcounting from intel_region?
  * - ?
  *
@@ -53,8 +53,8 @@
  * the texture object would slot into the tree as they arrive.  The
  * reality can be a little messier, as images can arrive from the user
  * with sizes that don't fit in the existing tree, or in an order
- * where the tree layout cannot be guessed immediately.
- *
+ * where the tree layout cannot be guessed immediately.  
+ * 
  * This structure encodes an idealized mipmap tree.  The GL image
  * commands build these where possible, otherwise store the images in
  * temporary system buffers.
@@ -94,8 +94,6 @@ struct intel_mipmap_level
     *
     * The exact semantics of depth varies according to the texture target:
     *    - For GL_TEXTURE_CUBE_MAP, depth is 6.
-    *    - For GL_TEXTURE_2D_ARRAY, depth is the number of array slices. It is
-    *      identical for all miplevels in the texture.
     *    - For GL_TEXTURE_3D, it is the texture's depth at this miplevel. Its
     *      value, like width and height, varies with miplevel.
     *    - For other texture types, depth is 1.
@@ -160,34 +158,13 @@ struct intel_mipmap_tree
    /**
     * Level zero image dimensions.  These dimensions correspond to the
     * physical layout of data in memory.  Accordingly, they account for the
-    * extra width, height, and or depth that must be allocated in order to
-    * accommodate multisample formats, and they account for the extra factor
-    * of 6 in depth that must be allocated in order to accommodate cubemap
-    * textures.
+    * extra factor of 6 in depth that must be allocated in order to
+    * accommodate cubemap textures.
     */
    GLuint physical_width0, physical_height0, physical_depth0;
 
    GLuint cpp;
    bool compressed;
-
-   /**
-    * Level zero image dimensions.  These dimensions correspond to the
-    * logical width, height, and depth of the region as seen by client code.
-    * Accordingly, they do not account for the extra width, height, and/or
-    * depth that must be allocated in order to accommodate multisample
-    * formats, nor do they account for the extra factor of 6 in depth that
-    * must be allocated in order to accommodate cubemap textures.
-    */
-   uint32_t logical_width0, logical_height0, logical_depth0;
-
-   /**
-    * For 1D array, 2D array, cube, and 2D multisampled surfaces on Gen7: true
-    * if the surface only contains LOD 0, and hence no space is for LOD's
-    * other than 0 in between array slices.
-    *
-    * Corresponds to the surface_array_spacing bit in gen7_surface_state.
-    */
-   bool array_spacing_lod0;
 
    /* Derived from the above:
     */

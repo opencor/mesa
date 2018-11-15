@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2008 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #ifndef STW_FRAMEBUFFER_H
@@ -55,14 +55,14 @@ struct stw_framebuffer
     * the stw_device::fb_mutex needs to be locked first.
     */
    CRITICAL_SECTION mutex;
-
+   
    /*
     * Immutable members.
-    *
-    * Note that even access to immutable members implies acquiring the mutex
+    * 
+    * Note that even access to immutable members implies acquiring the mutex 
     * above, to prevent the framebuffer from being destroyed.
     */
-
+   
    HWND hWnd;
 
    int iPixelFormat;
@@ -75,12 +75,12 @@ struct stw_framebuffer
    struct st_framebuffer_iface *stfb;
 
    /*
-    * Mutable members.
+    * Mutable members. 
     */
 
    unsigned refcnt;
 
-
+   
    /* FIXME: Make this work for multiple contexts bound to the same framebuffer */
    boolean must_resize;
 
@@ -88,7 +88,7 @@ struct stw_framebuffer
 
    unsigned width;
    unsigned height;
-
+   
    /** WGL_ARB_render_texture - set at Pbuffer creation time */
    unsigned textureFormat;  /**< WGL_NO_TEXTURE or WGL_TEXTURE_RGB[A]_ARB */
    unsigned textureTarget;  /**< WGL_NO_TEXTURE or WGL_TEXTURE_1D/2D/
@@ -111,13 +111,13 @@ struct stw_framebuffer
    /* For WGL_EXT_swap_control */
    int64_t prev_swap_time;
 
-   /**
+   /** 
     * This is protected by stw_device::fb_mutex, not the mutex above.
-    *
+    * 
     * Deletions must be done by first acquiring stw_device::fb_mutex, and then
-    * acquiring the stw_framebuffer::mutex of the framebuffer to be deleted.
+    * acquiring the stw_framebuffer::mutex of the framebuffer to be deleted. 
     * This ensures that nobody else is reading/writing to the.
-    *
+    * 
     * It is not necessary to acquire the mutex above to navigate the linked list
     * given that deletions are done with stw_device::fb_mutex held, so no other
     * thread can delete.
@@ -128,9 +128,9 @@ struct stw_framebuffer
 
 /**
  * Create a new framebuffer object which will correspond to the given HDC.
- *
+ * 
  * This function will acquire stw_framebuffer::mutex. stw_framebuffer_unlock
- * must be called when done
+ * must be called when done 
  */
 struct stw_framebuffer *
 stw_framebuffer_create(HDC hdc, int iPixelFormat);
@@ -156,18 +156,18 @@ stw_framebuffer_release_locked(struct stw_framebuffer *fb);
 
 /**
  * Search a framebuffer with a matching HWND.
- *
+ * 
  * This function will acquire stw_framebuffer::mutex. stw_framebuffer_unlock
- * must be called when done
+ * must be called when done 
  */
 struct stw_framebuffer *
 stw_framebuffer_from_hwnd(HWND hwnd);
 
 /**
  * Search a framebuffer with a matching HDC.
- *
+ * 
  * This function will acquire stw_framebuffer::mutex. stw_framebuffer_unlock
- * must be called when done
+ * must be called when done 
  */
 struct stw_framebuffer *
 stw_framebuffer_from_hdc(HDC hdc);

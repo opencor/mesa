@@ -245,13 +245,13 @@ stw_tls_lookup_pending_data(DWORD dwThreadId)
    for (p_data = &g_pendingTlsData; *p_data; p_data = &(*p_data)->next) {
       if ((*p_data)->dwThreadId == dwThreadId) {
          data = *p_data;
-
+	 
 	 /*
 	  * Unlink the node.
 	  */
          *p_data = data->next;
          data->next = NULL;
-
+         
 	 break;
       }
    }
@@ -264,11 +264,11 @@ struct stw_tls_data *
 stw_tls_get_data(void)
 {
    struct stw_tls_data *data;
-
+   
    if (tlsIndex == TLS_OUT_OF_INDEXES) {
       return NULL;
    }
-
+   
    data = (struct stw_tls_data *) TlsGetValue(tlsIndex);
    if (!data) {
       DWORD dwCurrentThreadId = GetCurrentThreadId();

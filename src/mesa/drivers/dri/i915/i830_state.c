@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
@@ -78,7 +78,7 @@ i830StencilMaskSeparate(struct gl_context * ctx, GLenum face, GLuint mask)
    struct i830_context *i830 = i830_context(ctx);
 
    DBG("%s : mask 0x%x\n", __func__, mask);
-
+   
    mask = mask & 0xff;
 
    I830_STATECHANGE(i830, I830_UPLOAD_CTX);
@@ -96,7 +96,7 @@ i830StencilOpSeparate(struct gl_context * ctx, GLenum face, GLenum fail, GLenum 
 
    DBG("%s: fail : %s, zfail: %s, zpass : %s\n", __func__,
        _mesa_enum_to_string(fail),
-       _mesa_enum_to_string(zfail),
+       _mesa_enum_to_string(zfail), 
        _mesa_enum_to_string(zpass));
 
    fop = 0;
@@ -223,7 +223,7 @@ i830AlphaFunc(struct gl_context * ctx, GLenum func, GLfloat ref)
  * Blend, and Blending.  It needs to be called from numerous places where we
  * could change the LogicOp or Independent Alpha Blend without subsequent
  * calls to glEnable.
- *
+ * 
  * \todo
  * This function is substantially different from the old i830-specific driver.
  * I'm not sure which is correct.
@@ -262,7 +262,7 @@ i830BlendColor(struct gl_context * ctx, const GLfloat color[4])
    GLubyte r, g, b, a;
 
    DBG("%s\n", __func__);
-
+   
    UNCLAMPED_FLOAT_TO_UBYTE(r, color[RCOMP]);
    UNCLAMPED_FLOAT_TO_UBYTE(g, color[GCOMP]);
    UNCLAMPED_FLOAT_TO_UBYTE(b, color[BCOMP]);
@@ -424,7 +424,7 @@ i830DepthFunc(struct gl_context * ctx, GLenum func)
    int test = intel_translate_compare_func(func);
 
    DBG("%s\n", __func__);
-
+   
    I830_STATECHANGE(i830, I830_UPLOAD_CTX);
    i830->state.Ctx[I830_CTXREG_STATE3] &= ~DEPTH_TEST_FUNC_MASK;
    i830->state.Ctx[I830_CTXREG_STATE3] |= (ENABLE_DEPTH_TEST_FUNC |
@@ -564,7 +564,7 @@ i830Scissor(struct gl_context * ctx)
    y1 = CLAMP(y1, 0, ctx->DrawBuffer->Height - 1);
    x2 = CLAMP(x2, 0, ctx->DrawBuffer->Width - 1);
    y2 = CLAMP(y2, 0, ctx->DrawBuffer->Height - 1);
-
+   
    DBG("%s %d..%d,%d..%d (clamped)\n", __func__, x1, x2, y1, y2);
 
    I830_STATECHANGE(i830, I830_UPLOAD_BUFFERS);
@@ -573,16 +573,16 @@ i830Scissor(struct gl_context * ctx)
 }
 
 static void
-i830LogicOp(struct gl_context * ctx, GLenum opcode)
+i830LogicOp(struct gl_context * ctx, enum gl_logicop_mode opcode)
 {
    struct i830_context *i830 = i830_context(ctx);
-   int tmp = intel_translate_logic_op(opcode);
 
    DBG("%s\n", __func__);
 
+   assert((unsigned)opcode <= 15);
    I830_STATECHANGE(i830, I830_UPLOAD_CTX);
    i830->state.Ctx[I830_CTXREG_STATE4] &= ~LOGICOP_MASK;
-   i830->state.Ctx[I830_CTXREG_STATE4] |= LOGIC_OP_FUNC(tmp);
+   i830->state.Ctx[I830_CTXREG_STATE4] |= opcode;
 }
 
 
@@ -594,7 +594,7 @@ i830CullFaceFrontFace(struct gl_context * ctx, GLenum unused)
    GLuint mode;
 
    DBG("%s\n", __func__);
-
+   
    if (!ctx->Polygon.CullFlag) {
       mode = CULLMODE_NONE;
    }
@@ -625,7 +625,7 @@ i830LineWidth(struct gl_context * ctx, GLfloat widthf)
    int state5;
 
    DBG("%s\n", __func__);
-
+   
    width = (int) (widthf * 2);
    width = CLAMP(width, 1, 15);
 
@@ -645,7 +645,7 @@ i830PointSize(struct gl_context * ctx, GLfloat size)
    GLint point_size = (int) size;
 
    DBG("%s\n", __func__);
-
+   
    point_size = CLAMP(point_size, 1, 256);
    I830_STATECHANGE(i830, I830_UPLOAD_CTX);
    i830->state.Ctx[I830_CTXREG_STATE5] &= ~FIXED_POINT_WIDTH_MASK;
@@ -698,7 +698,7 @@ static void
 i830LightModelfv(struct gl_context * ctx, GLenum pname, const GLfloat * param)
 {
    DBG("%s\n", __func__);
-
+   
    if (pname == GL_LIGHT_MODEL_COLOR_CONTROL) {
       update_specular(ctx);
    }
@@ -741,7 +741,7 @@ i830Fogfv(struct gl_context * ctx, GLenum pname, const GLfloat * param)
    struct i830_context *i830 = i830_context(ctx);
 
    DBG("%s\n", __func__);
-
+   
    if (pname == GL_FOG_COLOR) {
       GLuint color = (((GLubyte) (ctx->Fog.Color[0] * 255.0F) << 16) |
                       ((GLubyte) (ctx->Fog.Color[1] * 255.0F) << 8) |

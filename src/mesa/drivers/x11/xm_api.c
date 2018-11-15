@@ -116,7 +116,7 @@ static int host_byte_order( void )
  */
 static int check_for_xshm( XMesaDisplay *display )
 {
-#if defined(USE_XSHM)
+#if defined(USE_XSHM) 
    int ignore;
 
    if (XQueryExtension( display, "MIT-SHM", &ignore, &ignore, &ignore )) {
@@ -311,8 +311,8 @@ create_xmesa_buffer(XMesaDrawable d, BufferType type,
    b->frontxrb->Parent = b;
    b->frontxrb->drawable = d;
    b->frontxrb->pixmap = (XMesaPixmap) d;
-   _mesa_add_renderbuffer_without_ref(&b->mesa_buffer, BUFFER_FRONT_LEFT,
-                                      &b->frontxrb->Base.Base);
+   _mesa_attach_and_own_rb(&b->mesa_buffer, BUFFER_FRONT_LEFT,
+                           &b->frontxrb->Base.Base);
 
    /*
     * Back renderbuffer
@@ -327,9 +327,9 @@ create_xmesa_buffer(XMesaDrawable d, BufferType type,
       b->backxrb->Parent = b;
       /* determine back buffer implementation */
       b->db_mode = vis->ximage_flag ? BACK_XIMAGE : BACK_PIXMAP;
-
-      _mesa_add_renderbuffer_without_ref(&b->mesa_buffer, BUFFER_BACK_LEFT,
-                                         &b->backxrb->Base.Base);
+      
+      _mesa_attach_and_own_rb(&b->mesa_buffer, BUFFER_BACK_LEFT,
+                              &b->backxrb->Base.Base);
    }
 
    /*
@@ -686,12 +686,12 @@ xmesa_color_to_pixel(struct gl_context *ctx,
 
 /**
  * Convert an X visual type to a GLX visual type.
- *
+ * 
  * \param visualType X visual type (i.e., \c TrueColor, \c StaticGray, etc.)
  *        to be converted.
  * \return If \c visualType is a valid X visual type, a GLX visual type will
  *         be returned.  Otherwise \c GLX_NONE will be returned.
- *
+ * 
  * \note
  * This code was lifted directly from lib/GL/glx/glcontextmodes.c in the
  * DRI CVS tree.
@@ -906,6 +906,7 @@ XMesaContext XMesaCreateContext( XMesaVisual v, XMesaContext share_list )
 
    /* initialize with default driver functions, then plug in XMesa funcs */
    _mesa_init_driver_functions(&functions);
+   _tnl_init_driver_draw_function(&functions);
    xmesa_init_driver_functions(v, &functions);
    if (!_mesa_initialize_context(mesaCtx, API_OPENGL_COMPAT, &v->mesa_visual,
                       share_list ? &(share_list->mesa) : (struct gl_context *) NULL,
@@ -957,6 +958,7 @@ XMesaContext XMesaCreateContext( XMesaVisual v, XMesaContext share_list )
 
    _mesa_meta_init(mesaCtx);
 
+   _mesa_override_extensions(mesaCtx);
    _mesa_compute_version(mesaCtx);
 
     /* Exec table initialization requires the version to be computed */
@@ -1304,11 +1306,11 @@ XMesaBuffer XMesaGetCurrentReadBuffer( void )
 }
 
 
-
-GLboolean XMesaSetFXmode( GLint mode )
+Display *XMesaGetCurrentDisplay(void)
 {
-   (void) mode;
-   return GL_FALSE;
+   GET_CURRENT_CONTEXT(ctx);
+   XMesaContext xmctx = XMESA_CONTEXT(ctx);
+   return xmctx ? xmctx->display : NULL;
 }
 
 
@@ -1336,7 +1338,7 @@ void XMesaSwapBuffers( XMesaBuffer b )
    if (b->db_mode) {
       if (b->backxrb->ximage) {
 	 /* Copy Ximage (back buf) from client memory to server window */
-#if defined(USE_XSHM)
+#if defined(USE_XSHM) 
 	 if (b->shm) {
             /*mtx_lock(&_xmesa_lock);*/
 	    XShmPutImage( b->xm_visual->display, b->frontxrb->drawable,
@@ -1390,14 +1392,14 @@ void XMesaCopySubBuffer( XMesaBuffer b, int x, int y, int width, int height )
 
    if (!b->backxrb) {
       /* single buffered */
-      return;
+      return; 
    }
 
    if (b->db_mode) {
       int yTop = b->mesa_buffer.Height - y - height;
       if (b->backxrb->ximage) {
          /* Copy Ximage from host's memory to server's window */
-#if defined(USE_XSHM)
+#if defined(USE_XSHM) 
          if (b->shm) {
             /* XXX assuming width and height aren't too large! */
             XShmPutImage( b->xm_visual->display, b->frontxrb->drawable,

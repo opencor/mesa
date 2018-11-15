@@ -1285,8 +1285,8 @@ incr_inputs(struct translate_sse *p, unsigned index_size)
  *  Lots of hardcoding
  *
  * EAX -- pointer to current output vertex
- * ECX -- pointer to current attribute
- *
+ * ECX -- pointer to current attribute 
+ * 
  */
 static boolean
 build_vertex_emit(struct translate_sse *p,

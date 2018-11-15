@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /**
@@ -41,7 +41,7 @@
 #include "sp_texture.h"
 #include "sp_tex_tile_cache.h"
 
-
+   
 
 struct softpipe_tex_tile_cache *
 sp_create_tex_tile_cache( struct pipe_context *pipe )
@@ -188,8 +188,8 @@ sp_flush_tex_tile_cache(struct softpipe_tex_tile_cache *tc)
 static inline uint
 tex_cache_pos( union tex_tile_address addr )
 {
-   uint entry = (addr.bits.x +
-                 addr.bits.y * 9 +
+   uint entry = (addr.bits.x + 
+                 addr.bits.y * 9 + 
                  addr.bits.z +
                  addr.bits.level * 7);
 
@@ -201,7 +201,7 @@ tex_cache_pos( union tex_tile_address addr )
  * Tiles are read-only and indexed with more params.
  */
 const struct softpipe_tex_cached_tile *
-sp_find_cached_tile_tex(struct softpipe_tex_tile_cache *tc,
+sp_find_cached_tile_tex(struct softpipe_tex_tile_cache *tc, 
                         union tex_tile_address addr )
 {
    struct softpipe_tex_cached_tile *tile;

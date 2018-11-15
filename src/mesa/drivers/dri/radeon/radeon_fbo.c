@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2008 Red Hat Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
@@ -144,8 +144,7 @@ static GLuint get_depth_z16(const struct radeon_renderbuffer *rrb,
 #endif
 
 static void
-radeon_map_renderbuffer_s8z24(struct gl_context *ctx,
-		       struct gl_renderbuffer *rb,
+radeon_map_renderbuffer_s8z24(struct gl_renderbuffer *rb,
 		       GLuint x, GLuint y, GLuint w, GLuint h,
 		       GLbitfield mode,
 		       GLubyte **out_map,
@@ -177,14 +176,13 @@ radeon_map_renderbuffer_s8z24(struct gl_context *ctx,
     }
 
     radeon_bo_unmap(rrb->bo);
-
+		   
     *out_map = rrb->map_buffer;
     *out_stride = rrb->map_pitch;
 }
 
 static void
-radeon_map_renderbuffer_z16(struct gl_context *ctx,
-			    struct gl_renderbuffer *rb,
+radeon_map_renderbuffer_z16(struct gl_renderbuffer *rb,
 			    GLuint x, GLuint y, GLuint w, GLuint h,
 			    GLbitfield mode,
 			    GLubyte **out_map,
@@ -228,7 +226,8 @@ radeon_map_renderbuffer(struct gl_context *ctx,
 		       GLuint x, GLuint y, GLuint w, GLuint h,
 		       GLbitfield mode,
 		       GLubyte **out_map,
-		       GLint *out_stride)
+		       GLint *out_stride,
+		       bool flip_y)
 {
    struct radeon_context *const rmesa = RADEON_CONTEXT(ctx);
    struct radeon_renderbuffer *rrb = radeon_renderbuffer(rb);
@@ -237,6 +236,9 @@ radeon_map_renderbuffer(struct gl_context *ctx,
    int stride, flip_stride;
    int ret;
    int src_x, src_y;
+
+   /* driver does not support GL_FRAMEBUFFER_FLIP_Y_MESA */
+   assert((rb->Name == 0) == flip_y);
 
    if (!rrb || !rrb->bo) {
 	   *out_map = NULL;
@@ -272,7 +274,7 @@ radeon_map_renderbuffer(struct gl_context *ctx,
        rrb->map_bo = radeon_bo_open(rmesa->radeonScreen->bom, 0,
 				    rrb->map_pitch * h, 4,
 				    RADEON_GEM_DOMAIN_GTT, 0);
-
+       
        ok = rmesa->vtbl.blit(ctx, rrb->bo, rrb->draw_offset,
 			     rb->Format, rrb->pitch / rrb->cpp,
 			     rb->Width, rb->Height,
@@ -307,12 +309,12 @@ radeon_map_renderbuffer(struct gl_context *ctx,
 
    if ((rmesa->radeonScreen->chip_flags & RADEON_CHIPSET_DEPTH_ALWAYS_TILED) && !rrb->has_surface) {
        if (rb->Format == MESA_FORMAT_Z24_UNORM_S8_UINT || rb->Format == MESA_FORMAT_Z24_UNORM_X8_UINT) {
-	   radeon_map_renderbuffer_s8z24(ctx, rb, x, y, w, h,
+	   radeon_map_renderbuffer_s8z24(rb, x, y, w, h,
 					 mode, out_map, out_stride);
 	   return;
        }
        if (rb->Format == MESA_FORMAT_Z_UNORM16) {
-	   radeon_map_renderbuffer_z16(ctx, rb, x, y, w, h,
+	   radeon_map_renderbuffer_z16(rb, x, y, w, h,
 				       mode, out_map, out_stride);
 	   return;
        }
@@ -356,7 +358,7 @@ radeon_unmap_renderbuffer_s8z24(struct gl_context *ctx,
        int y_bias = (rb->Name == 0) ? (rb->Height - 1) : 0;
 
        radeon_bo_map(rrb->bo, 1);
-
+       
        tiled_s8z24_map = rrb->bo->ptr;
 
        for (uint32_t pix_y = 0; pix_y < rrb->map_h; pix_y++) {
@@ -389,7 +391,7 @@ radeon_unmap_renderbuffer_z16(struct gl_context *ctx,
        int y_bias = (rb->Name == 0) ? (rb->Height - 1) : 0;
 
        radeon_bo_map(rrb->bo, 1);
-
+       
        tiled_z16_map = rrb->bo->ptr;
 
        for (uint32_t pix_y = 0; pix_y < rrb->map_h; pix_y++) {
@@ -621,8 +623,11 @@ radeon_alloc_window_storage(struct gl_context * ctx, struct gl_renderbuffer *rb,
 
 /** Dummy function for gl_renderbuffer::AllocStorage() */
 static GLboolean
-radeon_nop_alloc_storage(struct gl_context * ctx, struct gl_renderbuffer *rb,
-			 GLenum internalFormat, GLuint width, GLuint height)
+radeon_nop_alloc_storage(struct gl_context * ctx,
+			 UNUSED struct gl_renderbuffer *rb,
+			 UNUSED GLenum internalFormat,
+			 UNUSED GLuint width,
+			 UNUSED GLuint height)
 {
    _mesa_problem(ctx, "radeon_op_alloc_storage should never be called.");
    return GL_FALSE;
@@ -726,7 +731,7 @@ radeon_framebuffer_renderbuffer(struct gl_context * ctx,
 }
 
 static GLboolean
-radeon_update_wrapper(struct gl_context *ctx, struct radeon_renderbuffer *rrb,
+radeon_update_wrapper(struct gl_context *ctx, struct radeon_renderbuffer *rrb, 
 		     struct gl_texture_image *texImage)
 {
 	struct gl_renderbuffer *rb = &rrb->base.Base;
@@ -739,7 +744,7 @@ radeon_update_wrapper(struct gl_context *ctx, struct radeon_renderbuffer *rrb,
 	rrb->pitch = texImage->Width * rrb->cpp;
 	rb->Format = texImage->TexFormat;
 	rb->InternalFormat = texImage->InternalFormat;
-	rb->_BaseFormat = _mesa_base_fbo_format(ctx, rb->InternalFormat);
+	rb->_BaseFormat = _mesa_get_format_base_format(rb->Format);
 	rb->Width = texImage->Width;
 	rb->Height = texImage->Height;
 	rb->Delete = radeon_delete_renderbuffer;
@@ -875,7 +880,7 @@ void radeon_fbo_init(struct radeon_context *radeon)
 	  radeon_image_target_renderbuffer_storage;
 }
 
-
+  
 void radeon_renderbuffer_set_bo(struct radeon_renderbuffer *rb,
 				struct radeon_bo *bo)
 {

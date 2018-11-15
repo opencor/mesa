@@ -7,7 +7,7 @@
 #include "pipe/p_shader_tokens.h"
 #include "pipe/p_state.h"
 
-#include "util/u_box.h"
+#include "util/u_box.h"    
 #include "util/u_debug.h"
 #include "util/u_debug_image.h"
 #include "util/u_draw_quad.h"
@@ -61,7 +61,7 @@ graw_util_create_window(struct graw_info *info,
       debug_printf("graw: Failed to create screen/window\n");
       return FALSE;
    }
-
+   
    info->ctx = info->screen->context_create(info->screen, NULL, 0);
    if (info->ctx == NULL) {
       debug_printf("graw: Failed to create context\n");
@@ -77,7 +77,6 @@ graw_util_create_window(struct graw_info *info,
       resource_temp.depth0 = 1;
       resource_temp.array_size = 1;
       resource_temp.last_level = 0;
-      resource_temp.nr_samples = 1;
       resource_temp.bind = (PIPE_BIND_RENDER_TARGET |
                             PIPE_BIND_DISPLAY_TARGET);
       info->color_buf[i] = info->screen->resource_create(info->screen,
@@ -109,7 +108,6 @@ graw_util_create_window(struct graw_info *info,
    resource_temp.depth0 = 1;
    resource_temp.array_size = 1;
    resource_temp.last_level = 0;
-   resource_temp.nr_samples = 1;
    resource_temp.bind = PIPE_BIND_DEPTH_STENCIL;
    info->zs_buf = info->screen->resource_create(info->screen, &resource_temp);
    if (!info->zs_buf) {
@@ -219,7 +217,7 @@ static inline struct pipe_resource *
 graw_util_create_tex2d(const struct graw_info *info,
                        int width, int height, enum pipe_format format,
                        const void *data)
-{
+{ 
    const int row_stride = width * util_format_get_blocksize(format);
    const int image_bytes = row_stride * height;
    struct pipe_resource temp, *tex;
@@ -233,9 +231,8 @@ graw_util_create_tex2d(const struct graw_info *info,
    temp.depth0 = 1;
    temp.last_level = 0;
    temp.array_size = 1;
-   temp.nr_samples = 1;
    temp.bind = PIPE_BIND_SAMPLER_VIEW;
-
+   
    tex = info->screen->resource_create(info->screen, &temp);
    if (!tex) {
       debug_printf("graw: failed to create texture\n");
@@ -300,7 +297,7 @@ graw_util_create_simple_sampler(const struct graw_info *info,
    sampler_desc.compare_func = 0;
    sampler_desc.normalized_coords = 1;
    sampler_desc.max_anisotropy = 0;
-
+   
    sampler = info->ctx->create_sampler_state(info->ctx, &sampler_desc);
 
    return sampler;

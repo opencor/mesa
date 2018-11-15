@@ -137,7 +137,7 @@ TAG(do_block_16)(struct lp_rasterizer_task *task,
       int ix = (i & 3) * 4;
       int iy = (i >> 2) * 4;
       int px = x + ix;
-      int py = y + iy;
+      int py = y + iy; 
       int64_t cx[NR_PLANES];
 
       partial_mask &= ~(1 << i);
@@ -145,21 +145,21 @@ TAG(do_block_16)(struct lp_rasterizer_task *task,
       LP_COUNT(nr_partially_covered_4);
 
       for (j = 0; j < NR_PLANES; j++)
-         cx[j] = (c[j]
+         cx[j] = (c[j] 
                   - IMUL64(plane[j].dcdx, ix)
                   + IMUL64(plane[j].dcdy, iy));
 
       TAG(do_block_4)(task, tri, plane, px, py, cx);
    }
 
-   /* Iterate over fulls:
+   /* Iterate over fulls: 
     */
    while (inmask) {
       int i = ffs(inmask) - 1;
       int ix = (i & 3) * 4;
       int iy = (i >> 2) * 4;
       int px = x + ix;
-      int py = y + iy;
+      int py = y + iy; 
 
       inmask &= ~(1 << i);
 
@@ -305,7 +305,7 @@ TAG(lp_rast_triangle)(struct lp_rasterizer_task *task,
       TAG(do_block_16)(task, tri, plane, px, py, cx);
    }
 
-   /* Iterate over fulls:
+   /* Iterate over fulls: 
     */
    while (inmask) {
       int i = ffs(inmask) - 1;
@@ -341,7 +341,7 @@ TRI_16(struct lp_rasterizer_task *task,
    int y = (mask >> 8);
 
    outmask = 0;                 /* outside one or more trivial reject planes */
-
+   
    x += task->x;
    y += task->y;
 
@@ -379,7 +379,7 @@ TRI_16(struct lp_rasterizer_task *task,
       int ix = (i & 3) * 4;
       int iy = (i >> 2) * 4;
       int px = x + ix;
-      int py = y + iy;
+      int py = y + iy; 
       unsigned mask = 0xffff;
 
       partial_mask &= ~(1 << i);
@@ -416,7 +416,7 @@ TRI_4(struct lp_rasterizer_task *task,
       unsigned mask = 0xffff;
 
       for (j = 0; j < NR_PLANES; j++) {
-	 const int cx = (plane[j].c
+	 const int cx = (plane[j].c 
 			 - plane[j].dcdx * x
 			 + plane[j].dcdy * y);
 

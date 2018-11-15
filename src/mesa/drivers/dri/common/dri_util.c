@@ -30,7 +30,7 @@
  * driver doesn't really \e have to use any of this - it's optional.  But, some
  * useful stuff is done here that otherwise would have to be duplicated in most
  * drivers.
- *
+ * 
  * Basically, these utility functions take care of some of the dirty details of
  * screen initialization, context creation, context binding, DRM setup, etc.
  *
@@ -42,7 +42,7 @@
 #include <stdbool.h>
 #include "dri_util.h"
 #include "utils.h"
-#include "xmlpool.h"
+#include "util/xmlpool.h"
 #include "main/mtypes.h"
 #include "main/framebuffer.h"
 #include "main/version.h"
@@ -144,6 +144,10 @@ driCreateNewScreen2(int scrn, int fd,
     psp->fd = fd;
     psp->myNum = scrn;
 
+    /* Option parsing before ->InitScreen(), as some options apply there. */
+    driParseOptionInfo(&psp->optionInfo, __dri2ConfigOptions);
+    driParseConfigFiles(&psp->optionCache, &psp->optionInfo, psp->myNum, "dri2");
+
     *driver_configs = psp->driver->InitScreen(psp);
     if (*driver_configs == NULL) {
 	free(psp);
@@ -160,11 +164,9 @@ driCreateNewScreen2(int scrn, int fd,
 
     api = API_OPENGL_COMPAT;
     if (_mesa_override_gl_version_contextless(&consts, &api, &version)) {
-       if (api == API_OPENGL_CORE) {
-          psp->max_gl_core_version = version;
-       } else {
+       psp->max_gl_core_version = version;
+       if (api == API_OPENGL_COMPAT)
           psp->max_gl_compat_version = version;
-       }
     }
 
     psp->api_mask = 0;
@@ -178,10 +180,6 @@ driCreateNewScreen2(int scrn, int fd,
        psp->api_mask |= (1 << __DRI_API_GLES2);
     if (psp->max_gl_es2_version >= 30)
        psp->api_mask |= (1 << __DRI_API_GLES3);
-
-    driParseOptionInfo(&psp->optionInfo, __dri2ConfigOptions);
-    driParseConfigFiles(&psp->optionCache, &psp->optionInfo, psp->myNum, "dri2");
-
 
     return psp;
 }
@@ -215,7 +213,7 @@ driSWRastCreateNewScreen2(int scrn, const __DRIextension **extensions,
 
 /**
  * Destroy the per-screen private information.
- *
+ * 
  * \internal
  * This function calls __DriverAPIRec::DestroyScreen on \p screenPrivate, calls
  * drmClose(), and finally frees \p screenPrivate.
@@ -302,10 +300,13 @@ driCreateContextAttribs(__DRIscreen *screen, int api,
     const struct gl_config *modes = (config != NULL) ? &config->modes : NULL;
     void *shareCtx = (shared != NULL) ? shared->driverPrivate : NULL;
     gl_api mesa_api;
-    unsigned major_version = 1;
-    unsigned minor_version = 0;
-    uint32_t flags = 0;
-    bool notify_reset = false;
+    struct __DriverContextConfig ctx_config;
+
+    ctx_config.major_version = 1;
+    ctx_config.minor_version = 0;
+    ctx_config.flags = 0;
+    ctx_config.attribute_mask = 0;
+    ctx_config.priority = __DRI_CTX_PRIORITY_MEDIUM;
 
     assert((num_attribs == 0) || (attribs != NULL));
 
@@ -336,17 +337,37 @@ driCreateContextAttribs(__DRIscreen *screen, int api,
     for (unsigned i = 0; i < num_attribs; i++) {
 	switch (attribs[i * 2]) {
 	case __DRI_CTX_ATTRIB_MAJOR_VERSION:
-	    major_version = attribs[i * 2 + 1];
+            ctx_config.major_version = attribs[i * 2 + 1];
 	    break;
 	case __DRI_CTX_ATTRIB_MINOR_VERSION:
-	    minor_version = attribs[i * 2 + 1];
+	    ctx_config.minor_version = attribs[i * 2 + 1];
 	    break;
 	case __DRI_CTX_ATTRIB_FLAGS:
-	    flags = attribs[i * 2 + 1];
+	    ctx_config.flags = attribs[i * 2 + 1];
 	    break;
         case __DRI_CTX_ATTRIB_RESET_STRATEGY:
-            notify_reset = (attribs[i * 2 + 1]
-                            != __DRI_CTX_RESET_NO_NOTIFICATION);
+            if (attribs[i * 2 + 1] != __DRI_CTX_RESET_NO_NOTIFICATION) {
+                ctx_config.attribute_mask |=
+                    __DRIVER_CONTEXT_ATTRIB_RESET_STRATEGY;
+                ctx_config.reset_strategy = attribs[i * 2 + 1];
+            } else {
+                ctx_config.attribute_mask &=
+                    ~__DRIVER_CONTEXT_ATTRIB_RESET_STRATEGY;
+            }
+            break;
+	case __DRI_CTX_ATTRIB_PRIORITY:
+            ctx_config.attribute_mask |= __DRIVER_CONTEXT_ATTRIB_PRIORITY;
+	    ctx_config.priority = attribs[i * 2 + 1];
+	    break;
+        case __DRI_CTX_ATTRIB_RELEASE_BEHAVIOR:
+            if (attribs[i * 2 + 1] != __DRI_CTX_RELEASE_BEHAVIOR_FLUSH) {
+                ctx_config.attribute_mask |=
+                    __DRIVER_CONTEXT_ATTRIB_RELEASE_BEHAVIOR;
+                ctx_config.release_behavior = attribs[i * 2 + 1];
+            } else {
+                ctx_config.attribute_mask &=
+                    ~__DRIVER_CONTEXT_ATTRIB_RELEASE_BEHAVIOR;
+            }
             break;
 	default:
 	    /* We can't create a context that satisfies the requirements of an
@@ -358,19 +379,15 @@ driCreateContextAttribs(__DRIscreen *screen, int api,
 	}
     }
 
-    /* Mesa does not support the GL_ARB_compatibilty extension or the
-     * compatibility profile.  This means that we treat a API_OPENGL_COMPAT 3.1 as
-     * API_OPENGL_CORE and reject API_OPENGL_COMPAT 3.2+.
+    /* The specific Mesa driver may not support the GL_ARB_compatibilty
+     * extension or the compatibility profile.  In that case, we treat an
+     * API_OPENGL_COMPAT 3.1 as API_OPENGL_CORE. We reject API_OPENGL_COMPAT
+     * 3.2+ in any case.
      */
-    if (mesa_api == API_OPENGL_COMPAT && major_version == 3 && minor_version == 1)
+    if (mesa_api == API_OPENGL_COMPAT &&
+        ctx_config.major_version == 3 && ctx_config.minor_version == 1 &&
+        screen->max_gl_compat_version < 31)
        mesa_api = API_OPENGL_CORE;
-
-    if (mesa_api == API_OPENGL_COMPAT
-        && ((major_version > 3)
-            || (major_version == 3 && minor_version >= 2))) {
-       *error = __DRI_CTX_ERROR_BAD_API;
-       return NULL;
-    }
 
     /* The latest version of EGL_KHR_create_context spec says:
      *
@@ -402,8 +419,9 @@ driCreateContextAttribs(__DRIscreen *screen, int api,
      */
     if (mesa_api != API_OPENGL_COMPAT
         && mesa_api != API_OPENGL_CORE
-        && (flags & ~(__DRI_CTX_FLAG_DEBUG |
-	              __DRI_CTX_FLAG_ROBUST_BUFFER_ACCESS))) {
+        && (ctx_config.flags & ~(__DRI_CTX_FLAG_DEBUG |
+                                 __DRI_CTX_FLAG_ROBUST_BUFFER_ACCESS |
+                                 __DRI_CTX_FLAG_NO_ERROR))) {
 	*error = __DRI_CTX_ERROR_BAD_FLAG;
 	return NULL;
     }
@@ -419,20 +437,23 @@ driCreateContextAttribs(__DRIscreen *screen, int api,
      *
      * In Mesa, a debug context is the same as a regular context.
      */
-    if ((flags & __DRI_CTX_FLAG_FORWARD_COMPATIBLE) != 0) {
+    if ((ctx_config.flags & __DRI_CTX_FLAG_FORWARD_COMPATIBLE) != 0) {
        mesa_api = API_OPENGL_CORE;
     }
 
     const uint32_t allowed_flags = (__DRI_CTX_FLAG_DEBUG
                                     | __DRI_CTX_FLAG_FORWARD_COMPATIBLE
-                                    | __DRI_CTX_FLAG_ROBUST_BUFFER_ACCESS);
-    if (flags & ~allowed_flags) {
+                                    | __DRI_CTX_FLAG_ROBUST_BUFFER_ACCESS
+                                    | __DRI_CTX_FLAG_NO_ERROR);
+    if (ctx_config.flags & ~allowed_flags) {
 	*error = __DRI_CTX_ERROR_UNKNOWN_FLAG;
 	return NULL;
     }
 
     if (!validate_context_version(screen, mesa_api,
-                                  major_version, minor_version, error))
+                                  ctx_config.major_version,
+                                  ctx_config.minor_version,
+                                  error))
        return NULL;
 
     context = calloc(1, sizeof *context);
@@ -448,8 +469,7 @@ driCreateContextAttribs(__DRIscreen *screen, int api,
     context->driReadablePriv = NULL;
 
     if (!screen->driver->CreateContext(mesa_api, modes, context,
-                                       major_version, minor_version,
-                                       flags, notify_reset, error, shareCtx)) {
+                                       &ctx_config, error, shareCtx)) {
         free(context);
         return NULL;
     }
@@ -467,6 +487,8 @@ driContextSetFlags(struct gl_context *ctx, uint32_t flags)
        _mesa_set_debug_state_int(ctx, GL_DEBUG_OUTPUT, GL_TRUE);
         ctx->Const.ContextFlags |= GL_CONTEXT_FLAG_DEBUG_BIT;
     }
+    if ((flags & __DRI_CTX_FLAG_NO_ERROR) != 0)
+        ctx->Const.ContextFlags |= GL_CONTEXT_FLAG_NO_ERROR_BIT_KHR;
 }
 
 static __DRIcontext *
@@ -490,7 +512,7 @@ driCreateNewContext(__DRIscreen *screen, const __DRIconfig *config,
 
 /**
  * Destroy the per-context private information.
- *
+ * 
  * \internal
  * This function calls __DriverAPIRec::DestroyContext on \p contextPrivate, calls
  * drmDestroyContext(), and finally frees \p contextPrivate.
@@ -557,19 +579,19 @@ static int driBindContext(__DRIcontext *pcp,
 
 /**
  * Unbind context.
- *
+ * 
  * \param scrn the screen.
  * \param gc context.
  *
  * \return \c GL_TRUE on success, or \c GL_FALSE on failure.
- *
+ * 
  * \internal
  * This function calls __DriverAPIRec::UnbindContext, and then decrements
  * __DRIdrawableRec::refcount which must be non-zero for a successful
  * return.
- *
+ * 
  * While casting the opaque private pointers associated with the parameters
- * into their respective real types it also assures they are not \c NULL.
+ * into their respective real types it also assures they are not \c NULL. 
  */
 static int driUnbindContext(__DRIcontext *pcp)
 {
@@ -763,7 +785,7 @@ driSwapBuffers(__DRIdrawable *pdp)
 
 /** Core interface */
 const __DRIcoreExtension driCoreExtension = {
-    .base = { __DRI_CORE, 1 },
+    .base = { __DRI_CORE, 2 },
 
     .createNewScreen            = NULL,
     .destroyScreen              = driDestroyScreen,
@@ -813,6 +835,10 @@ const __DRI2configQueryExtension dri2ConfigQueryExtension = {
    .configQueryf        = dri2ConfigQueryf,
 };
 
+const __DRI2flushControlExtension dri2FlushControlExtension = {
+   .base = { __DRI2_FLUSH_CONTROL, 1 }
+};
+
 void
 dri2InvalidateDrawable(__DRIdrawable *drawable)
 {
@@ -838,76 +864,114 @@ driUpdateFramebufferSize(struct gl_context *ctx, const __DRIdrawable *dPriv)
    }
 }
 
+/*
+ * Note: the first match is returned, which is important for formats like
+ * __DRI_IMAGE_FORMAT_R8 which maps to both MESA_FORMAT_{R,L}_UNORM8
+ */
+static const struct {
+   uint32_t    image_format;
+   mesa_format mesa_format;
+} format_mapping[] = {
+   {
+      .image_format = __DRI_IMAGE_FORMAT_RGB565,
+      .mesa_format  =        MESA_FORMAT_B5G6R5_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_ARGB1555,
+      .mesa_format  =        MESA_FORMAT_B5G5R5A1_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_XRGB8888,
+      .mesa_format  =        MESA_FORMAT_B8G8R8X8_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_ARGB2101010,
+      .mesa_format  =        MESA_FORMAT_B10G10R10A2_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_XRGB2101010,
+      .mesa_format  =        MESA_FORMAT_B10G10R10X2_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_ABGR2101010,
+      .mesa_format  =        MESA_FORMAT_R10G10B10A2_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_XBGR2101010,
+      .mesa_format  =        MESA_FORMAT_R10G10B10X2_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_ARGB8888,
+      .mesa_format  =        MESA_FORMAT_B8G8R8A8_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_ABGR8888,
+      .mesa_format  =        MESA_FORMAT_R8G8B8A8_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_XBGR8888,
+      .mesa_format  =        MESA_FORMAT_R8G8B8X8_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_R8,
+      .mesa_format  =        MESA_FORMAT_R_UNORM8,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_R8,
+      .mesa_format  =        MESA_FORMAT_L_UNORM8,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_GR88,
+      .mesa_format  =        MESA_FORMAT_R8G8_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_GR88,
+      .mesa_format  =        MESA_FORMAT_L8A8_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_SABGR8,
+      .mesa_format  =        MESA_FORMAT_R8G8B8A8_SRGB,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_SARGB8,
+      .mesa_format  =        MESA_FORMAT_B8G8R8A8_SRGB,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_R16,
+      .mesa_format  =        MESA_FORMAT_R_UNORM16,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_R16,
+      .mesa_format  =        MESA_FORMAT_L_UNORM16,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_GR1616,
+      .mesa_format  =        MESA_FORMAT_R16G16_UNORM,
+   },
+   {
+      .image_format = __DRI_IMAGE_FORMAT_GR1616,
+      .mesa_format  =        MESA_FORMAT_L16A16_UNORM,
+   },
+};
+
 uint32_t
 driGLFormatToImageFormat(mesa_format format)
 {
-   switch (format) {
-   case MESA_FORMAT_B5G6R5_UNORM:
-      return __DRI_IMAGE_FORMAT_RGB565;
-   case MESA_FORMAT_B5G5R5A1_UNORM:
-      return __DRI_IMAGE_FORMAT_ARGB1555;
-   case MESA_FORMAT_B8G8R8X8_UNORM:
-      return __DRI_IMAGE_FORMAT_XRGB8888;
-   case MESA_FORMAT_B10G10R10A2_UNORM:
-      return __DRI_IMAGE_FORMAT_ARGB2101010;
-   case MESA_FORMAT_B10G10R10X2_UNORM:
-      return __DRI_IMAGE_FORMAT_XRGB2101010;
-   case MESA_FORMAT_B8G8R8A8_UNORM:
-      return __DRI_IMAGE_FORMAT_ARGB8888;
-   case MESA_FORMAT_R8G8B8A8_UNORM:
-      return __DRI_IMAGE_FORMAT_ABGR8888;
-   case MESA_FORMAT_R8G8B8X8_UNORM:
-      return __DRI_IMAGE_FORMAT_XBGR8888;
-   case MESA_FORMAT_L_UNORM8:
-   case MESA_FORMAT_R_UNORM8:
-      return __DRI_IMAGE_FORMAT_R8;
-   case MESA_FORMAT_L8A8_UNORM:
-   case MESA_FORMAT_R8G8_UNORM:
-      return __DRI_IMAGE_FORMAT_GR88;
-   case MESA_FORMAT_NONE:
-      return __DRI_IMAGE_FORMAT_NONE;
-   case MESA_FORMAT_B8G8R8A8_SRGB:
-      return __DRI_IMAGE_FORMAT_SARGB8;
-   default:
-      return 0;
-   }
+   for (size_t i = 0; i < ARRAY_SIZE(format_mapping); i++)
+      if (format_mapping[i].mesa_format == format)
+         return format_mapping[i].image_format;
+
+   return __DRI_IMAGE_FORMAT_NONE;
 }
 
 mesa_format
 driImageFormatToGLFormat(uint32_t image_format)
 {
-   switch (image_format) {
-   case __DRI_IMAGE_FORMAT_RGB565:
-      return MESA_FORMAT_B5G6R5_UNORM;
-   case __DRI_IMAGE_FORMAT_ARGB1555:
-      return MESA_FORMAT_B5G5R5A1_UNORM;
-   case __DRI_IMAGE_FORMAT_XRGB8888:
-      return MESA_FORMAT_B8G8R8X8_UNORM;
-   case __DRI_IMAGE_FORMAT_ARGB2101010:
-      return MESA_FORMAT_B10G10R10A2_UNORM;
-   case __DRI_IMAGE_FORMAT_XRGB2101010:
-      return MESA_FORMAT_B10G10R10X2_UNORM;
-   case __DRI_IMAGE_FORMAT_ARGB8888:
-      return MESA_FORMAT_B8G8R8A8_UNORM;
-   case __DRI_IMAGE_FORMAT_ABGR8888:
-      return MESA_FORMAT_R8G8B8A8_UNORM;
-   case __DRI_IMAGE_FORMAT_XBGR8888:
-      return MESA_FORMAT_R8G8B8X8_UNORM;
-   case __DRI_IMAGE_FORMAT_R8:
-      return MESA_FORMAT_R_UNORM8;
-   case __DRI_IMAGE_FORMAT_R16:
-      return MESA_FORMAT_R_UNORM16;
-   case __DRI_IMAGE_FORMAT_GR88:
-      return MESA_FORMAT_R8G8_UNORM;
-   case __DRI_IMAGE_FORMAT_GR1616:
-      return MESA_FORMAT_R16G16_UNORM;
-   case __DRI_IMAGE_FORMAT_SARGB8:
-      return MESA_FORMAT_B8G8R8A8_SRGB;
-   case __DRI_IMAGE_FORMAT_NONE:
-      return MESA_FORMAT_NONE;
-   default:
-      return MESA_FORMAT_NONE;
-   }
+   for (size_t i = 0; i < ARRAY_SIZE(format_mapping); i++)
+      if (format_mapping[i].image_format == image_format)
+         return format_mapping[i].mesa_format;
+
+   return MESA_FORMAT_NONE;
 }
 
 /** Image driver interface */
@@ -934,4 +998,8 @@ const __DRIcopySubBufferExtension driCopySubBufferExtension = {
    .base = { __DRI_COPY_SUB_BUFFER, 1 },
 
    .copySubBuffer               = driCopySubBuffer,
+};
+
+const __DRInoErrorExtension dri2NoErrorExtension = {
+   .base = { __DRI2_NO_ERROR, 1 },
 };

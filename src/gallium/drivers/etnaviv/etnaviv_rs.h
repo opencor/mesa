@@ -33,6 +33,7 @@
 struct rs_state {
    uint8_t downsample_x : 1; /* Downsample in x direction */
    uint8_t downsample_y : 1; /* Downsample in y direction */
+   uint8_t source_ts_valid : 1;
 
    uint8_t source_format; /* RS_FORMAT_XXX */
    uint8_t source_tiling; /* ETNA_LAYOUT_XXX */
@@ -43,6 +44,7 @@ struct rs_state {
    struct etna_bo *source;
    uint32_t source_offset;
    uint32_t source_stride;
+   uint32_t source_padded_width; /* total padded width (only needed for source) */
    uint32_t source_padded_height; /* total padded height */
    struct etna_bo *dest;
    uint32_t dest_offset;
@@ -54,12 +56,14 @@ struct rs_state {
    uint32_t clear_bits;
    uint32_t clear_mode; /* VIVS_RS_CLEAR_CONTROL_MODE_XXX */
    uint32_t clear_value[4];
+   uint32_t tile_count;
    uint8_t aa;
    uint8_t endian_mode; /* ENDIAN_MODE_XXX */
 };
 
 /* treat this as opaque structure */
 struct compiled_rs_state {
+   uint8_t source_ts_valid : 1;
    uint32_t RS_CONFIG;
    uint32_t RS_SOURCE_STRIDE;
    uint32_t RS_DEST_STRIDE;
@@ -69,6 +73,7 @@ struct compiled_rs_state {
    uint32_t RS_FILL_VALUE[4];
    uint32_t RS_EXTRA_CONFIG;
    uint32_t RS_PIPE_OFFSET[2];
+   uint32_t RS_KICKER_INPLACE; /* Set if source is destination */
 
    struct etna_reloc source[2];
    struct etna_reloc dest[2];
@@ -79,8 +84,8 @@ void
 etna_compile_rs_state(struct etna_context *ctx, struct compiled_rs_state *cs,
                       const struct rs_state *rs);
 
-/* modify the clear bits value in the compiled RS state */
+/* Context initialization for RS clear_blit functions. */
 void
-etna_modify_rs_clearbits(struct compiled_rs_state *cs, uint32_t clear_bits);
+etna_clear_blit_rs_init(struct pipe_context *pctx);
 
 #endif

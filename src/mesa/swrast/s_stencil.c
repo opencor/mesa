@@ -28,7 +28,6 @@
 #include "main/imports.h"
 #include "main/format_pack.h"
 #include "main/format_unpack.h"
-#include "main/core.h"
 #include "main/stencil.h"
 
 #include "s_context.h"
@@ -435,9 +434,9 @@ _swrast_stencil_and_ztest_span(struct gl_context *ctx, SWspan *span)
       put_s8_values(ctx, rb, count, span->array->x, span->array->y,
                     stencilBuf);
    }
-
+   
    span->writeAll = GL_FALSE;
-
+   
    return GL_TRUE;  /* one or more fragments passed both tests */
 }
 
@@ -580,7 +579,8 @@ _swrast_clear_stencil_buffer(struct gl_context *ctx)
    }
 
    ctx->Driver.MapRenderbuffer(ctx, rb, x, y, width, height,
-                               mapMode, &map, &rowStride);
+                               mapMode, &map, &rowStride,
+                               ctx->DrawBuffer->FlipY);
    if (!map) {
       _mesa_error(ctx, GL_OUT_OF_MEMORY, "glClear(stencil)");
       return;

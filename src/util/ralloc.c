@@ -28,11 +28,6 @@
 #include <string.h>
 #include <stdint.h>
 
-/* Android defines SIZE_MAX in limits.h, instead of the standard stdint.h */
-#ifdef ANDROID
-#include <limits.h>
-#endif
-
 /* Some versions of MinGW are missing _vscprintf's declaration, although they
  * still provide the symbol in the import library. */
 #ifdef __MINGW32__
@@ -66,7 +61,7 @@ struct
 #endif
    ralloc_header
 {
-#ifdef DEBUG
+#ifndef NDEBUG
    /* A canary value used to determine whether a pointer is ralloc'd. */
    unsigned canary;
 #endif
@@ -93,9 +88,7 @@ get_header(const void *ptr)
 {
    ralloc_header *info = (ralloc_header *) (((char *) ptr) -
 					    sizeof(ralloc_header));
-#ifdef DEBUG
    assert(info->canary == CANARY);
-#endif
    return info;
 }
 
@@ -145,7 +138,7 @@ ralloc_size(const void *ctx, size_t size)
 
    add_child(parent, info);
 
-#ifdef DEBUG
+#ifndef NDEBUG
    info->canary = CANARY;
 #endif
 
@@ -290,7 +283,7 @@ ralloc_steal(const void *new_ctx, void *ptr)
       return;
 
    info = get_header(ptr);
-   parent = get_header(new_ctx);
+   parent = new_ctx ? get_header(new_ctx) : NULL;
 
    unlink_block(info);
 
@@ -316,10 +309,12 @@ ralloc_adopt(const void *new_ctx, void *old_ctx)
    for (child = old_info->child; child->next != NULL; child = child->next) {
       child->parent = new_info;
    }
+   child->parent = new_info;
 
    /* Connect the two lists together; parent them to new_ctx; make old_ctx empty. */
    child->next = new_info->child;
-   child->parent = new_info;
+   if (child->next)
+      child->next->prev = child;
    new_info->child = old_info->child;
    old_info->child = NULL;
 }
@@ -405,12 +400,26 @@ ralloc_strcat(char **dest, const char *str)
 bool
 ralloc_strncat(char **dest, const char *str, size_t n)
 {
-   /* Clamp n to the string length */
-   size_t str_length = strlen(str);
-   if (str_length < n)
-      n = str_length;
+   return cat(dest, str, strnlen(str, n));
+}
 
-   return cat(dest, str, n);
+bool
+ralloc_str_append(char **dest, const char *str,
+                  size_t existing_length, size_t str_size)
+{
+   char *both;
+   assert(dest != NULL && *dest != NULL);
+
+   both = resize(*dest, existing_length + str_size + 1);
+   if (unlikely(both == NULL))
+      return false;
+
+   memcpy(both + existing_length, str, str_size);
+   both[existing_length + str_size] = '\0';
+
+   *dest = both;
+
+   return true;
 }
 
 char *
@@ -542,14 +551,20 @@ ralloc_vasprintf_rewrite_tail(char **str, size_t *start, const char *fmt,
  * other buffers.
  */
 
-#define ALIGN_POT(x, y) (((x) + (y) - 1) & ~((y) - 1))
-
 #define MIN_LINEAR_BUFSIZE 2048
-#define SUBALLOC_ALIGNMENT sizeof(uintptr_t)
+#define SUBALLOC_ALIGNMENT 8
 #define LMAGIC 0x87b9c7d3
 
-struct linear_header {
-#ifdef DEBUG
+struct
+#ifdef _MSC_VER
+ __declspec(align(8))
+#elif defined(__LP64__)
+ __attribute__((aligned(16)))
+#else
+ __attribute__((aligned(8)))
+#endif
+   linear_header {
+#ifndef NDEBUG
    unsigned magic;   /* for debugging */
 #endif
    unsigned offset;  /* points to the first unused byte in the buffer */
@@ -599,7 +614,7 @@ create_linear_node(void *ralloc_ctx, unsigned min_size)
    if (unlikely(!node))
       return NULL;
 
-#ifdef DEBUG
+#ifndef NDEBUG
    node->magic = LMAGIC;
 #endif
    node->offset = 0;
@@ -640,6 +655,8 @@ linear_alloc_child(void *parent, unsigned size)
    ptr = (linear_size_chunk *)((char*)&latest[1] + latest->offset);
    ptr->size = size;
    latest->offset += full_size;
+
+   assert((uintptr_t)&ptr[1] % SUBALLOC_ALIGNMENT == 0);
    return &ptr[1];
 }
 

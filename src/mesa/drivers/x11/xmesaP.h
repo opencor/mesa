@@ -206,7 +206,7 @@ struct xmesa_buffer {
 				/*    0 = not available			*/
 				/*    1 = XImage support available	*/
 				/*    2 = Pixmap support available too	*/
-#if defined(USE_XSHM)
+#if defined(USE_XSHM) 
    XShmSegmentInfo shminfo;
 #endif
 
@@ -249,7 +249,7 @@ struct xmesa_buffer {
 #define PACK_TRUECOLOR( PIXEL, R, G, B )	\
    PIXEL = xmesa->xm_visual->RtoPixel[R]	\
          | xmesa->xm_visual->GtoPixel[G]	\
-         | xmesa->xm_visual->BtoPixel[B];	\
+         | xmesa->xm_visual->BtoPixel[B];
 
 
 /**
@@ -354,15 +354,12 @@ xmesa_init_driver_functions( XMesaVisual xmvisual,
                              struct dd_function_table *driver );
 
 extern void
-xmesa_update_state( struct gl_context *ctx, GLbitfield new_state );
-
-
-extern void
 xmesa_MapRenderbuffer(struct gl_context *ctx,
                       struct gl_renderbuffer *rb,
                       GLuint x, GLuint y, GLuint w, GLuint h,
                       GLbitfield mode,
-                      GLubyte **mapOut, GLint *rowStrideOut);
+                      GLubyte **mapOut, GLint *rowStrideOut,
+                      bool flip_y);
 
 extern void
 xmesa_UnmapRenderbuffer(struct gl_context *ctx, struct gl_renderbuffer *rb);

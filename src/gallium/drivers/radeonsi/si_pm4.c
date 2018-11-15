@@ -1,5 +1,6 @@
 /*
  * Copyright 2012 Advanced Micro Devices, Inc.
+ * All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -19,12 +20,8 @@
  * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
  * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
- * Authors:
- *      Christian König <christian.koenig@amd.com>
  */
 
-#include "radeon/r600_cs.h"
 #include "util/u_memory.h"
 #include "si_pipe.h"
 #include "sid.h"
@@ -45,8 +42,7 @@ void si_pm4_cmd_end(struct si_pm4_state *state, bool predicate)
 	unsigned count;
 	count = state->ndw - state->last_pm4 - 2;
 	state->pm4[state->last_pm4] =
-		PKT3(state->last_opcode, count, predicate)
-		   | PKT3_SHADER_TYPE_S(state->compute_pkt);
+		PKT3(state->last_opcode, count, predicate);
 
 	assert(state->ndw <= SI_PM4_MAX_DW);
 }
@@ -72,7 +68,7 @@ void si_pm4_set_reg(struct si_pm4_state *state, unsigned reg, uint32_t val)
 		reg -= CIK_UCONFIG_REG_OFFSET;
 
 	} else {
-		R600_ERR("Invalid register offset %08x!\n", reg);
+		PRINT_ERR("Invalid register offset %08x!\n", reg);
 		return;
 	}
 
@@ -110,12 +106,6 @@ void si_pm4_clear_state(struct si_pm4_state *state)
 	state->ndw = 0;
 }
 
-void si_pm4_free_state_simple(struct si_pm4_state *state)
-{
-	si_pm4_clear_state(state);
-	FREE(state);
-}
-
 void si_pm4_free_state(struct si_context *sctx,
 		       struct si_pm4_state *state,
 		       unsigned idx)
@@ -127,15 +117,16 @@ void si_pm4_free_state(struct si_context *sctx,
 		sctx->emitted.array[idx] = NULL;
 	}
 
-	si_pm4_free_state_simple(state);
+	si_pm4_clear_state(state);
+	FREE(state);
 }
 
 void si_pm4_emit(struct si_context *sctx, struct si_pm4_state *state)
 {
-	struct radeon_winsys_cs *cs = sctx->b.gfx.cs;
+	struct radeon_cmdbuf *cs = sctx->gfx_cs;
 
 	for (int i = 0; i < state->nbo; ++i) {
-		radeon_add_to_buffer_list(&sctx->b, &sctx->b.gfx, state->bo[i],
+		radeon_add_to_buffer_list(sctx, sctx->gfx_cs, state->bo[i],
 				      state->bo_usage[i], state->bo_priority[i]);
 	}
 
@@ -144,7 +135,7 @@ void si_pm4_emit(struct si_context *sctx, struct si_pm4_state *state)
 	} else {
 		struct r600_resource *ib = state->indirect_buffer;
 
-		radeon_add_to_buffer_list(&sctx->b, &sctx->b.gfx, ib,
+		radeon_add_to_buffer_list(sctx, sctx->gfx_cs, ib,
 					  RADEON_USAGE_READ,
                                           RADEON_PRIO_IB2);
 
@@ -164,25 +155,27 @@ void si_pm4_reset_emitted(struct si_context *sctx)
 void si_pm4_upload_indirect_buffer(struct si_context *sctx,
 				   struct si_pm4_state *state)
 {
-	struct pipe_screen *screen = sctx->b.b.screen;
+	struct pipe_screen *screen = sctx->b.screen;
 	unsigned aligned_ndw = align(state->ndw, 8);
 
 	/* only supported on CIK and later */
-	if (sctx->b.chip_class < CIK)
+	if (sctx->chip_class < CIK)
 		return;
 
 	assert(state->ndw);
 	assert(aligned_ndw <= SI_PM4_MAX_DW);
 
 	r600_resource_reference(&state->indirect_buffer, NULL);
-	state->indirect_buffer = (struct r600_resource*)
-		pipe_buffer_create(screen, 0,
-				   PIPE_USAGE_DEFAULT, aligned_ndw * 4);
+	/* TODO: this hangs with 1024 or higher alignment on GFX9. */
+	state->indirect_buffer =
+		si_aligned_buffer_create(screen, 0,
+					 PIPE_USAGE_DEFAULT, aligned_ndw * 4,
+					 256);
 	if (!state->indirect_buffer)
 		return;
 
 	/* Pad the IB to 8 DWs to meet CP fetch alignment requirements. */
-	if (sctx->screen->b.info.gfx_ib_pad_with_type2) {
+	if (sctx->screen->info.gfx_ib_pad_with_type2) {
 		for (int i = state->ndw; i < aligned_ndw; i++)
 			state->pm4[i] = 0x80000000; /* type2 nop packet */
 	} else {
@@ -190,6 +183,6 @@ void si_pm4_upload_indirect_buffer(struct si_context *sctx,
 			state->pm4[i] = 0xffff1000; /* type3 nop packet */
 	}
 
-	pipe_buffer_write(&sctx->b.b, &state->indirect_buffer->b.b,
+	pipe_buffer_write(&sctx->b, &state->indirect_buffer->b.b,
 			  0, aligned_ndw *4, state->pm4);
 }

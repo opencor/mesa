@@ -46,6 +46,12 @@ static uint32_t fmt2swap(enum pipe_format format)
 {
 	switch (format) {
 	case PIPE_FORMAT_B8G8R8A8_UNORM:
+	case PIPE_FORMAT_B8G8R8X8_UNORM:
+	case PIPE_FORMAT_B5G6R5_UNORM:
+	case PIPE_FORMAT_B5G5R5A1_UNORM:
+	case PIPE_FORMAT_B5G5R5X1_UNORM:
+	case PIPE_FORMAT_B4G4R4A4_UNORM:
+	case PIPE_FORMAT_B4G4R4X4_UNORM:
 	/* TODO probably some more.. */
 		return 1;
 	default:
@@ -83,12 +89,14 @@ emit_gmem2mem_surf(struct fd_batch *batch, uint32_t base,
 			A2XX_RB_COPY_DEST_INFO_WRITE_BLUE |
 			A2XX_RB_COPY_DEST_INFO_WRITE_ALPHA);
 
-	OUT_WFI (ring);
+	if (!is_a20x(batch->ctx->screen)) {
+		OUT_WFI (ring);
 
-	OUT_PKT3(ring, CP_SET_CONSTANT, 3);
-	OUT_RING(ring, CP_REG(REG_A2XX_VGT_MAX_VTX_INDX));
-	OUT_RING(ring, 3);                 /* VGT_MAX_VTX_INDX */
-	OUT_RING(ring, 0);                 /* VGT_MIN_VTX_INDX */
+		OUT_PKT3(ring, CP_SET_CONSTANT, 3);
+		OUT_RING(ring, CP_REG(REG_A2XX_VGT_MAX_VTX_INDX));
+		OUT_RING(ring, 3);                 /* VGT_MAX_VTX_INDX */
+		OUT_RING(ring, 0);                 /* VGT_MIN_VTX_INDX */
+	}
 
 	fd_draw(batch, ring, DI_PT_RECTLIST, IGNORE_VISIBILITY,
 			DI_SRC_SEL_AUTO_INDEX, 3, 0, INDEX_SIZE_IGN, 0, 0, NULL);
@@ -208,10 +216,12 @@ emit_mem2gmem_surf(struct fd_batch *batch, uint32_t base,
 	OUT_RING(ring, 0x00000000);
 	OUT_RING(ring, 0x00000200);
 
-	OUT_PKT3(ring, CP_SET_CONSTANT, 3);
-	OUT_RING(ring, CP_REG(REG_A2XX_VGT_MAX_VTX_INDX));
-	OUT_RING(ring, 3);                 /* VGT_MAX_VTX_INDX */
-	OUT_RING(ring, 0);                 /* VGT_MIN_VTX_INDX */
+	if (!is_a20x(batch->ctx->screen)) {
+		OUT_PKT3(ring, CP_SET_CONSTANT, 3);
+		OUT_RING(ring, CP_REG(REG_A2XX_VGT_MAX_VTX_INDX));
+		OUT_RING(ring, 3);                 /* VGT_MAX_VTX_INDX */
+		OUT_RING(ring, 0);                 /* VGT_MIN_VTX_INDX */
+	}
 
 	fd_draw(batch, ring, DI_PT_RECTLIST, IGNORE_VISIBILITY,
 			DI_SRC_SEL_AUTO_INDEX, 3, 0, INDEX_SIZE_IGN, 0, 0, NULL);
@@ -287,10 +297,10 @@ fd2_emit_tile_mem2gmem(struct fd_batch *batch, struct fd_tile *tile)
 	OUT_PKT3(ring, CP_SET_CONSTANT, 2);
 	OUT_RING(ring, CP_REG(REG_A2XX_RB_BLEND_CONTROL));
 	OUT_RING(ring, A2XX_RB_BLEND_CONTROL_COLOR_SRCBLEND(FACTOR_ONE) |
-			A2XX_RB_BLEND_CONTROL_COLOR_COMB_FCN(BLEND_DST_PLUS_SRC) |
+			A2XX_RB_BLEND_CONTROL_COLOR_COMB_FCN(BLEND2_DST_PLUS_SRC) |
 			A2XX_RB_BLEND_CONTROL_COLOR_DESTBLEND(FACTOR_ZERO) |
 			A2XX_RB_BLEND_CONTROL_ALPHA_SRCBLEND(FACTOR_ONE) |
-			A2XX_RB_BLEND_CONTROL_ALPHA_COMB_FCN(BLEND_DST_PLUS_SRC) |
+			A2XX_RB_BLEND_CONTROL_ALPHA_COMB_FCN(BLEND2_DST_PLUS_SRC) |
 			A2XX_RB_BLEND_CONTROL_ALPHA_DESTBLEND(FACTOR_ZERO));
 
 	OUT_PKT3(ring, CP_SET_CONSTANT, 3);

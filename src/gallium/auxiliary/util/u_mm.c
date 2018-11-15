@@ -15,9 +15,9 @@
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * WITTAWAT YAMWONG, OR ANY OTHER CONTRIBUTORS BE LIABLE FOR ANY CLAIM,
- * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
- * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+ * WITTAWAT YAMWONG, OR ANY OTHER CONTRIBUTORS BE LIABLE FOR ANY CLAIM, 
+ * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR 
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE 
  * OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
@@ -70,14 +70,14 @@ struct mem_block *
 u_mmInit(int ofs, int size)
 {
    struct mem_block *heap, *block;
-
-   if (size <= 0)
+  
+   if (size <= 0) 
       return NULL;
 
    heap = CALLOC_STRUCT(mem_block);
-   if (!heap)
+   if (!heap) 
       return NULL;
-
+   
    block = CALLOC_STRUCT(mem_block);
    if (!block) {
       FREE(heap);
@@ -104,9 +104,9 @@ u_mmInit(int ofs, int size)
 
 
 static struct mem_block *
-SliceBlock(struct mem_block *p,
-           int startofs, int size,
-           int reserved, int alignment)
+SliceBlock(struct mem_block *p, 
+           int startofs, int size, 
+           int reserved, UNUSED int alignment)
 {
    struct mem_block *newblock;
 
@@ -153,14 +153,14 @@ SliceBlock(struct mem_block *p,
       newblock->prev_free = p;
       p->next_free->prev_free = newblock;
       p->next_free = newblock;
-
+	 
       p->size = size;
    }
 
    /* p = middle block */
    p->free = 0;
 
-   /* Remove p from the free list:
+   /* Remove p from the free list: 
     */
    p->next_free->prev_free = p->prev_free;
    p->prev_free->next_free = p->next_free;
@@ -183,7 +183,10 @@ u_mmAllocMem(struct mem_block *heap, int size, int align2, int startSearch)
 
    assert(size >= 0);
    assert(align2 >= 0);
-   assert(align2 <= 12); /* sanity check, 2^12 (4KB) enough? */
+   /* Make sure that a byte alignment isn't getting passed for our
+    * power-of-two alignment arg.
+    */
+   assert(align2 < 32);
 
    if (!heap || align2 < 0 || size <= 0)
       return NULL;
@@ -200,7 +203,7 @@ u_mmAllocMem(struct mem_block *heap, int size, int align2, int startSearch)
 	 break;
    }
 
-   if (p == heap)
+   if (p == heap) 
       return NULL;
 
    assert(p->free);
@@ -216,7 +219,7 @@ u_mmFindBlock(struct mem_block *heap, int start)
    struct mem_block *p;
 
    for (p = heap->next; p != heap; p = p->next) {
-      if (p->ofs == start)
+      if (p->ofs == start) 
 	 return p;
    }
 
@@ -240,9 +243,9 @@ Join2Blocks(struct mem_block *p)
       p->next = q->next;
       q->next->prev = p;
 
-      q->next_free->prev_free = q->prev_free;
+      q->next_free->prev_free = q->prev_free; 
       q->prev_free->next_free = q->next_free;
-
+     
       FREE(q);
       return 1;
    }

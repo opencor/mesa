@@ -30,7 +30,7 @@
 #include "pipe/p_screen.h"
 #include "util/u_memory.h"
 #include "hud/hud_context.h"
-#include "os/os_time.h"
+#include "util/os_time.h"
 #include "state_tracker/st_api.h"
 
 #include "stw_icd.h"
@@ -601,8 +601,11 @@ wait_swap_interval(struct stw_framebuffer *fb)
       int64_t min_swap_period =
          1.0e6 / stw_dev->refresh_rate * stw_dev->swap_interval;
 
-      /* if time since last swap is less than wait period, wait */
-      if (delta < min_swap_period) {
+      /* If time since last swap is less than wait period, wait.
+       * Note that it's possible for the delta to be negative because of
+       * rollover.  See https://bugs.freedesktop.org/show_bug.cgi?id=102241
+       */
+      if ((delta >= 0) && (delta < min_swap_period)) {
          float fudge = 1.75f;  /* emperical fudge factor */
          int64_t wait = (min_swap_period - delta) * fudge;
          os_time_sleep(wait);
@@ -638,7 +641,7 @@ DrvSwapBuffers(HDC hdc)
          struct pipe_resource *back =
             stw_get_framebuffer_resource(fb->stfb, ST_ATTACHMENT_BACK_LEFT);
          if (back) {
-            hud_draw(ctx->hud, back);
+            hud_run(ctx->hud, NULL, back);
          }
       }
 

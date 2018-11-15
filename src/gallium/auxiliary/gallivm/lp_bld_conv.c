@@ -34,7 +34,7 @@
  * The other side of this is that we need to be able convert between several
  * types accurately and efficiently.
  *
- * Conversion between types of different bit width is quite complex since a
+ * Conversion between types of different bit width is quite complex since a 
  *
  * To remember there are a few invariants in type conversions:
  *
@@ -670,7 +670,7 @@ lp_build_conv(struct gallivm_state *gallivm,
          dst[0] = lp_build_extract_range(gallivm, dst[0], 0, dst_type.length);
       }
 
-      return;
+      return; 
    }
 
    /* Special case 2x8x32 --> 1x16x8, 1x8x32 ->1x8x8

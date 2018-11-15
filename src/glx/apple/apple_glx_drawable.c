@@ -1,6 +1,6 @@
 /*
  Copyright (c) 2008, 2009 Apple Inc.
-
+ 
  Permission is hereby granted, free of charge, to any person
  obtaining a copy of this software and associated documentation files
  (the "Software"), to deal in the Software without restriction,
@@ -8,10 +8,10 @@
  publish, distribute, sublicense, and/or sell copies of the Software,
  and to permit persons to whom the Software is furnished to do so,
  subject to the following conditions:
-
+ 
  The above copyright notice and this permission notice shall be
  included in all copies or substantial portions of the Software.
-
+ 
  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -20,7 +20,7 @@
  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  DEALINGS IN THE SOFTWARE.
-
+ 
  Except as contained in this notice, the name(s) of the above
  copyright holders shall not be used in advertising or otherwise to
  promote the sale, use or other dealings in this Software without
@@ -153,7 +153,7 @@ destroy_drawable(struct apple_glx_drawable *d)
    else {
       /*
        * The item must be at the head of the list, if it
-       * has no previous pointer.
+       * has no previous pointer. 
        */
       drawables_list = d->next;
    }
@@ -182,7 +182,7 @@ destroy_drawable(struct apple_glx_drawable *d)
       fprintf(stderr, "pthread_mutex_destroy error: %s\n", strerror(err));
       abort();
    }
-
+   
    free(d);
 
    /* So that the locks are balanced and the caller correctly unlocks. */
@@ -253,7 +253,7 @@ common_init(Display * dpy, GLXDrawable drawable, struct apple_glx_drawable *d)
       abort();
    }
 
-   /*
+   /* 
     * There are some patterns that require a recursive mutex,
     * when working with locks that protect the apple_glx_drawable,
     * and reference functions like ->reference, and ->release.
@@ -383,8 +383,8 @@ apple_glx_garbage_collect_drawables(Display * dpy)
       d->lock(d);
 
       if (d->reference_count > 0) {
-         /*
-          * Skip this, because some context still retains a reference
+         /* 
+          * Skip this, because some context still retains a reference 
           * to the drawable.
           */
          d->unlock(d);
@@ -396,8 +396,8 @@ apple_glx_garbage_collect_drawables(Display * dpy)
 
       error_count = 0;
 
-      /*
-       * Mesa uses XGetWindowAttributes, but some of these things are
+      /* 
+       * Mesa uses XGetWindowAttributes, but some of these things are 
        * most definitely not Windows, and that's against the rules.
        * XGetGeometry on the other hand is legal with a Pixmap and Window.
        */
@@ -408,7 +408,7 @@ apple_glx_garbage_collect_drawables(Display * dpy)
          /*
           * Note: this may not actually destroy the drawable.
           * If another context retains a reference to the drawable
-          * after the reference count test above.
+          * after the reference count test above. 
           */
          (void) destroy_drawable(d);
          error_count = 0;

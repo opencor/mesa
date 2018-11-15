@@ -1,5 +1,5 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  *
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /* Authors:  Keith Whitwell <keithw@vmware.com>
@@ -170,8 +170,9 @@ find_interp(const struct draw_fragment_shader *fs, int *indexed_interp,
    int interp;
    /* If it's gl_{Front,Back}{,Secondary}Color, pick up the mode
     * from the array we've filled before. */
-   if (semantic_name == TGSI_SEMANTIC_COLOR ||
-       semantic_name == TGSI_SEMANTIC_BCOLOR) {
+   if ((semantic_name == TGSI_SEMANTIC_COLOR ||
+        semantic_name == TGSI_SEMANTIC_BCOLOR) &&
+       semantic_index < 2) {
       interp = indexed_interp[semantic_index];
    } else {
       /* Otherwise, search in the FS inputs, with a decent default
@@ -216,7 +217,8 @@ static void flatshade_init_state( struct draw_stage *stage )
 
    if (fs) {
       for (i = 0; i < fs->info.num_inputs; i++) {
-         if (fs->info.input_semantic_name[i] == TGSI_SEMANTIC_COLOR) {
+         if (fs->info.input_semantic_name[i] == TGSI_SEMANTIC_COLOR &&
+             fs->info.input_semantic_index[i] < 2) {
             if (fs->info.input_interpolate[i] != TGSI_INTERPOLATE_COLOR)
                indexed_interp[fs->info.input_semantic_index[i]] = fs->info.input_interpolate[i];
          }
@@ -236,7 +238,8 @@ static void flatshade_init_state( struct draw_stage *stage )
                                info->output_semantic_index[i]);
       /* If it's flat, add it to the flat vector. */
 
-      if (interp == TGSI_INTERPOLATE_CONSTANT) {
+      if (interp == TGSI_INTERPOLATE_CONSTANT ||
+          (interp == TGSI_INTERPOLATE_COLOR && draw->rasterizer->flatshade)) {
          flat->flat_attribs[flat->num_flat_attribs] = i;
          flat->num_flat_attribs++;
       }
@@ -281,7 +284,7 @@ static void flatshade_first_line( struct draw_stage *stage,
 }
 
 
-static void flatshade_flush( struct draw_stage *stage,
+static void flatshade_flush( struct draw_stage *stage, 
                              unsigned flags )
 {
    stage->tri = flatshade_first_tri;

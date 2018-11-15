@@ -75,6 +75,11 @@ struct etna_resource {
 
    /* When we are rendering to a texture, we need a differently tiled resource */
    struct pipe_resource *texture;
+   /*
+    * If imported resources have an render/sampler incompatible tiling, we keep
+    * them as an external resource, which is blitted as needed.
+    */
+   struct pipe_resource *external;
 
    enum etna_resource_status status;
 
@@ -98,11 +103,15 @@ etna_resource_older(struct etna_resource *a, struct etna_resource *b)
    return (int)(a->seqno - b->seqno) < 0;
 }
 
+/* returns TRUE if a resource has a TS, and it is valid for at least one level */
+bool
+etna_resource_has_valid_ts(struct etna_resource *res);
+
 /* returns TRUE if the resource needs a resolve to itself */
 static inline bool
 etna_resource_needs_flush(struct etna_resource *res)
 {
-   return (int)(res->seqno - res->flush_seqno) > 0;
+   return etna_resource_has_valid_ts(res) && ((int)(res->seqno - res->flush_seqno) > 0);
 }
 
 /* is the resource only used on the sampler? */
@@ -123,9 +132,6 @@ etna_resource(struct pipe_resource *p)
 void
 etna_resource_used(struct etna_context *ctx, struct pipe_resource *prsc,
                    enum etna_resource_status status);
-
-void
-etna_resource_wait(struct pipe_context *ctx, struct etna_resource *rsc);
 
 static inline void
 resource_read(struct etna_context *ctx, struct pipe_resource *prsc)
@@ -149,7 +155,7 @@ etna_screen_resource_alloc_ts(struct pipe_screen *pscreen,
 
 struct pipe_resource *
 etna_resource_alloc(struct pipe_screen *pscreen, unsigned layout,
-                    const struct pipe_resource *templat);
+                    uint64_t modifier, const struct pipe_resource *templat);
 
 void
 etna_resource_screen_init(struct pipe_screen *pscreen);

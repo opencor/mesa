@@ -19,11 +19,11 @@
 * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 * IN THE SOFTWARE.
-*
+* 
 * @file Convert.h
-*
+* 
 * @brief Conversion utility functions
-*
+* 
 ******************************************************************************/
 #pragma once
 
@@ -74,7 +74,7 @@ static INLINE float ConvertSmallFloatTo32(UINT val)
 }
 
 //////////////////////////////////////////////////////////////////////////
-/// @brief Convert an IEEE 754 32-bit single precision float to an
+/// @brief Convert an IEEE 754 32-bit single precision float to an 
 ///        unsigned small float with 5 exponent bits and a variable
 ///        number of mantissa bits.
 /// @param val - 32-bit float

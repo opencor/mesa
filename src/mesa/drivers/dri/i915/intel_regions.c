@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2006 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /* Provide additional functionality on top of bufmgr buffers:
@@ -182,7 +182,7 @@ intel_region_alloc_for_handle(struct intel_screen *screen,
    int ret;
    uint32_t bit_6_swizzle, tiling;
 
-   buffer = intel_bo_gem_create_from_name(screen->bufmgr, name, handle);
+   buffer = drm_intel_bo_gem_create_from_name(screen->bufmgr, name, handle);
    if (buffer == NULL)
       return NULL;
    ret = drm_intel_bo_get_tiling(buffer, &tiling, &bit_6_swizzle);
@@ -284,14 +284,10 @@ intel_region_release(struct intel_region **region_handle)
  */
 void
 intel_region_get_tile_masks(struct intel_region *region,
-                            uint32_t *mask_x, uint32_t *mask_y,
-                            bool map_stencil_as_y_tiled)
+                            uint32_t *mask_x, uint32_t *mask_y)
 {
    int cpp = region->cpp;
    uint32_t tiling = region->tiling;
-
-   if (map_stencil_as_y_tiled)
-      tiling = I915_TILING_Y;
 
    switch (tiling) {
    default:
@@ -317,24 +313,11 @@ intel_region_get_tile_masks(struct intel_region *region,
  */
 uint32_t
 intel_region_get_aligned_offset(struct intel_region *region, uint32_t x,
-                                uint32_t y, bool map_stencil_as_y_tiled)
+                                uint32_t y)
 {
    int cpp = region->cpp;
    uint32_t pitch = region->pitch;
    uint32_t tiling = region->tiling;
-
-   if (map_stencil_as_y_tiled) {
-      tiling = I915_TILING_Y;
-
-      /* When mapping a W-tiled stencil buffer as Y-tiled, each 64-high W-tile
-       * gets transformed into a 32-high Y-tile.  Accordingly, the pitch of
-       * the resulting region is twice the pitch of the original region, since
-       * each row in the Y-tiled view corresponds to two rows in the actual
-       * W-tiled surface.  So we need to correct the pitch before computing
-       * the offsets.
-       */
-      pitch *= 2;
-   }
 
    switch (tiling) {
    default:

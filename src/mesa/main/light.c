@@ -73,6 +73,9 @@ _mesa_ProvokingVertex(GLenum mode)
    if (MESA_VERBOSE&VERBOSE_API)
       _mesa_debug(ctx, "glProvokingVertexEXT 0x%x\n", mode);
 
+   if (ctx->Light.ProvokingVertex == mode)
+      return;
+
    switch (mode) {
    case GL_FIRST_VERTEX_CONVENTION_EXT:
    case GL_LAST_VERTEX_CONVENTION_EXT:
@@ -81,9 +84,6 @@ _mesa_ProvokingVertex(GLenum mode)
       _mesa_error(ctx, GL_INVALID_ENUM, "glProvokingVertexEXT(0x%x)", mode);
       return;
    }
-
-   if (ctx->Light.ProvokingVertex == mode)
-      return;
 
    FLUSH_VERTICES(ctx, _NEW_LIGHT);
    ctx->Light.ProvokingVertex = mode;
@@ -186,8 +186,7 @@ _mesa_light(struct gl_context *ctx, GLuint lnum, GLenum pname, const GLfloat *pa
       light->QuadraticAttenuation = params[0];
       break;
    default:
-      _mesa_problem(ctx, "Unexpected pname in _mesa_light()");
-      return;
+      unreachable("Unexpected pname in _mesa_light()");
    }
 
    if (ctx->Driver.Lightfv)
@@ -614,7 +613,7 @@ _mesa_update_material( struct gl_context *ctx, GLuint bitmask )
 {
    GLfloat (*mat)[4] = ctx->Light.Material.Attrib;
 
-   if (MESA_VERBOSE & VERBOSE_MATERIAL)
+   if (MESA_VERBOSE & VERBOSE_MATERIAL) 
       _mesa_debug(ctx, "_mesa_update_material, mask 0x%x\n", bitmask);
 
    if (!bitmask)
@@ -626,7 +625,7 @@ _mesa_update_material( struct gl_context *ctx, GLuint bitmask )
       while (mask) {
          const int i = u_bit_scan(&mask);
          struct gl_light *light = &ctx->Light.Light[i];
-         SCALE_3V( light->_MatAmbient[0], light->Ambient,
+         SCALE_3V( light->_MatAmbient[0], light->Ambient, 
 		   mat[MAT_ATTRIB_FRONT_AMBIENT]);
       }
    }
@@ -636,7 +635,7 @@ _mesa_update_material( struct gl_context *ctx, GLuint bitmask )
       while (mask) {
          const int i = u_bit_scan(&mask);
          struct gl_light *light = &ctx->Light.Light[i];
-         SCALE_3V( light->_MatAmbient[1], light->Ambient,
+         SCALE_3V( light->_MatAmbient[1], light->Ambient, 
 		   mat[MAT_ATTRIB_BACK_AMBIENT]);
       }
    }
@@ -660,7 +659,7 @@ _mesa_update_material( struct gl_context *ctx, GLuint bitmask )
       while (mask) {
          const int i = u_bit_scan(&mask);
          struct gl_light *light = &ctx->Light.Light[i];
-	 SCALE_3V( light->_MatDiffuse[0], light->Diffuse,
+	 SCALE_3V( light->_MatDiffuse[0], light->Diffuse, 
 		   mat[MAT_ATTRIB_FRONT_DIFFUSE] );
       }
    }
@@ -670,7 +669,7 @@ _mesa_update_material( struct gl_context *ctx, GLuint bitmask )
       while (mask) {
          const int i = u_bit_scan(&mask);
          struct gl_light *light = &ctx->Light.Light[i];
-	 SCALE_3V( light->_MatDiffuse[1], light->Diffuse,
+	 SCALE_3V( light->_MatDiffuse[1], light->Diffuse, 
 		   mat[MAT_ATTRIB_BACK_DIFFUSE] );
       }
    }
@@ -681,7 +680,7 @@ _mesa_update_material( struct gl_context *ctx, GLuint bitmask )
       while (mask) {
          const int i = u_bit_scan(&mask);
          struct gl_light *light = &ctx->Light.Light[i];
-	 SCALE_3V( light->_MatSpecular[0], light->Specular,
+	 SCALE_3V( light->_MatSpecular[0], light->Specular, 
 		   mat[MAT_ATTRIB_FRONT_SPECULAR]);
       }
    }
@@ -1033,6 +1032,7 @@ static void
 update_modelview_scale( struct gl_context *ctx )
 {
    ctx->_ModelViewInvScale = 1.0F;
+   ctx->_ModelViewInvScaleEyespace = 1.0F;
    if (!_math_matrix_is_length_preserving(ctx->ModelviewMatrixStack.Top)) {
       const GLfloat *m = ctx->ModelviewMatrixStack.Top->inv;
       GLfloat f = m[2] * m[2] + m[6] * m[6] + m[10] * m[10];
@@ -1041,6 +1041,7 @@ update_modelview_scale( struct gl_context *ctx )
 	 ctx->_ModelViewInvScale = 1.0f / sqrtf(f);
       else
 	 ctx->_ModelViewInvScale = sqrtf(f);
+      ctx->_ModelViewInvScaleEyespace = 1.0f / sqrtf(f);
    }
 }
 
@@ -1116,7 +1117,7 @@ _mesa_allow_light_in_model( struct gl_context *ctx, GLboolean flag )
  * Initialize the n-th light data structure.
  *
  * \param l pointer to the gl_light structure to be initialized.
- * \param n number of the light.
+ * \param n number of the light. 
  * \note The defaults for light 0 are different than the other lights.
  */
 static void
@@ -1160,7 +1161,7 @@ init_lightmodel( struct gl_lightmodel *lm )
 
 /**
  * Initialize the material data structure.
- *
+ * 
  * \param m pointer to the gl_material structure to be initialized.
  */
 static void
@@ -1172,7 +1173,7 @@ init_material( struct gl_material *m )
    ASSIGN_4V( m->Attrib[MAT_ATTRIB_FRONT_EMISSION], 0.0F, 0.0F, 0.0F, 1.0F );
    ASSIGN_4V( m->Attrib[MAT_ATTRIB_FRONT_SHININESS], 0.0F, 0.0F, 0.0F, 0.0F );
    ASSIGN_4V( m->Attrib[MAT_ATTRIB_FRONT_INDEXES], 0.0F, 1.0F, 1.0F, 0.0F );
-
+ 
    ASSIGN_4V( m->Attrib[MAT_ATTRIB_BACK_AMBIENT],  0.2F, 0.2F, 0.2F, 1.0F );
    ASSIGN_4V( m->Attrib[MAT_ATTRIB_BACK_DIFFUSE],  0.8F, 0.8F, 0.8F, 1.0F );
    ASSIGN_4V( m->Attrib[MAT_ATTRIB_BACK_SPECULAR], 0.0F, 0.0F, 0.0F, 1.0F );
@@ -1217,4 +1218,5 @@ _mesa_init_lighting( struct gl_context *ctx )
    ctx->_NeedEyeCoords = GL_FALSE;
    ctx->_ForceEyeCoords = GL_FALSE;
    ctx->_ModelViewInvScale = 1.0;
+   ctx->_ModelViewInvScaleEyespace = 1.0;
 }

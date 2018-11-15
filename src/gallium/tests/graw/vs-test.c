@@ -14,7 +14,7 @@
 #include "util/u_inlines.h"
 #include "util/u_memory.h"      /* Offset() */
 #include "util/u_draw_quad.h"
-#include "util/u_box.h"
+#include "util/u_box.h"    
 
 static const char *filename = NULL;
 unsigned show_fps = 0;
@@ -60,7 +60,7 @@ struct vertex {
 #define MESH_SZ 16
 static struct vertex vertices[MESH_SZ * MESH_SZ];
 
-static float constants[] =
+static float constants[] = 
 {  0.4, 0, 0,  1,
    1,   1, 1,  1,
    2,   2, 2,  2,
@@ -90,7 +90,6 @@ static void init_fs_constbuf( void )
    templat.depth0 = 1;
    templat.array_size = 1;
    templat.last_level = 0;
-   templat.nr_samples = 1;
    templat.bind = PIPE_BIND_CONSTANT_BUFFER;
 
    constbuf = screen->resource_create(screen,
@@ -167,7 +166,7 @@ static void set_vertices( void )
 
    vbuf.stride = sizeof( struct vertex );
    vbuf.buffer_offset = 0;
-   vbuf.buffer = pipe_buffer_create_with_data(ctx,
+   vbuf.buffer.resource = pipe_buffer_create_with_data(ctx,
                                               PIPE_BIND_VERTEX_BUFFER,
                                               PIPE_USAGE_DEFAULT,
                                               sizeof(vertices),
@@ -233,7 +232,7 @@ static void draw( void )
 #define SIZE 16
 
 static void init_tex( void )
-{
+{ 
    struct pipe_sampler_view sv_template;
    struct pipe_sampler_state sampler_desc;
    struct pipe_resource templat;
@@ -290,10 +289,9 @@ static void init_tex( void )
    templat.depth0 = 1;
    templat.array_size = 1;
    templat.last_level = 0;
-   templat.nr_samples = 1;
    templat.bind = PIPE_BIND_SAMPLER_VIEW;
 
-
+   
    samptex = screen->resource_create(screen,
                                  &templat);
    if (samptex == NULL)
@@ -341,7 +339,7 @@ static void init_tex( void )
       exit(5);
 
    ctx->set_sampler_views(ctx, PIPE_SHADER_FRAGMENT, 0, 1, &sv);
-
+   
 
    memset(&sampler_desc, 0, sizeof sampler_desc);
    sampler_desc.wrap_s = PIPE_TEX_WRAP_REPEAT;
@@ -354,13 +352,13 @@ static void init_tex( void )
    sampler_desc.compare_func = 0;
    sampler_desc.normalized_coords = 1;
    sampler_desc.max_anisotropy = 0;
-
+   
    sampler = ctx->create_sampler_state(ctx, &sampler_desc);
    if (sampler == NULL)
       exit(6);
 
    ctx->bind_sampler_states(ctx, PIPE_SHADER_FRAGMENT, 0, 1, &sampler);
-
+   
 }
 
 static void init( void )
@@ -387,7 +385,7 @@ static void init( void )
       fprintf(stderr, "Unable to create window\n");
       exit(1);
    }
-
+   
    ctx = screen->context_create(screen, NULL, 0);
    if (ctx == NULL)
       exit(3);
@@ -400,10 +398,9 @@ static void init( void )
    templat.depth0 = 1;
    templat.array_size = 1;
    templat.last_level = 0;
-   templat.nr_samples = 1;
    templat.bind = (PIPE_BIND_RENDER_TARGET |
                    PIPE_BIND_DISPLAY_TARGET);
-
+   
    rttex = screen->resource_create(screen,
                                  &templat);
    if (rttex == NULL)
@@ -424,7 +421,7 @@ static void init( void )
    fb.cbufs[0] = surf;
 
    ctx->set_framebuffer_state(ctx, &fb);
-
+   
    {
       struct pipe_blend_state blend;
       void *handle;

@@ -156,7 +156,7 @@ util_pack_color_ub(ubyte r, ubyte g, ubyte b, ubyte a,
       }
    }
 }
-
+ 
 
 /**
  * Unpack RGBA from a packed pixel, returning values as ubytes in [0,255].
@@ -433,7 +433,7 @@ util_pack_color(const float rgba[4], enum pipe_format format, union util_color *
       util_format_write_4f(format, rgba, 0, uc, 0, 0, 0, 1, 1);
    }
 }
-
+ 
 /* Integer versions of util_pack_z and util_pack_z_stencil - useful for
  * constructing clear masks.
  */
@@ -574,7 +574,7 @@ util_pack64_z(enum pipe_format format, double z)
       return util_pack_z(format, z);
    }
 }
-
+ 
 
 /**
  * Pack Z and/or stencil values into a 32-bit value described by format.

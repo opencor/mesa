@@ -109,7 +109,7 @@ do_blit_drawpixels(struct gl_context * ctx,
 				    format, type, 0, 0, 0);
 
    src_buffer = intel_bufferobj_buffer(brw, src, src_offset,
-                                       height * src_stride);
+                                       height * src_stride, false);
 
    struct intel_mipmap_tree *pbo_mt =
       intel_miptree_create_for_bo(brw,
@@ -118,7 +118,8 @@ do_blit_drawpixels(struct gl_context * ctx,
                                   src_offset,
                                   width, height, 1,
                                   src_stride,
-                                  0);
+                                  ISL_TILING_LINEAR,
+                                  MIPTREE_CREATE_DEFAULT);
    if (!pbo_mt)
       return false;
 
@@ -126,8 +127,8 @@ do_blit_drawpixels(struct gl_context * ctx,
                            pbo_mt, 0, 0,
                            0, 0, src_flip,
                            irb->mt, irb->mt_level, irb->mt_layer,
-                           x, y, _mesa_is_winsys_fbo(ctx->DrawBuffer),
-                           width, height, GL_COPY)) {
+                           x, y, ctx->DrawBuffer->FlipY,
+                           width, height, COLOR_LOGICOP_COPY)) {
       DBG("%s: blit failed\n", __func__);
       intel_miptree_release(&pbo_mt);
       return false;
@@ -162,7 +163,8 @@ intelDrawPixels(struct gl_context * ctx,
       return;
    }
 
-   if (_mesa_is_bufferobj(unpack->BufferObj)) {
+   if (brw->screen->devinfo.gen < 6 &&
+       _mesa_is_bufferobj(unpack->BufferObj)) {
       if (do_blit_drawpixels(ctx, x, y, width, height, format, type, unpack,
 			     pixels)) {
 	 return;

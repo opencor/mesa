@@ -54,11 +54,6 @@ struct nv50_ir_varying
    ubyte si; /* TGSI semantic index */
 };
 
-#define NV50_PROGRAM_IR_TGSI 0
-#define NV50_PROGRAM_IR_SM4  1
-#define NV50_PROGRAM_IR_GLSL 2
-#define NV50_PROGRAM_IR_LLVM 3
-
 #ifdef DEBUG
 # define NV50_IR_DEBUG_BASIC     (1 << 0)
 # define NV50_IR_DEBUG_VERBOSE   (2 << 0)
@@ -78,6 +73,7 @@ struct nv50_ir_prog_symbol
 #define NVISA_GK104_CHIPSET    0xe0
 #define NVISA_GK20A_CHIPSET    0xea
 #define NVISA_GM107_CHIPSET    0x110
+#define NVISA_GM200_CHIPSET    0x120
 
 struct nv50_ir_prog_info
 {
@@ -87,15 +83,17 @@ struct nv50_ir_prog_info
 
    uint8_t optLevel; /* optimization level (0 to 3) */
    uint8_t dbgFlags;
+   bool omitLineNum; /* only used for printing the prog when dbgFlags is set */
 
    struct {
       int16_t maxGPR;     /* may be -1 if none used */
       int16_t maxOutput;
       uint32_t tlsSpace;  /* required local memory per thread */
+      uint32_t smemSize;  /* required shared memory per block */
       uint32_t *code;
       uint32_t codeSize;
       uint32_t instructions;
-      uint8_t sourceRep;  /* NV50_PROGRAM_IR */
+      uint8_t sourceRep;  /* PIPE_SHADER_IR_* */
       const void *source;
       void *relocData;
       void *fixupData;
@@ -142,11 +140,13 @@ struct nv50_ir_prog_info
          unsigned numColourResults;
          bool writesDepth;
          bool earlyFragTests;
+         bool postDepthCoverage;
          bool separateFragData;
          bool usesDiscard;
          bool persampleInvocation;
          bool usesSampleMaskIn;
          bool readsFramebuffer;
+         bool readsSampleLocations;
       } fp;
       struct {
          uint32_t inputOffset; /* base address for user args */
@@ -182,6 +182,7 @@ struct nv50_ir_prog_info
       uint16_t texBindBase;      /* base address for tex handles (nve4) */
       uint16_t fbtexBindBase;    /* base address for fbtex handle (nve4) */
       uint16_t suInfoBase;       /* base address for surface info (nve4) */
+      uint16_t bindlessBase;     /* base address for bindless image info (nve4) */
       uint16_t bufInfoBase;      /* base address for buffer info */
       uint16_t sampleInfoBase;   /* base address for sample positions */
       uint8_t msInfoCBSlot;      /* cX[] used for multisample info */

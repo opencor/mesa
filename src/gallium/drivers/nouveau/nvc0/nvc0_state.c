@@ -233,7 +233,10 @@ nvc0_rasterizer_state_create(struct pipe_context *pipe,
     SB_IMMED_3D(so, MULTISAMPLE_ENABLE, cso->multisample);
 
     SB_IMMED_3D(so, LINE_SMOOTH_ENABLE, cso->line_smooth);
-    if (cso->line_smooth || cso->multisample)
+    /* On GM20x+, LINE_WIDTH_SMOOTH controls both aliased and smooth
+     * rendering and LINE_WIDTH_ALIASED seems to be ignored
+     */
+    if (cso->line_smooth || cso->multisample || class_3d >= GM200_3D_CLASS)
        SB_BEGIN_3D(so, LINE_WIDTH_SMOOTH, 1);
     else
        SB_BEGIN_3D(so, LINE_WIDTH_ALIASED, 1);
@@ -323,6 +326,20 @@ nvc0_rasterizer_state_create(struct pipe_context *pipe,
     SB_IMMED_3D(so, DEPTH_CLIP_NEGATIVE_Z, cso->clip_halfz);
 
     SB_IMMED_3D(so, PIXEL_CENTER_INTEGER, !cso->half_pixel_center);
+
+    if (class_3d >= GM200_3D_CLASS) {
+        if (cso->conservative_raster_mode != PIPE_CONSERVATIVE_RASTER_OFF) {
+            bool post_snap = cso->conservative_raster_mode ==
+                PIPE_CONSERVATIVE_RASTER_POST_SNAP;
+            uint32_t state = cso->subpixel_precision_x;
+            state |= cso->subpixel_precision_y << 4;
+            state |= (uint32_t)(cso->conservative_raster_dilate * 4) << 8;
+            state |= (post_snap || class_3d < GP100_3D_CLASS) ? 1 << 10 : 0;
+            SB_IMMED_3D(so, MACRO_CONSERVATIVE_RASTER_STATE, state);
+        } else {
+            SB_IMMED_3D(so, CONSERVATIVE_RASTER, 0);
+        }
+    }
 
     assert(so->size <= ARRAY_SIZE(so->state));
     return (void *)so;
@@ -837,7 +854,21 @@ nvc0_set_framebuffer_state(struct pipe_context *pipe,
 
     util_copy_framebuffer_state(&nvc0->framebuffer, fb);
 
-    nvc0->dirty_3d |= NVC0_NEW_3D_FRAMEBUFFER;
+    nvc0->dirty_3d |= NVC0_NEW_3D_FRAMEBUFFER | NVC0_NEW_3D_SAMPLE_LOCATIONS;
+}
+
+static void
+nvc0_set_sample_locations(struct pipe_context *pipe,
+                          size_t size, const uint8_t *locations)
+{
+    struct nvc0_context *nvc0 = nvc0_context(pipe);
+
+    nvc0->sample_locations_enabled = size && locations;
+    if (size > sizeof(nvc0->sample_locations))
+       size = sizeof(nvc0->sample_locations);
+    memcpy(nvc0->sample_locations, locations, size);
+
+    nvc0->dirty_3d |= NVC0_NEW_3D_SAMPLE_LOCATIONS;
 }
 
 static void
@@ -941,7 +972,7 @@ nvc0_set_vertex_buffers(struct pipe_context *pipe,
     for (i = 0; i < count; ++i) {
        unsigned dst_index = start_slot + i;
 
-       if (vb[i].user_buffer) {
+       if (vb[i].is_user_buffer) {
           nvc0->vbo_user |= 1 << dst_index;
           if (!vb[i].stride && nvc0->screen->eng3d->oclass < GM107_3D_CLASS)
              nvc0->constant_vbos |= 1 << dst_index;
@@ -952,37 +983,12 @@ nvc0_set_vertex_buffers(struct pipe_context *pipe,
           nvc0->vbo_user &= ~(1 << dst_index);
           nvc0->constant_vbos &= ~(1 << dst_index);
 
-          if (vb[i].buffer &&
-              vb[i].buffer->flags & PIPE_RESOURCE_FLAG_MAP_COHERENT)
+          if (vb[i].buffer.resource &&
+              vb[i].buffer.resource->flags & PIPE_RESOURCE_FLAG_MAP_COHERENT)
              nvc0->vtxbufs_coherent |= (1 << dst_index);
           else
              nvc0->vtxbufs_coherent &= ~(1 << dst_index);
        }
-    }
-}
-
-static void
-nvc0_set_index_buffer(struct pipe_context *pipe,
-                      const struct pipe_index_buffer *ib)
-{
-    struct nvc0_context *nvc0 = nvc0_context(pipe);
-
-    if (nvc0->idxbuf.buffer)
-       nouveau_bufctx_reset(nvc0->bufctx_3d, NVC0_BIND_3D_IDX);
-
-    if (ib) {
-       pipe_resource_reference(&nvc0->idxbuf.buffer, ib->buffer);
-       nvc0->idxbuf.index_size = ib->index_size;
-       if (ib->buffer) {
-          nvc0->idxbuf.offset = ib->offset;
-          nvc0->dirty_3d |= NVC0_NEW_3D_IDXBUF;
-       } else {
-          nvc0->idxbuf.user_buffer = ib->user_buffer;
-          nvc0->dirty_3d &= ~NVC0_NEW_3D_IDXBUF;
-       }
-    } else {
-       nvc0->dirty_3d &= ~NVC0_NEW_3D_IDXBUF;
-       pipe_resource_reference(&nvc0->idxbuf.buffer, NULL);
     }
 }
 
@@ -1415,6 +1421,7 @@ nvc0_init_state_functions(struct nvc0_context *nvc0)
    pipe->set_min_samples = nvc0_set_min_samples;
    pipe->set_constant_buffer = nvc0_set_constant_buffer;
    pipe->set_framebuffer_state = nvc0_set_framebuffer_state;
+   pipe->set_sample_locations = nvc0_set_sample_locations;
    pipe->set_polygon_stipple = nvc0_set_polygon_stipple;
    pipe->set_scissor_states = nvc0_set_scissor_states;
    pipe->set_viewport_states = nvc0_set_viewport_states;
@@ -1426,7 +1433,6 @@ nvc0_init_state_functions(struct nvc0_context *nvc0)
    pipe->bind_vertex_elements_state = nvc0_vertex_state_bind;
 
    pipe->set_vertex_buffers = nvc0_set_vertex_buffers;
-   pipe->set_index_buffer = nvc0_set_index_buffer;
 
    pipe->create_stream_output_target = nvc0_so_target_create;
    pipe->stream_output_target_destroy = nvc0_so_target_destroy;

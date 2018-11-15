@@ -45,6 +45,7 @@
 #define DEBUG_QUERY        0x4000
 #define DEBUG_CACHE        0x8000
 #define DEBUG_STREAMOUT    0x10000
+#define DEBUG_SAMPLERS     0x20000
 
 #ifdef DEBUG
 extern int SVGA_DEBUG;
@@ -57,7 +58,7 @@ extern int SVGA_DEBUG;
 static inline void
 SVGA_DBG( unsigned flag, const char *fmt, ... )
 {
-#ifdef DEBUG
+#ifdef DEBUG 
     if (SVGA_DEBUG & flag)
     {
         va_list args;

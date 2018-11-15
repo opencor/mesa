@@ -40,11 +40,13 @@
 #include "zlib.h"
 
 #include "util/crc32.h"
+#include "util/debug.h"
 #include "util/rand_xor.h"
 #include "util/u_atomic.h"
 #include "util/u_queue.h"
 #include "util/mesa-sha1.h"
 #include "util/ralloc.h"
+#include "main/compiler.h"
 #include "main/errors.h"
 
 #include "disk_cache.h"
@@ -58,9 +60,24 @@
 /* The number of keys that can be stored in the index. */
 #define CACHE_INDEX_MAX_KEYS (1 << CACHE_INDEX_KEY_BITS)
 
+/* The cache version should be bumped whenever a change is made to the
+ * structure of cache entries or the index. This will give any 3rd party
+ * applications reading the cache entries a chance to adjust to the changes.
+ *
+ * - The cache version is checked internally when reading a cache entry. If we
+ *   ever have a mismatch we are in big trouble as this means we had a cache
+ *   collision. In case of such an event please check the skys for giant
+ *   asteroids and that the entire Mesa team hasn't been eaten by wolves.
+ *
+ * - There is no strict requirement that cache versions be backwards
+ *   compatible but effort should be taken to limit disruption where possible.
+ */
+#define CACHE_VERSION 1
+
 struct disk_cache {
    /* The path to the cache directory. */
    char *path;
+   bool path_init_failed;
 
    /* Thread queue for compressing and writing cache entries to disk */
    struct util_queue cache_queue;
@@ -84,6 +101,9 @@ struct disk_cache {
    /* Driver cache keys. */
    uint8_t *driver_keys_blob;
    size_t driver_keys_blob_size;
+
+   disk_cache_put_cb blob_put_cb;
+   disk_cache_get_cb blob_get_cb;
 };
 
 struct disk_cache_put_job {
@@ -98,6 +118,8 @@ struct disk_cache_put_job {
 
    /* Size of data to be compressed and written. */
    size_t size;
+
+   struct cache_item_metadata cache_item_metadata;
 };
 
 /* Create a directory named 'path' if it does not already exist.
@@ -160,8 +182,15 @@ concatenate_and_mkdir(void *ctx, const char *path, const char *name)
       return NULL;
 }
 
+#define DRV_KEY_CPY(_dst, _src, _src_size) \
+do {                                       \
+   memcpy(_dst, _src, _src_size);          \
+   _dst += _src_size;                      \
+} while (0);
+
 struct disk_cache *
-disk_cache_create(const char *gpu_name, const char *timestamp)
+disk_cache_create(const char *gpu_name, const char *driver_id,
+                  uint64_t driver_flags)
 {
    void *local;
    struct disk_cache *cache = NULL;
@@ -170,6 +199,9 @@ disk_cache_create(const char *gpu_name, const char *timestamp)
    int fd = -1;
    struct stat sb;
    size_t size;
+
+   uint8_t cache_version = CACHE_VERSION;
+   size_t cv_size = sizeof(cache_version);
 
    /* If running as a users other than the real user disable cache */
    if (geteuid() != getuid())
@@ -181,23 +213,30 @@ disk_cache_create(const char *gpu_name, const char *timestamp)
       goto fail;
 
    /* At user request, disable shader cache entirely. */
-   if (getenv("MESA_GLSL_CACHE_DISABLE"))
+   if (env_var_as_boolean("MESA_GLSL_CACHE_DISABLE", false))
       goto fail;
+
+   cache = rzalloc(NULL, struct disk_cache);
+   if (cache == NULL)
+      goto fail;
+
+   /* Assume failure. */
+   cache->path_init_failed = true;
 
    /* Determine path for cache based on the first defined name as follows:
     *
     *   $MESA_GLSL_CACHE_DIR
-    *   $XDG_CACHE_HOME/mesa
-    *   <pwd.pw_dir>/.cache/mesa
+    *   $XDG_CACHE_HOME/mesa_shader_cache
+    *   <pwd.pw_dir>/.cache/mesa_shader_cache
     */
    path = getenv("MESA_GLSL_CACHE_DIR");
    if (path) {
       if (mkdir_if_needed(path) == -1)
-         goto fail;
+         goto path_fail;
 
-      path = concatenate_and_mkdir(local, path, "mesa");
+      path = concatenate_and_mkdir(local, path, CACHE_DIR_NAME);
       if (path == NULL)
-         goto fail;
+         goto path_fail;
    }
 
    if (path == NULL) {
@@ -205,11 +244,11 @@ disk_cache_create(const char *gpu_name, const char *timestamp)
 
       if (xdg_cache_home) {
          if (mkdir_if_needed(xdg_cache_home) == -1)
-            goto fail;
+            goto path_fail;
 
-         path = concatenate_and_mkdir(local, xdg_cache_home, "mesa");
+         path = concatenate_and_mkdir(local, xdg_cache_home, CACHE_DIR_NAME);
          if (path == NULL)
-            goto fail;
+            goto path_fail;
       }
    }
 
@@ -235,43 +274,39 @@ disk_cache_create(const char *gpu_name, const char *timestamp)
             buf = NULL;
             buf_size *= 2;
          } else {
-            goto fail;
+            goto path_fail;
          }
       }
 
       path = concatenate_and_mkdir(local, pwd.pw_dir, ".cache");
       if (path == NULL)
-         goto fail;
+         goto path_fail;
 
-      path = concatenate_and_mkdir(local, path, "mesa");
+      path = concatenate_and_mkdir(local, path, CACHE_DIR_NAME);
       if (path == NULL)
-         goto fail;
+         goto path_fail;
    }
-
-   cache = ralloc(NULL, struct disk_cache);
-   if (cache == NULL)
-      goto fail;
 
    cache->path = ralloc_strdup(cache, path);
    if (cache->path == NULL)
-      goto fail;
+      goto path_fail;
 
    path = ralloc_asprintf(local, "%s/index", cache->path);
    if (path == NULL)
-      goto fail;
+      goto path_fail;
 
    fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0644);
    if (fd == -1)
-      goto fail;
+      goto path_fail;
 
    if (fstat(fd, &sb) == -1)
-      goto fail;
+      goto path_fail;
 
    /* Force the index file to be the expected size. */
    size = sizeof(*cache->size) + CACHE_INDEX_MAX_KEYS * CACHE_KEY_SIZE;
    if (sb.st_size != size) {
       if (ftruncate(fd, size) == -1)
-         goto fail;
+         goto path_fail;
    }
 
    /* We map this shared so that other processes see updates that we
@@ -292,7 +327,7 @@ disk_cache_create(const char *gpu_name, const char *timestamp)
    cache->index_mmap = mmap(NULL, size, PROT_READ | PROT_WRITE,
                             MAP_SHARED, fd, 0);
    if (cache->index_mmap == MAP_FAILED)
-      goto fail;
+      goto path_fail;
    cache->index_mmap_size = size;
 
    close(fd);
@@ -335,18 +370,26 @@ disk_cache_create(const char *gpu_name, const char *timestamp)
 
    cache->max_size = max_size;
 
-   /* A limit of 32 jobs was choosen as observations of Deus Ex start-up times
-    * showed that we reached at most 11 jobs on an Intel i5-6400 CPU@2.70GHz
-    * (a fairly modest desktop CPU). 1 thread was chosen because we don't
-    * really care about getting things to disk quickly just that it's not
-    * blocking other tasks.
+   /* 1 thread was chosen because we don't really care about getting things
+    * to disk quickly just that it's not blocking other tasks.
+    *
+    * The queue will resize automatically when it's full, so adding new jobs
+    * doesn't stall.
     */
-   util_queue_init(&cache->cache_queue, "disk_cache", 32, 1);
+   util_queue_init(&cache->cache_queue, "disk$", 32, 1,
+                   UTIL_QUEUE_INIT_RESIZE_IF_FULL |
+                   UTIL_QUEUE_INIT_USE_MINIMUM_PRIORITY);
+
+   cache->path_init_failed = false;
+
+ path_fail:
+
+   cache->driver_keys_blob_size = cv_size;
 
    /* Create driver id keys */
-   size_t ts_size = strlen(timestamp) + 1;
+   size_t id_size = strlen(driver_id) + 1;
    size_t gpu_name_size = strlen(gpu_name) + 1;
-   cache->driver_keys_blob_size = ts_size;
+   cache->driver_keys_blob_size += id_size;
    cache->driver_keys_blob_size += gpu_name_size;
 
    /* We sometimes store entire structs that contains a pointers in the cache,
@@ -356,15 +399,20 @@ disk_cache_create(const char *gpu_name, const char *timestamp)
    size_t ptr_size_size = sizeof(ptr_size);
    cache->driver_keys_blob_size += ptr_size_size;
 
+   size_t driver_flags_size = sizeof(driver_flags);
+   cache->driver_keys_blob_size += driver_flags_size;
+
    cache->driver_keys_blob =
       ralloc_size(cache, cache->driver_keys_blob_size);
    if (!cache->driver_keys_blob)
       goto fail;
 
-   memcpy(cache->driver_keys_blob, timestamp, ts_size);
-   memcpy(cache->driver_keys_blob + ts_size, gpu_name, gpu_name_size);
-   memcpy(cache->driver_keys_blob + ts_size + gpu_name_size, &ptr_size,
-          ptr_size_size);
+   uint8_t *drv_key_blob = cache->driver_keys_blob;
+   DRV_KEY_CPY(drv_key_blob, &cache_version, cv_size)
+   DRV_KEY_CPY(drv_key_blob, driver_id, id_size)
+   DRV_KEY_CPY(drv_key_blob, gpu_name, gpu_name_size)
+   DRV_KEY_CPY(drv_key_blob, &ptr_size, ptr_size_size)
+   DRV_KEY_CPY(drv_key_blob, &driver_flags, driver_flags_size)
 
    /* Seed our rand function */
    s_rand_xorshift128plus(cache->seed_xorshift128plus, true);
@@ -386,7 +434,7 @@ disk_cache_create(const char *gpu_name, const char *timestamp)
 void
 disk_cache_destroy(struct disk_cache *cache)
 {
-   if (cache) {
+   if (cache && !cache->path_init_failed) {
       util_queue_destroy(&cache->cache_queue);
       munmap(cache->index_mmap, cache->index_mmap_size);
    }
@@ -404,6 +452,9 @@ get_cache_file(struct disk_cache *cache, const cache_key key)
 {
    char buf[41];
    char *filename;
+
+   if (cache->path_init_failed)
+      return NULL;
 
    _mesa_sha1_format(buf, key);
    if (asprintf(&filename, "%s/%c%c/%s", cache->path, buf[0],
@@ -738,7 +789,8 @@ deflate_and_write_to_disk(const void *in_data, size_t in_data_size, int dest,
 
 static struct disk_cache_put_job *
 create_put_job(struct disk_cache *cache, const cache_key key,
-               const void *data, size_t size)
+               const void *data, size_t size,
+               struct cache_item_metadata *cache_item_metadata)
 {
    struct disk_cache_put_job *dc_job = (struct disk_cache_put_job *)
       malloc(sizeof(struct disk_cache_put_job) + size);
@@ -749,15 +801,44 @@ create_put_job(struct disk_cache *cache, const cache_key key,
       dc_job->data = dc_job + 1;
       memcpy(dc_job->data, data, size);
       dc_job->size = size;
+
+      /* Copy the cache item metadata */
+      if (cache_item_metadata) {
+         dc_job->cache_item_metadata.type = cache_item_metadata->type;
+         if (cache_item_metadata->type == CACHE_ITEM_TYPE_GLSL) {
+            dc_job->cache_item_metadata.num_keys =
+               cache_item_metadata->num_keys;
+            dc_job->cache_item_metadata.keys = (cache_key *)
+               malloc(cache_item_metadata->num_keys * sizeof(cache_key));
+
+            if (!dc_job->cache_item_metadata.keys)
+               goto fail;
+
+            memcpy(dc_job->cache_item_metadata.keys,
+                   cache_item_metadata->keys,
+                   sizeof(cache_key) * cache_item_metadata->num_keys);
+         }
+      } else {
+         dc_job->cache_item_metadata.type = CACHE_ITEM_TYPE_UNKNOWN;
+         dc_job->cache_item_metadata.keys = NULL;
+      }
    }
 
    return dc_job;
+
+fail:
+   free(dc_job);
+
+   return NULL;
 }
 
 static void
 destroy_put_job(void *job, int thread_index)
 {
    if (job) {
+      struct disk_cache_put_job *dc_job = (struct disk_cache_put_job *) job;
+      free(dc_job->cache_item_metadata.keys);
+
       free(job);
    }
 }
@@ -846,6 +927,34 @@ cache_put(void *job, int thread_index)
       goto done;
    }
 
+   /* Write the cache item metadata. This data can be used to deal with
+    * hash collisions, as well as providing useful information to 3rd party
+    * tools reading the cache files.
+    */
+   ret = write_all(fd, &dc_job->cache_item_metadata.type,
+                   sizeof(uint32_t));
+   if (ret == -1) {
+      unlink(filename_tmp);
+      goto done;
+   }
+
+   if (dc_job->cache_item_metadata.type == CACHE_ITEM_TYPE_GLSL) {
+      ret = write_all(fd, &dc_job->cache_item_metadata.num_keys,
+                      sizeof(uint32_t));
+      if (ret == -1) {
+         unlink(filename_tmp);
+         goto done;
+      }
+
+      ret = write_all(fd, dc_job->cache_item_metadata.keys[0],
+                      dc_job->cache_item_metadata.num_keys *
+                      sizeof(cache_key));
+      if (ret == -1) {
+         unlink(filename_tmp);
+         goto done;
+      }
+   }
+
    /* Create CRC of the data. We will read this when restoring the cache and
     * use it to check for corruption.
     */
@@ -893,18 +1002,25 @@ cache_put(void *job, int thread_index)
     */
    if (fd != -1)
       close(fd);
-   if (filename_tmp)
-      free(filename_tmp);
-   if (filename)
-      free(filename);
+   free(filename_tmp);
+   free(filename);
 }
 
 void
 disk_cache_put(struct disk_cache *cache, const cache_key key,
-               const void *data, size_t size)
+               const void *data, size_t size,
+               struct cache_item_metadata *cache_item_metadata)
 {
+   if (cache->blob_put_cb) {
+      cache->blob_put_cb(key, CACHE_KEY_SIZE, data, size);
+      return;
+   }
+
+   if (cache->path_init_failed)
+      return;
+
    struct disk_cache_put_job *dc_job =
-      create_put_job(cache, key, data, size);
+      create_put_job(cache, key, data, size, cache_item_metadata);
 
    if (dc_job) {
       util_queue_fence_init(&dc_job->fence);
@@ -960,9 +1076,32 @@ disk_cache_get(struct disk_cache *cache, const cache_key key, size_t *size)
    char *filename = NULL;
    uint8_t *data = NULL;
    uint8_t *uncompressed_data = NULL;
+   uint8_t *file_header = NULL;
 
    if (size)
       *size = 0;
+
+   if (cache->blob_get_cb) {
+      /* This is what Android EGL defines as the maxValueSize in egl_cache_t
+       * class implementation.
+       */
+      const signed long max_blob_size = 64 * 1024;
+      void *blob = malloc(max_blob_size);
+      if (!blob)
+         return NULL;
+
+      signed long bytes =
+         cache->blob_get_cb(key, CACHE_KEY_SIZE, blob, max_blob_size);
+
+      if (!bytes) {
+         free(blob);
+         return NULL;
+      }
+
+      if (size)
+         *size = bytes;
+      return blob;
+   }
 
    filename = get_cache_file(cache, key);
    if (filename == NULL)
@@ -980,29 +1119,47 @@ disk_cache_get(struct disk_cache *cache, const cache_key key, size_t *size)
       goto fail;
 
    size_t ck_size = cache->driver_keys_blob_size;
-#ifndef NDEBUG
-   uint8_t *file_header = malloc(ck_size);
+   file_header = malloc(ck_size);
    if (!file_header)
       goto fail;
 
-   assert(sb.st_size > ck_size);
+   if (sb.st_size < ck_size)
+      goto fail;
+
    ret = read_all(fd, file_header, ck_size);
-   if (ret == -1) {
-      free(file_header);
+   if (ret == -1)
+      goto fail;
+
+   /* Check for extremely unlikely hash collisions */
+   if (memcmp(cache->driver_keys_blob, file_header, ck_size) != 0) {
+      assert(!"Mesa cache keys mismatch!");
       goto fail;
    }
 
-   assert(memcmp(cache->driver_keys_blob, file_header, ck_size) == 0);
-
-   free(file_header);
-#else
-   /* The cache keys are currently just used for distributing precompiled
-    * shaders, they are not used by Mesa so just skip them for now.
-    */
-   ret = lseek(fd, ck_size, SEEK_CUR);
+   size_t cache_item_md_size = sizeof(uint32_t);
+   uint32_t md_type;
+   ret = read_all(fd, &md_type, cache_item_md_size);
    if (ret == -1)
       goto fail;
-#endif
+
+   if (md_type == CACHE_ITEM_TYPE_GLSL) {
+      uint32_t num_keys;
+      cache_item_md_size += sizeof(uint32_t);
+      ret = read_all(fd, &num_keys, sizeof(uint32_t));
+      if (ret == -1)
+         goto fail;
+
+      /* The cache item metadata is currently just used for distributing
+       * precompiled shaders, they are not used by Mesa so just skip them for
+       * now.
+       * TODO: pass the metadata back to the caller and do some basic
+       * validation.
+       */
+      cache_item_md_size += num_keys * sizeof(cache_key);
+      ret = lseek(fd, num_keys * sizeof(cache_key), SEEK_CUR);
+      if (ret == -1)
+         goto fail;
+   }
 
    /* Load the CRC that was created when the file was written. */
    struct cache_entry_file_data cf_data;
@@ -1012,7 +1169,8 @@ disk_cache_get(struct disk_cache *cache, const cache_key key, size_t *size)
       goto fail;
 
    /* Load the actual cache data. */
-   size_t cache_data_size = sb.st_size - cf_data_size - ck_size;
+   size_t cache_data_size =
+      sb.st_size - cf_data_size - ck_size - cache_item_md_size;
    ret = read_all(fd, data, cache_data_size);
    if (ret == -1)
       goto fail;
@@ -1030,6 +1188,7 @@ disk_cache_get(struct disk_cache *cache, const cache_key key, size_t *size)
 
    free(data);
    free(filename);
+   free(file_header);
    close(fd);
 
    if (size)
@@ -1044,6 +1203,8 @@ disk_cache_get(struct disk_cache *cache, const cache_key key, size_t *size)
       free(uncompressed_data);
    if (filename)
       free(filename);
+   if (file_header)
+      free(file_header);
    if (fd != -1)
       close(fd);
 
@@ -1054,8 +1215,16 @@ void
 disk_cache_put_key(struct disk_cache *cache, const cache_key key)
 {
    const uint32_t *key_chunk = (const uint32_t *) key;
-   int i = *key_chunk & CACHE_INDEX_KEY_MASK;
+   int i = CPU_TO_LE32(*key_chunk) & CACHE_INDEX_KEY_MASK;
    unsigned char *entry;
+
+   if (cache->blob_put_cb) {
+      cache->blob_put_cb(key, CACHE_KEY_SIZE, key_chunk, sizeof(uint32_t));
+      return;
+   }
+
+   if (cache->path_init_failed)
+      return;
 
    entry = &cache->stored_keys[i * CACHE_KEY_SIZE];
 
@@ -1073,8 +1242,16 @@ bool
 disk_cache_has_key(struct disk_cache *cache, const cache_key key)
 {
    const uint32_t *key_chunk = (const uint32_t *) key;
-   int i = *key_chunk & CACHE_INDEX_KEY_MASK;
+   int i = CPU_TO_LE32(*key_chunk) & CACHE_INDEX_KEY_MASK;
    unsigned char *entry;
+
+   if (cache->blob_get_cb) {
+      uint32_t blob;
+      return cache->blob_get_cb(key, CACHE_KEY_SIZE, &blob, sizeof(uint32_t));
+   }
+
+   if (cache->path_init_failed)
+      return false;
 
    entry = &cache->stored_keys[i * CACHE_KEY_SIZE];
 
@@ -1092,6 +1269,14 @@ disk_cache_compute_key(struct disk_cache *cache, const void *data, size_t size,
                      cache->driver_keys_blob_size);
    _mesa_sha1_update(&ctx, data, size);
    _mesa_sha1_final(&ctx, key);
+}
+
+void
+disk_cache_set_callbacks(struct disk_cache *cache, disk_cache_put_cb put,
+                         disk_cache_get_cb get)
+{
+   cache->blob_put_cb = put;
+   cache->blob_get_cb = get;
 }
 
 #endif /* ENABLE_SHADER_CACHE */

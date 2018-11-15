@@ -7,7 +7,7 @@ Name Strings
      GL_MESA_trace
 
 Contact
-
+    
     Bernd Kreimeier, Loki Entertainment, bk 'at' lokigames.com
     Brian Paul, VA Linux Systems, Inc., brianp 'at' valinux.com
 
@@ -32,10 +32,10 @@ Overview
     Provides the application with means to enable and disable logging
     of GL calls including parameters as readable text. The verbosity
     of the generated log can be controlled. The resulting logs are
-    valid (but possibly incomplete) C code and can be compiled and
-    linked for standalone test programs. The set of calls and the
-    amount of static data that is logged can be controlled at runtime.
-    The application can add comments and enable or disable tracing of GL
+    valid (but possibly incomplete) C code and can be compiled and 
+    linked for standalone test programs. The set of calls and the 
+    amount of static data that is logged can be controlled at runtime. 
+    The application can add comments and enable or disable tracing of GL 
     operations at any time. The data flow from the application to GL
     and back is unaffected except for timing.
 
@@ -52,23 +52,23 @@ IP Status
 
 Issues
 
-
+ 
     (1) Is this Extension obsolete because it can
     be implemented as a wrapper DLL?
 
-      RESOLVED: No. While certain operating systems (Win32) provide linkers
+      RESOLVED: No. While certain operating systems (Win32) provide linkers 
       that facilitate this kind of solution, other operating systems
       (Linux) do not support hierarchical linking, so a wrapper solution
       would result in symbol collisions.
-      Further, IHV's might have builtin support for tracing GL execution
+      Further, IHV's might have builtin support for tracing GL execution 
       that enjoys privileged access, or that they do not wish to separate
       the tracing code from their driver code base.
 
-    (2) Should the Trace API explicitely support the notion of "frames?
+    (2) Should the Trace API explicitely support the notion of "frames? 
     This would require hooking into glXSwapBuffers calls as well.
 
       RESOLVED: No. The application can use NewTraceMESA/EndTraceMESA
-      and TraceComment along with external parsing tools to split the
+      and TraceComment along with external parsing tools to split the 
       trace into frames, in whatever way considered adequate.
 
     (2a) Should GLX calls be traced?
@@ -76,36 +76,36 @@ Issues
       PBuffers and other render-to-texture solutions demonstrate that
       context level commands beyond SwapBuffers might have to be
       traced. The GL DLL exports the entry points, so this would not
-      be out of the question.
+      be out of the question. 
 
     (3) Should the specification mandate the actual output format?
 
-      RESOLVED: No. It is sufficient to guarantee that all data and commands
+      RESOLVED: No. It is sufficient to guarantee that all data and commands 
       will be traced as requested by Enable/DisableTraceMESA, in the order
-      encountered. Whether the resulting trace is available as a readable
-      text file, binary metafile, compilable source code, much less which
-      indentation and formatting has been used, is up to the implementation.
+      encountered. Whether the resulting trace is available as a readable 
+      text file, binary metafile, compilable source code, much less which 
+      indentation and formatting has been used, is up to the implementation. 
       For the same reason this specification does not enforce or prohibit
-      additional information added to the trace (statistics, profiling/timing,
+      additional information added to the trace (statistics, profiling/timing, 
       warnings on possible error conditions).
 
-    (4) Should the comment strings associated with names and pointer (ranges)
+    (4) Should the comment strings associated with names and pointer (ranges) 
     be considered persistent state?
 
-      RESOLVED: No. The implementation is not forced to use this information
-      on subsequent occurences of name/pointer, and is free to consider it
+      RESOLVED: No. The implementation is not forced to use this information 
+      on subsequent occurences of name/pointer, and is free to consider it 
       transient state.
-
+ 
     (5) Should comment commands be prohibited between Begin/End?
 
-      RESOLVED: Yes, with the exception of TraceCommentMESA. TraceCommentMESA
+      RESOLVED: Yes, with the exception of TraceCommentMESA. TraceCommentMESA 
       is transient, the other commands might cause storage of persistent
-      data in the context. There is no need to have the ability mark names
+      data in the context. There is no need to have the ability mark names 
       or pointers between Begin and End.
 
 
 New Procedures and Functions
-
+ 
     void NewTraceMESA( bitfield mask, const ubyte * traceName )
 
     void EndTraceMESA( void )
@@ -124,12 +124,12 @@ New Procedures and Functions
 
     void TracePointerMESA( void* pointer, const ubyte* comment )
 
-    void TracePointerRangeMESA( const void* first,
-                                const void* last,
-                                const ubyte* comment )
+    void TracePointerRangeMESA( const void* first, 
+                                const void* last, 
+                                const ubyte* comment ) 
 
 New Tokens
-
+ 
     Accepted by the <mask> parameter of EnableTrace and DisableTrace:
 
        TRACE_ALL_BITS_MESA           0xFFFF
@@ -188,7 +188,7 @@ Additions to Chapter 5 of the OpenGL 1.2.1 Specification (Special Functions)
 
       void EndTraceMESA( void )
 
-    It is illegal to call NewTraceMESA or EndTraceMESA between Begin and End.
+    It is illegal to call NewTraceMESA or EndTraceMESA between Begin and End. 
 
     The commands
 
@@ -203,10 +203,10 @@ Additions to Chapter 5 of the OpenGL 1.2.1 Specification (Special Functions)
 
     TRACE_OPERATIONS_BIT_MESA controls logging of all commands outside of
     Begin/End, including Begin/End.
-
+  
     TRACE_PRIMITIVES_BIT_MESA controls logging of all commands inside of
     Begin/End, including Begin/End.
-
+ 
     TRACE_ARRAYS_BIT_MESA controls logging of VertexPointer, NormalPointer,
     ColorPointer, IndexPointer, TexCoordPointer and EdgeFlagPointer commands.
 
@@ -217,13 +217,13 @@ Additions to Chapter 5 of the OpenGL 1.2.1 Specification (Special Functions)
     TRACE_PIXELS_BIT_MESA controls logging of image data dereferenced by
     Bitmap and DrawPixels commands.
 
-    TRACE_ERRORS_BIT_MESA controls logging of all errors. If this bit is
-    set, GetError will be executed whereever applicable, and the result will
-    be added to the trace as a comment. The error returns are cached and
-    returned to the application on its GetError calls. If the user does not
+    TRACE_ERRORS_BIT_MESA controls logging of all errors. If this bit is 
+    set, GetError will be executed whereever applicable, and the result will 
+    be added to the trace as a comment. The error returns are cached and 
+    returned to the application on its GetError calls. If the user does not 
     wish the additional GetError calls to be performed, this bit should not
     be set.
-
+    
     The command
 
       void TraceCommentMESA( const ubyte* comment )
@@ -245,9 +245,9 @@ Additions to Chapter 5 of the OpenGL 1.2.1 Specification (Special Functions)
 
       void TracePointerMESA( void* pointer, const ubyte* comment )
 
-      void TracePointerRangeMESA( const void* first,
+      void TracePointerRangeMESA( const void* first, 
                                   const void* last,
-                                  const ubyte* comment )
+                                  const ubyte* comment ) 
 
     associate <comment> with the address specified by <pointer> or with
     a range of addresses specified by <first> through <last>.
@@ -267,7 +267,7 @@ Additions to Chapter 5 of the OpenGL 1.2.1 Specification (Special Functions)
     the groups of state variables which are to be asserted.
 
     The commands NewTraceMESA, EndTraceMESA, EnableTraceMESA, DisableTraceMESA,
-    TraceAssertAttribMESA, TraceCommentMESA, TraceTextureMESA, TraceListMESA,
+    TraceAssertAttribMESA, TraceCommentMESA, TraceTextureMESA, TraceListMESA, 
     TracePointerMESA and TracePointerRangeMESA are not compiled into display lists.
 
 
@@ -280,10 +280,10 @@ Additions to Chapter 5 of the OpenGL 1.2.1 Specification (Special Functions)
 
        glEnable(GL_DEPTH_TEST);   (if <test> is true)
        glDisable(GL_DEPTH_TEST);  (if <test> is false)
-       glDepthFunc(<func>);
+       glDepthFunc(<func>); 
        glDepthMask(<mask>);
        glClearDepth(<clear>);
-
+   
 
     The command TraceAssertAttribMESA(DEPTH_BUFFER_BIT) will query the state
     variables DEPTH_TEST, DEPTH_FUNC, DEPTH_WRITEMASK, and DEPTH_CLEAR_VALUE
@@ -305,7 +305,7 @@ Additions to Chapter 5 of the OpenGL 1.2.1 Specification (Special Functions)
     }
 
 
-Additions to Chapter 6 of the OpenGL 1.2.1 Specification
+Additions to Chapter 6 of the OpenGL 1.2.1 Specification 
     (State and State Requests)
 
     Querying TRACE_MASK_MESA with GetIntegerv, GetFloatv, GetBooleanv or
@@ -316,8 +316,8 @@ Additions to Chapter 6 of the OpenGL 1.2.1 Specification
 
 Additions to Appendix A of the OpenGL 1.2.1 Specification (Invariance)
 
-    The MESA_trace extension can be used in a way that does not affect data
-    flow from application to OpenGL, as well as data flow from OpenGL to
+    The MESA_trace extension can be used in a way that does not affect data 
+    flow from application to OpenGL, as well as data flow from OpenGL to 
     application, except for timing, possible print I/O. TRACE_ERRORS_BIT_MESA
     will add additional GetError queries. Setting a trace mask with NewTraceMESA
     as well as use of TraceAssertAttribMESA might cause additional state queries.

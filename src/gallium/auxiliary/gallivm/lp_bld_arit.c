@@ -541,43 +541,43 @@ lp_build_add(struct lp_build_context *bld,
    assert(lp_check_value(type, a));
    assert(lp_check_value(type, b));
 
-   if(a == bld->zero)
+   if (a == bld->zero)
       return b;
-   if(b == bld->zero)
+   if (b == bld->zero)
       return a;
-   if(a == bld->undef || b == bld->undef)
+   if (a == bld->undef || b == bld->undef)
       return bld->undef;
 
-   if(bld->type.norm) {
+   if (type.norm) {
       const char *intrinsic = NULL;
 
-      if(a == bld->one || b == bld->one)
+      if (!type.sign && (a == bld->one || b == bld->one))
         return bld->one;
 
       if (!type.floating && !type.fixed) {
          if (type.width * type.length == 128) {
-            if(util_cpu_caps.has_sse2) {
-              if(type.width == 8)
+            if (util_cpu_caps.has_sse2) {
+              if (type.width == 8)
                 intrinsic = type.sign ? "llvm.x86.sse2.padds.b" : "llvm.x86.sse2.paddus.b";
-              if(type.width == 16)
+              if (type.width == 16)
                 intrinsic = type.sign ? "llvm.x86.sse2.padds.w" : "llvm.x86.sse2.paddus.w";
             } else if (util_cpu_caps.has_altivec) {
-              if(type.width == 8)
+              if (type.width == 8)
                  intrinsic = type.sign ? "llvm.ppc.altivec.vaddsbs" : "llvm.ppc.altivec.vaddubs";
-              if(type.width == 16)
+              if (type.width == 16)
                  intrinsic = type.sign ? "llvm.ppc.altivec.vaddshs" : "llvm.ppc.altivec.vadduhs";
             }
          }
          if (type.width * type.length == 256) {
-            if(util_cpu_caps.has_avx2) {
-              if(type.width == 8)
+            if (util_cpu_caps.has_avx2) {
+              if (type.width == 8)
                 intrinsic = type.sign ? "llvm.x86.avx2.padds.b" : "llvm.x86.avx2.paddus.b";
-              if(type.width == 16)
+              if (type.width == 16)
                 intrinsic = type.sign ? "llvm.x86.avx2.padds.w" : "llvm.x86.avx2.paddus.w";
             }
          }
       }
-
+   
       if (intrinsic)
          return lp_build_intrinsic_binary(builder, intrinsic, lp_build_vec_type(bld->gallivm, bld->type), a, b);
    }
@@ -842,43 +842,43 @@ lp_build_sub(struct lp_build_context *bld,
    assert(lp_check_value(type, a));
    assert(lp_check_value(type, b));
 
-   if(b == bld->zero)
+   if (b == bld->zero)
       return a;
-   if(a == bld->undef || b == bld->undef)
+   if (a == bld->undef || b == bld->undef)
       return bld->undef;
-   if(a == b)
+   if (a == b)
       return bld->zero;
 
-   if(bld->type.norm) {
+   if (type.norm) {
       const char *intrinsic = NULL;
 
-      if(b == bld->one)
+      if (!type.sign && b == bld->one)
         return bld->zero;
 
       if (!type.floating && !type.fixed) {
          if (type.width * type.length == 128) {
             if (util_cpu_caps.has_sse2) {
-              if(type.width == 8)
+              if (type.width == 8)
                  intrinsic = type.sign ? "llvm.x86.sse2.psubs.b" : "llvm.x86.sse2.psubus.b";
-              if(type.width == 16)
+              if (type.width == 16)
                  intrinsic = type.sign ? "llvm.x86.sse2.psubs.w" : "llvm.x86.sse2.psubus.w";
             } else if (util_cpu_caps.has_altivec) {
-              if(type.width == 8)
+              if (type.width == 8)
                  intrinsic = type.sign ? "llvm.ppc.altivec.vsubsbs" : "llvm.ppc.altivec.vsububs";
-              if(type.width == 16)
+              if (type.width == 16)
                  intrinsic = type.sign ? "llvm.ppc.altivec.vsubshs" : "llvm.ppc.altivec.vsubuhs";
             }
          }
          if (type.width * type.length == 256) {
             if (util_cpu_caps.has_avx2) {
-              if(type.width == 8)
+              if (type.width == 8)
                  intrinsic = type.sign ? "llvm.x86.avx2.psubs.b" : "llvm.x86.avx2.psubus.b";
-              if(type.width == 16)
+              if (type.width == 16)
                  intrinsic = type.sign ? "llvm.x86.avx2.psubs.w" : "llvm.x86.avx2.psubus.w";
             }
          }
       }
-
+   
       if (intrinsic)
          return lp_build_intrinsic_binary(builder, intrinsic, lp_build_vec_type(bld->gallivm, bld->type), a, b);
    }
@@ -926,11 +926,11 @@ lp_build_sub(struct lp_build_context *bld,
  * - alpha plus one
  *
  *     makes the following approximation to the division (Sree)
- *
+ *    
  *       a*b/255 ~= (a*(b + 1)) >> 256
- *
+ *    
  *     which is the fastest method that satisfies the following OpenGL criteria of
- *
+ *    
  *       0*0 = 0 and 255*255 = 255
  *
  * - geometric series
@@ -958,12 +958,12 @@ lp_build_sub(struct lp_build_context *bld,
  *
  *
  *
- * @sa Alvy Ray Smith, Image Compositing Fundamentals, Tech Memo 4, Aug 15, 1995,
+ * @sa Alvy Ray Smith, Image Compositing Fundamentals, Tech Memo 4, Aug 15, 1995, 
  *     ftp://ftp.alvyray.com/Acrobat/4_Comp.pdf
- * @sa Michael Herf, The "double blend trick", May 2000,
+ * @sa Michael Herf, The "double blend trick", May 2000, 
  *     http://www.stereopsis.com/doubleblend.html
  */
-static LLVMValueRef
+LLVMValueRef
 lp_build_mul_norm(struct gallivm_state *gallivm,
                   struct lp_type wide_type,
                   LLVMValueRef a, LLVMValueRef b)
@@ -1307,7 +1307,7 @@ lp_build_mul_imm(struct lp_build_context *bld,
    if(b == 2 && bld->type.floating)
       return lp_build_add(bld, a, a);
 
-   if(util_is_power_of_two(b)) {
+   if(util_is_power_of_two_or_zero(b)) {
       unsigned shift = ffs(b) - 1;
 
       if(bld->type.floating) {
@@ -1799,7 +1799,7 @@ lp_build_abs(struct lp_build_context *bld,
       }
    }
 
-   if(type.width*type.length == 128 && util_cpu_caps.has_ssse3) {
+   if(type.width*type.length == 128 && util_cpu_caps.has_ssse3 && HAVE_LLVM < 0x0600) {
       switch(type.width) {
       case 8:
          return lp_build_intrinsic_unary(builder, "llvm.x86.ssse3.pabs.b.128", vec_type, a);
@@ -1809,7 +1809,7 @@ lp_build_abs(struct lp_build_context *bld,
          return lp_build_intrinsic_unary(builder, "llvm.x86.ssse3.pabs.d.128", vec_type, a);
       }
    }
-   else if (type.width*type.length == 256 && util_cpu_caps.has_avx2) {
+   else if (type.width*type.length == 256 && util_cpu_caps.has_avx2 && HAVE_LLVM < 0x0600) {
       switch(type.width) {
       case 8:
          return lp_build_intrinsic_unary(builder, "llvm.x86.avx2.pabs.b", vec_type, a);
@@ -1819,14 +1819,9 @@ lp_build_abs(struct lp_build_context *bld,
          return lp_build_intrinsic_unary(builder, "llvm.x86.avx2.pabs.d", vec_type, a);
       }
    }
-   else if (type.width*type.length == 256 && util_cpu_caps.has_ssse3 &&
-            (gallivm_debug & GALLIVM_DEBUG_PERF) &&
-            (type.width == 8 || type.width == 16 || type.width == 32)) {
-      debug_printf("%s: inefficient code, should split vectors manually\n",
-                   __FUNCTION__);
-   }
 
-   return lp_build_max(bld, a, LLVMBuildNeg(builder, a, ""));
+   return lp_build_select(bld, lp_build_cmp(bld, PIPE_FUNC_GREATER, a, bld->zero),
+                          a, LLVMBuildNeg(builder, a, ""));
 }
 
 
@@ -1958,7 +1953,8 @@ arch_rounding_available(const struct lp_type type)
 {
    if ((util_cpu_caps.has_sse4_1 &&
        (type.length == 1 || type.width*type.length == 128)) ||
-       (util_cpu_caps.has_avx && type.width*type.length == 256))
+       (util_cpu_caps.has_avx && type.width*type.length == 256) ||
+       (util_cpu_caps.has_avx512f && type.width*type.length == 512))
       return TRUE;
    else if ((util_cpu_caps.has_altivec &&
             (type.width == 32 && type.length == 4)))
@@ -3485,7 +3481,7 @@ lp_build_log2_approx(struct lp_build_context *bld,
 
       assert(type.floating && type.width == 32);
 
-      /*
+      /* 
        * We don't explicitly handle denormalized numbers. They will yield a
        * result in the neighbourhood of -127, which appears to be adequate
        * enough.

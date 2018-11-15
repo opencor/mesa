@@ -94,8 +94,6 @@ public:
     * successors is an exit node.
     */
    schedule_node *exit;
-
-   bool is_barrier;
 };
 
 /**
@@ -765,22 +763,22 @@ vec4_instruction_scheduler::vec4_instruction_scheduler(vec4_visitor *v,
 }
 
 void
-vec4_instruction_scheduler::count_reads_remaining(backend_instruction *be)
+vec4_instruction_scheduler::count_reads_remaining(backend_instruction *)
 {
 }
 
 void
-vec4_instruction_scheduler::setup_liveness(cfg_t *cfg)
+vec4_instruction_scheduler::setup_liveness(cfg_t *)
 {
 }
 
 void
-vec4_instruction_scheduler::update_register_pressure(backend_instruction *be)
+vec4_instruction_scheduler::update_register_pressure(backend_instruction *)
 {
 }
 
 int
-vec4_instruction_scheduler::get_register_pressure_benefit(backend_instruction *be)
+vec4_instruction_scheduler::get_register_pressure_benefit(backend_instruction *)
 {
    return 0;
 }
@@ -800,7 +798,6 @@ schedule_node::schedule_node(backend_instruction *inst,
    this->cand_generation = 0;
    this->delay = 0;
    this->exit = NULL;
-   this->is_barrier = false;
 
    /* We can't measure Gen6 timings directly but expect them to be much
     * closer to Gen7 than Gen4.
@@ -921,6 +918,14 @@ instruction_scheduler::add_dep(schedule_node *before, schedule_node *after)
    add_dep(before, after, before->latency);
 }
 
+static bool
+is_scheduling_barrier(const backend_instruction *inst)
+{
+   return inst->opcode == FS_OPCODE_PLACEHOLDER_HALT ||
+          inst->is_control_flow() ||
+          inst->has_side_effects();
+}
+
 /**
  * Sometimes we really want this node to execute after everything that
  * was before it and before everything that followed it.  This adds
@@ -932,12 +937,10 @@ instruction_scheduler::add_barrier_deps(schedule_node *n)
    schedule_node *prev = (schedule_node *)n->prev;
    schedule_node *next = (schedule_node *)n->next;
 
-   n->is_barrier = true;
-
    if (prev) {
       while (!prev->is_head_sentinel()) {
          add_dep(prev, n, 0);
-         if (prev->is_barrier)
+         if (is_scheduling_barrier(prev->inst))
             break;
          prev = (schedule_node *)prev->prev;
       }
@@ -946,7 +949,7 @@ instruction_scheduler::add_barrier_deps(schedule_node *n)
    if (next) {
       while (!next->is_tail_sentinel()) {
          add_dep(n, next, 0);
-         if (next->is_barrier)
+         if (is_scheduling_barrier(next->inst))
             break;
          next = (schedule_node *)next->next;
       }
@@ -962,14 +965,6 @@ fs_instruction_scheduler::is_compressed(fs_inst *inst)
    return inst->exec_size == 16;
 }
 
-static bool
-is_scheduling_barrier(const fs_inst *inst)
-{
-   return inst->opcode == FS_OPCODE_PLACEHOLDER_HALT ||
-          inst->is_control_flow() ||
-          inst->has_side_effects();
-}
-
 void
 fs_instruction_scheduler::calculate_deps()
 {
@@ -979,7 +974,7 @@ fs_instruction_scheduler::calculate_deps()
     */
    schedule_node *last_grf_write[grf_count * 16];
    schedule_node *last_mrf_write[BRW_MAX_MRF(v->devinfo->gen)];
-   schedule_node *last_conditional_mod[4] = {};
+   schedule_node *last_conditional_mod[8] = {};
    schedule_node *last_accumulator_write = NULL;
    /* Fixed HW registers are assumed to be separate from the virtual
     * GRFs, so they can be tracked separately.  We don't really write
@@ -1233,13 +1228,6 @@ fs_instruction_scheduler::calculate_deps()
    }
 }
 
-static bool
-is_scheduling_barrier(const vec4_instruction *inst)
-{
-   return inst->is_control_flow() ||
-          inst->has_side_effects();
-}
-
 void
 vec4_instruction_scheduler::calculate_deps()
 {
@@ -1278,6 +1266,9 @@ vec4_instruction_scheduler::calculate_deps()
             add_barrier_deps(n);
          }
       }
+
+      if (inst->reads_g0_implicitly())
+         add_dep(last_fixed_grf_write, n);
 
       if (!inst->is_send_from_grf()) {
          for (int i = 0; i < inst->mlen; i++) {
@@ -1555,14 +1546,15 @@ vec4_instruction_scheduler::choose_instruction_to_schedule()
 int
 fs_instruction_scheduler::issue_time(backend_instruction *inst)
 {
+   const unsigned overhead = v->bank_conflict_cycles((fs_inst *)inst);
    if (is_compressed((fs_inst *)inst))
-      return 4;
+      return 4 + overhead;
    else
-      return 2;
+      return 2 + overhead;
 }
 
 int
-vec4_instruction_scheduler::issue_time(backend_instruction *inst)
+vec4_instruction_scheduler::issue_time(backend_instruction *)
 {
    /* We always execute as two vec4s in parallel. */
    return 2;

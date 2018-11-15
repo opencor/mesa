@@ -38,6 +38,8 @@
 #include "util/u_memory.h"
 #include "util/u_inlines.h"
 
+static uint32_t drifb_ID = 0;
+
 static void
 swap_fences_unref(struct dri_drawable *draw);
 
@@ -97,10 +99,8 @@ dri_st_framebuffer_validate(struct st_context_iface *stctx,
       return TRUE;
 
    /* Set the window-system buffers for the state tracker. */
-   for (i = 0; i < count; i++) {
-      out[i] = NULL;
+   for (i = 0; i < count; i++)
       pipe_resource_reference(&out[i], textures[statts[i]]);
-   }
 
    return TRUE;
 }
@@ -116,6 +116,23 @@ dri_st_framebuffer_flush_front(struct st_context_iface *stctx,
 
    /* XXX remove this and just set the correct one on the framebuffer */
    drawable->flush_frontbuffer(ctx, drawable, statt);
+
+   return TRUE;
+}
+
+/**
+ * The state tracker framebuffer interface flush_swapbuffers callback
+ */
+static boolean
+dri_st_framebuffer_flush_swapbuffers(struct st_context_iface *stctx,
+                                     struct st_framebuffer_iface *stfbi)
+{
+   struct dri_context *ctx = (struct dri_context *)stctx->st_manager_private;
+   struct dri_drawable *drawable =
+      (struct dri_drawable *) stfbi->st_manager_private;
+
+   if (drawable->flush_swapbuffers)
+      drawable->flush_swapbuffers(ctx, drawable);
 
    return TRUE;
 }
@@ -144,6 +161,7 @@ dri_create_buffer(__DRIscreen * sPriv,
    drawable->base.visual = &drawable->stvis;
    drawable->base.flush_front = dri_st_framebuffer_flush_front;
    drawable->base.validate = dri_st_framebuffer_validate;
+   drawable->base.flush_swapbuffers = dri_st_framebuffer_flush_swapbuffers;
    drawable->base.st_manager_private = (void *) drawable;
 
    drawable->screen = screen;
@@ -155,6 +173,8 @@ dri_create_buffer(__DRIscreen * sPriv,
 
    dPriv->driverPrivate = (void *)drawable;
    p_atomic_set(&drawable->base.stamp, 1);
+   drawable->base.ID = p_atomic_inc_return(&drifb_ID);
+   drawable->base.state_manager = &screen->base;
 
    return GL_TRUE;
 fail:
@@ -166,6 +186,8 @@ void
 dri_destroy_buffer(__DRIdrawable * dPriv)
 {
    struct dri_drawable *drawable = dri_drawable(dPriv);
+   struct dri_screen *screen = drawable->screen;
+   struct st_api *stapi = screen->st_api;
    int i;
 
    pipe_surface_reference(&drawable->drisw_surface, NULL);
@@ -176,6 +198,9 @@ dri_destroy_buffer(__DRIdrawable * dPriv)
       pipe_resource_reference(&drawable->msaa_textures[i], NULL);
 
    swap_fences_unref(drawable);
+
+   /* Notify the st manager that this drawable is no longer valid */
+   stapi->destroy_drawable(stapi, &drawable->base);
 
    FREE(drawable);
 }
@@ -235,6 +260,12 @@ dri_set_tex_buffer2(__DRIcontext *pDRICtx, GLint target,
       if (format == __DRI_TEXTURE_FORMAT_RGB)  {
          /* only need to cover the formats recognized by dri_fill_st_visual */
          switch (internal_format) {
+         case PIPE_FORMAT_B10G10R10A2_UNORM:
+            internal_format = PIPE_FORMAT_B10G10R10X2_UNORM;
+            break;
+         case PIPE_FORMAT_R10G10B10A2_UNORM:
+            internal_format = PIPE_FORMAT_R10G10B10X2_UNORM;
+            break;
          case PIPE_FORMAT_BGRA8888_UNORM:
             internal_format = PIPE_FORMAT_BGRX8888_UNORM;
             break;
@@ -494,7 +525,8 @@ dri_flush(__DRIcontext *cPriv,
       dri_postprocessing(ctx, drawable, ST_ATTACHMENT_BACK_LEFT);
 
       if (ctx->hud) {
-         hud_draw(ctx->hud, drawable->textures[ST_ATTACHMENT_BACK_LEFT]);
+         hud_run(ctx->hud, ctx->st->cso_context,
+                 drawable->textures[ST_ATTACHMENT_BACK_LEFT]);
       }
 
       pipe->flush_resource(pipe, drawable->textures[ST_ATTACHMENT_BACK_LEFT]);

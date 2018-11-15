@@ -54,7 +54,7 @@ struct point_info {
    float (*dady)[4];
 
    boolean frontfacing;
-};
+};   
 
 
 /**
@@ -206,7 +206,7 @@ setup_point_fragcoord_coef(struct lp_setup_context *setup,
 /**
  * Compute the point->coef[] array dadx, dady, a0 values.
  */
-static void
+static void   
 setup_point_coefficients( struct lp_setup_context *setup,
                           struct point_info *info)
 {
@@ -227,7 +227,7 @@ setup_point_coefficients( struct lp_setup_context *setup,
       if (perspective & usage_mask) {
          fragcoord_usage_mask |= TGSI_WRITEMASK_W;
       }
-
+      
       switch (interp) {
       case LP_INTERP_POSITION:
          /*
@@ -458,8 +458,7 @@ try_setup_point( struct lp_setup_context *setup,
 
    LP_COUNT(nr_tris);
 
-   if (lp_context->active_statistics_queries &&
-       !llvmpipe_rasterization_disabled(lp_context)) {
+   if (lp_context->active_statistics_queries) {
       lp_context->pipeline_statistics.c_primitives++;
    }
 
@@ -479,7 +478,7 @@ try_setup_point( struct lp_setup_context *setup,
    info.dadx = GET_DADX(&point->inputs);
    info.dady = GET_DADY(&point->inputs);
    info.frontfacing = point->inputs.frontfacing;
-
+   
    /* Setup parameter interpolants:
     */
    setup_point_coefficients(setup, &info);
@@ -513,29 +512,38 @@ try_setup_point( struct lp_setup_context *setup,
       plane[3].eo = 0;
    }
 
-   return lp_setup_bin_triangle(setup, point, &bbox, nr_planes, viewport_index);
+   return lp_setup_bin_triangle(setup, point, &bbox, &bbox, nr_planes, viewport_index);
 }
 
+
+static void 
+lp_setup_point_discard(struct lp_setup_context *setup,
+                       const float (*v0)[4])
+{
+}
 
 static void
 lp_setup_point(struct lp_setup_context *setup,
                const float (*v0)[4])
 {
-   if (!try_setup_point( setup, v0 ))
-   {
+   if (!try_setup_point(setup, v0)) {
       if (!lp_setup_flush_and_restart(setup))
          return;
 
-      if (!try_setup_point( setup, v0 ))
+      if (!try_setup_point(setup, v0))
          return;
    }
 }
 
 
-void
-lp_setup_choose_point( struct lp_setup_context *setup )
+void 
+lp_setup_choose_point(struct lp_setup_context *setup)
 {
-   setup->point = lp_setup_point;
+   if (setup->rasterizer_discard) {
+      setup->point = lp_setup_point_discard;
+   } else {
+      setup->point = lp_setup_point;
+   }
 }
 
 

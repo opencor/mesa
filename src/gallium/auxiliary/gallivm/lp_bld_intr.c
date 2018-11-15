@@ -126,7 +126,6 @@ static LLVMAttribute lp_attr_to_llvm_attr(enum lp_func_attr attr)
 {
    switch (attr) {
    case LP_FUNC_ATTR_ALWAYSINLINE: return LLVMAlwaysInlineAttribute;
-   case LP_FUNC_ATTR_BYVAL: return LLVMByValAttribute;
    case LP_FUNC_ATTR_INREG: return LLVMInRegAttribute;
    case LP_FUNC_ATTR_NOALIAS: return LLVMNoAliasAttribute;
    case LP_FUNC_ATTR_NOUNWIND: return LLVMNoUnwindAttribute;
@@ -144,7 +143,6 @@ static const char *attr_to_str(enum lp_func_attr attr)
 {
    switch (attr) {
    case LP_FUNC_ATTR_ALWAYSINLINE: return "alwaysinline";
-   case LP_FUNC_ATTR_BYVAL: return "byval";
    case LP_FUNC_ATTR_INREG: return "inreg";
    case LP_FUNC_ATTR_NOALIAS: return "noalias";
    case LP_FUNC_ATTR_NOUNWIND: return "nounwind";
@@ -168,10 +166,14 @@ lp_add_function_attr(LLVMValueRef function_or_call,
 
 #if HAVE_LLVM < 0x0400
    LLVMAttribute llvm_attr = lp_attr_to_llvm_attr(attr);
-   if (attr_idx == -1) {
-      LLVMAddFunctionAttr(function_or_call, llvm_attr);
+   if (LLVMIsAFunction(function_or_call)) {
+      if (attr_idx == -1) {
+         LLVMAddFunctionAttr(function_or_call, llvm_attr);
+      } else {
+         LLVMAddAttribute(LLVMGetParam(function_or_call, attr_idx - 1), llvm_attr);
+      }
    } else {
-      LLVMAddAttribute(LLVMGetParam(function_or_call, attr_idx - 1), llvm_attr);
+      LLVMAddInstrAttribute(function_or_call, attr_idx, llvm_attr);
    }
 #else
 

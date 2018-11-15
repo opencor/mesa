@@ -27,6 +27,7 @@
 #include "compiler/nir/nir_builder.h"
 #include "compiler/glsl/list.h"
 #include "main/imports.h"
+#include "main/mtypes.h"
 #include "util/ralloc.h"
 
 #include "prog_to_nir.h"
@@ -136,15 +137,8 @@ ptn_get_src(struct ptn_compile *c, const struct prog_src_register *prog_src)
 
       assert(prog_src->Index >= 0 && prog_src->Index < VARYING_SLOT_MAX);
 
-      nir_intrinsic_instr *load =
-         nir_intrinsic_instr_create(b->shader, nir_intrinsic_load_var);
-      load->num_components = 4;
-      load->variables[0] = nir_deref_var_create(load, c->input_vars[prog_src->Index]);
-
-      nir_ssa_dest_init(&load->instr, &load->dest, 4, 32, NULL);
-      nir_builder_instr_insert(b, &load->instr);
-
-      src.src = nir_src_for_ssa(&load->dest.ssa);
+      nir_variable *var = c->input_vars[prog_src->Index];
+      src.src = nir_src_for_ssa(nir_load_var(b, var));
       break;
    }
    case PROGRAM_STATE_VAR:
@@ -161,7 +155,8 @@ ptn_get_src(struct ptn_compile *c, const struct prog_src_register *prog_src)
       case PROGRAM_CONSTANT:
          if ((c->prog->arb.IndirectRegisterFiles &
               (1 << PROGRAM_CONSTANT)) == 0) {
-            float *v = (float *) plist->ParameterValues[prog_src->Index];
+            unsigned pvo = plist->ParameterValueOffset[prog_src->Index];
+            float *v = (float *) plist->ParameterValues + pvo;
             src.src = nir_src_for_ssa(nir_imm_vec4(b, v[0], v[1], v[2], v[3]));
             break;
          }
@@ -169,43 +164,14 @@ ptn_get_src(struct ptn_compile *c, const struct prog_src_register *prog_src)
       case PROGRAM_STATE_VAR: {
          assert(c->parameters != NULL);
 
-         nir_intrinsic_instr *load =
-            nir_intrinsic_instr_create(b->shader, nir_intrinsic_load_var);
-         nir_ssa_dest_init(&load->instr, &load->dest, 4, 32, NULL);
-         load->num_components = 4;
+         nir_deref_instr *deref = nir_build_deref_var(b, c->parameters);
 
-         load->variables[0] = nir_deref_var_create(load, c->parameters);
-         nir_deref_array *deref_arr =
-            nir_deref_array_create(load->variables[0]);
-         deref_arr->deref.type = glsl_vec4_type();
-         load->variables[0]->deref.child = &deref_arr->deref;
+         nir_ssa_def *index = nir_imm_int(b, prog_src->Index);
+         if (prog_src->RelAddr)
+            index = nir_iadd(b, index, nir_load_reg(b, c->addr_reg));
+         deref = nir_build_deref_array(b, deref, nir_channel(b, index, 0));
 
-         if (prog_src->RelAddr) {
-            deref_arr->deref_array_type = nir_deref_array_type_indirect;
-
-            nir_alu_src addr_src = { NIR_SRC_INIT };
-            addr_src.src = nir_src_for_reg(c->addr_reg);
-            nir_ssa_def *reladdr = nir_imov_alu(b, addr_src, 1);
-
-            if (prog_src->Index < 0) {
-               /* This is a negative offset which should be added to the address
-                * register's value.
-                */
-               reladdr = nir_iadd(b, reladdr, nir_imm_int(b, prog_src->Index));
-
-               deref_arr->base_offset = 0;
-            } else {
-               deref_arr->base_offset = prog_src->Index;
-            }
-            deref_arr->indirect = nir_src_for_ssa(reladdr);
-         } else {
-            deref_arr->deref_array_type = nir_deref_array_type_direct;
-            deref_arr->base_offset = prog_src->Index;
-         }
-
-         nir_builder_instr_insert(b, &load->instr);
-
-         src.src = nir_src_for_ssa(&load->dest.ssa);
+         src.src = nir_src_for_ssa(nir_load_deref(b, deref));
          break;
       }
       default:
@@ -860,27 +826,17 @@ ptn_add_output_stores(struct ptn_compile *c)
    nir_builder *b = &c->build;
 
    nir_foreach_variable(var, &b->shader->outputs) {
-      nir_intrinsic_instr *store =
-         nir_intrinsic_instr_create(b->shader, nir_intrinsic_store_var);
-      store->num_components = glsl_get_vector_elements(var->type);
-      nir_intrinsic_set_write_mask(store, (1 << store->num_components) - 1);
-      store->variables[0] =
-         nir_deref_var_create(store, c->output_vars[var->data.location]);
-
+      nir_ssa_def *src = nir_load_reg(b, c->output_regs[var->data.location]);
       if (c->prog->Target == GL_FRAGMENT_PROGRAM_ARB &&
           var->data.location == FRAG_RESULT_DEPTH) {
          /* result.depth has this strange convention of being the .z component of
           * a vec4 with undefined .xyw components.  We resolve it to a scalar, to
           * match GLSL's gl_FragDepth and the expectations of most backends.
           */
-         nir_alu_src alu_src = { NIR_SRC_INIT };
-         alu_src.src = nir_src_for_reg(c->output_regs[FRAG_RESULT_DEPTH]);
-         alu_src.swizzle[0] = SWIZZLE_Z;
-         store->src[0] = nir_src_for_ssa(nir_fmov_alu(b, alu_src, 1));
-      } else {
-         store->src[0].reg.reg = c->output_regs[var->data.location];
+         src = nir_channel(b, src, 2);
       }
-      nir_builder_instr_insert(b, &store->instr);
+      unsigned num_components = glsl_get_vector_elements(var->type);
+      nir_store_var(b, var, src, (1 << num_components) - 1);
    }
 }
 
@@ -913,26 +869,16 @@ setup_registers_and_variables(struct ptn_compile *c)
              */
             var->type = glsl_float_type();
 
-            nir_intrinsic_instr *load_x =
-               nir_intrinsic_instr_create(shader, nir_intrinsic_load_var);
-            load_x->num_components = 1;
-            load_x->variables[0] = nir_deref_var_create(load_x, var);
-            nir_ssa_dest_init(&load_x->instr, &load_x->dest, 1, 32, NULL);
-            nir_builder_instr_insert(b, &load_x->instr);
-
-            nir_ssa_def *f001 = nir_vec4(b, &load_x->dest.ssa, nir_imm_float(b, 0.0),
-                                         nir_imm_float(b, 0.0), nir_imm_float(b, 1.0));
-
             nir_variable *fullvar =
                nir_local_variable_create(b->impl, glsl_vec4_type(),
                                          "fogcoord_tmp");
-            nir_intrinsic_instr *store =
-               nir_intrinsic_instr_create(shader, nir_intrinsic_store_var);
-            store->num_components = 4;
-            nir_intrinsic_set_write_mask(store, WRITEMASK_XYZW);
-            store->variables[0] = nir_deref_var_create(store, fullvar);
-            store->src[0] = nir_src_for_ssa(f001);
-            nir_builder_instr_insert(b, &store->instr);
+
+            nir_store_var(b, fullvar,
+                          nir_vec4(b, nir_load_var(b, var),
+                                   nir_imm_float(b, 0.0),
+                                   nir_imm_float(b, 0.0),
+                                   nir_imm_float(b, 1.0)),
+                          WRITEMASK_XYZW);
 
             /* We inserted the real input into the list so the driver has real
              * inputs, but we set c->input_vars[i] to the temporary so we use
@@ -1018,10 +964,8 @@ prog_to_nir(const struct gl_program *prog,
 
    nir_builder_init_simple_shader(&c->build, NULL, stage, options);
 
-   /* Use the shader_info from gl_program rather than the one nir_builder
-    * created for us. nir_sweep should clean up the other one for us.
-    */
-   c->build.shader->info = (shader_info *) &prog->info;
+   /* Copy the shader_info from the gl_program */
+   c->build.shader->info = prog->info;
 
    s = c->build.shader;
 
@@ -1048,16 +992,16 @@ prog_to_nir(const struct gl_program *prog,
 
    ptn_add_output_stores(c);
 
-   s->info->name = ralloc_asprintf(s, "ARB%d", prog->Id);
-   s->info->num_textures = util_last_bit(prog->SamplersUsed);
-   s->info->num_ubos = 0;
-   s->info->num_abos = 0;
-   s->info->num_ssbos = 0;
-   s->info->num_images = 0;
-   s->info->uses_texture_gather = false;
-   s->info->clip_distance_array_size = 0;
-   s->info->cull_distance_array_size = 0;
-   s->info->separate_shader = false;
+   s->info.name = ralloc_asprintf(s, "ARB%d", prog->Id);
+   s->info.num_textures = util_last_bit(prog->SamplersUsed);
+   s->info.num_ubos = 0;
+   s->info.num_abos = 0;
+   s->info.num_ssbos = 0;
+   s->info.num_images = 0;
+   s->info.uses_texture_gather = false;
+   s->info.clip_distance_array_size = 0;
+   s->info.cull_distance_array_size = 0;
+   s->info.separate_shader = false;
 
 fail:
    if (c->error) {

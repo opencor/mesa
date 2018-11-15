@@ -62,7 +62,7 @@ static void mark_used(
 
 /**
  * This pass finds sources that are not used by their instruction and marks
- * them as unused.
+ * them as unused. 
  */
 void rc_pair_remove_dead_sources(struct radeon_compiler * c, void *user)
 {

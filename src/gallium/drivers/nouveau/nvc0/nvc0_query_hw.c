@@ -157,6 +157,7 @@ nvc0_hw_begin_query(struct nvc0_context *nvc0, struct nvc0_query *q)
    switch (q->type) {
    case PIPE_QUERY_OCCLUSION_COUNTER:
    case PIPE_QUERY_OCCLUSION_PREDICATE:
+   case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE:
       hq->nesting = nvc0->screen->num_occlusion_queries_active++;
       if (hq->nesting) {
          nvc0_hw_query_get(push, q, 0x10, 0x0100f002);
@@ -179,6 +180,10 @@ nvc0_hw_begin_query(struct nvc0_context *nvc0, struct nvc0_query *q)
       break;
    case PIPE_QUERY_SO_OVERFLOW_PREDICATE:
       nvc0_hw_query_get(push, q, 0x10, 0x03005002 | (q->index << 5));
+      break;
+   case PIPE_QUERY_SO_OVERFLOW_ANY_PREDICATE:
+      /* XXX: This get actually writes the number of overflowed streams */
+      nvc0_hw_query_get(push, q, 0x10, 0x0f005002);
       break;
    case PIPE_QUERY_TIME_ELAPSED:
       nvc0_hw_query_get(push, q, 0x10, 0x00005002);
@@ -224,6 +229,7 @@ nvc0_hw_end_query(struct nvc0_context *nvc0, struct nvc0_query *q)
    switch (q->type) {
    case PIPE_QUERY_OCCLUSION_COUNTER:
    case PIPE_QUERY_OCCLUSION_PREDICATE:
+   case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE:
       nvc0_hw_query_get(push, q, 0, 0x0100f002);
       if (--nvc0->screen->num_occlusion_queries_active == 0) {
          PUSH_SPACE(push, 1);
@@ -241,10 +247,11 @@ nvc0_hw_end_query(struct nvc0_context *nvc0, struct nvc0_query *q)
       nvc0_hw_query_get(push, q, 0x10, 0x06805002 | (q->index << 5));
       break;
    case PIPE_QUERY_SO_OVERFLOW_PREDICATE:
-      /* TODO: How do we sum over all streams for render condition ? */
-      /* PRIMS_DROPPED doesn't write sequence, use a ZERO query to sync on */
       nvc0_hw_query_get(push, q, 0x00, 0x03005002 | (q->index << 5));
-      nvc0_hw_query_get(push, q, 0x20, 0x00005002);
+      break;
+   case PIPE_QUERY_SO_OVERFLOW_ANY_PREDICATE:
+      /* XXX: This get actually writes the number of overflowed streams */
+      nvc0_hw_query_get(push, q, 0x00, 0x0f005002);
       break;
    case PIPE_QUERY_TIMESTAMP:
    case PIPE_QUERY_TIME_ELAPSED:
@@ -320,6 +327,7 @@ nvc0_hw_get_query_result(struct nvc0_context *nvc0, struct nvc0_query *q,
       res64[0] = hq->data[1] - hq->data[5];
       break;
    case PIPE_QUERY_OCCLUSION_PREDICATE:
+   case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE:
       res8[0] = hq->data[1] != hq->data[5];
       break;
    case PIPE_QUERY_PRIMITIVES_GENERATED: /* u64 count, u64 time */
@@ -331,6 +339,7 @@ nvc0_hw_get_query_result(struct nvc0_context *nvc0, struct nvc0_query *q,
       res64[1] = data64[2] - data64[6];
       break;
    case PIPE_QUERY_SO_OVERFLOW_PREDICATE:
+   case PIPE_QUERY_SO_OVERFLOW_ANY_PREDICATE:
       res8[0] = data64[0] != data64[2];
       break;
    case PIPE_QUERY_TIMESTAMP:
@@ -346,6 +355,7 @@ nvc0_hw_get_query_result(struct nvc0_context *nvc0, struct nvc0_query *q,
    case PIPE_QUERY_PIPELINE_STATISTICS:
       for (i = 0; i < 10; ++i)
          res64[i] = data64[i * 2] - data64[24 + i * 2];
+      result->pipeline_statistics.cs_invocations = 0;
       break;
    case NVC0_HW_QUERY_TFB_BUFFER_OFFSET:
       res32[0] = hq->data[1];
@@ -382,6 +392,12 @@ nvc0_hw_get_query_result_resource(struct nvc0_context *nvc0,
       nvc0->base.push_cb(&nvc0->base, buf, offset,
                          result_type >= PIPE_QUERY_TYPE_I64 ? 2 : 1,
                          ready);
+
+      util_range_add(&buf->valid_buffer_range, offset,
+                     offset + (result_type >= PIPE_QUERY_TYPE_I64 ? 8 : 4));
+
+      nvc0_resource_validate(buf, NOUVEAU_BO_WR);
+
       return;
    }
 
@@ -407,14 +423,22 @@ nvc0_hw_get_query_result_resource(struct nvc0_context *nvc0,
    PUSH_REFN (push, hq->bo, NOUVEAU_BO_GART | NOUVEAU_BO_RD);
    PUSH_REFN (push, buf->bo, buf->domain | NOUVEAU_BO_WR);
    BEGIN_1IC0(push, NVC0_3D(MACRO_QUERY_BUFFER_WRITE), 9);
-   if (q->type == PIPE_QUERY_OCCLUSION_PREDICATE) /* XXX what if 64-bit? */
+   switch (q->type) {
+   case PIPE_QUERY_OCCLUSION_PREDICATE:
+   case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE: /* XXX what if 64-bit? */
+   case PIPE_QUERY_SO_OVERFLOW_PREDICATE:
+   case PIPE_QUERY_SO_OVERFLOW_ANY_PREDICATE:
       PUSH_DATA(push, 0x00000001);
-   else if (result_type == PIPE_QUERY_TYPE_I32)
-      PUSH_DATA(push, 0x7fffffff);
-   else if (result_type == PIPE_QUERY_TYPE_U32)
-      PUSH_DATA(push, 0xffffffff);
-   else
-      PUSH_DATA(push, 0x00000000);
+      break;
+   default:
+      if (result_type == PIPE_QUERY_TYPE_I32)
+         PUSH_DATA(push, 0x7fffffff);
+      else if (result_type == PIPE_QUERY_TYPE_U32)
+         PUSH_DATA(push, 0xffffffff);
+      else
+         PUSH_DATA(push, 0x00000000);
+      break;
+   }
 
    switch (q->type) {
    case PIPE_QUERY_SO_STATISTICS:
@@ -468,10 +492,10 @@ nvc0_hw_get_query_result_resource(struct nvc0_context *nvc0,
    PUSH_DATAh(push, buf->address + offset);
    PUSH_DATA (push, buf->address + offset);
 
-   if (buf->mm) {
-      nouveau_fence_ref(nvc0->screen->base.fence.current, &buf->fence);
-      nouveau_fence_ref(nvc0->screen->base.fence.current, &buf->fence_wr);
-   }
+   util_range_add(&buf->valid_buffer_range, offset,
+                  offset + (result_type >= PIPE_QUERY_TYPE_I64 ? 8 : 4));
+
+   nvc0_resource_validate(buf, NOUVEAU_BO_WR);
 }
 
 static const struct nvc0_query_funcs hw_query_funcs = {
@@ -508,10 +532,12 @@ nvc0_hw_create_query(struct nvc0_context *nvc0, unsigned type, unsigned index)
    q = &hq->base;
    q->funcs = &hw_query_funcs;
    q->type = type;
+   q->index = index;
 
    switch (q->type) {
    case PIPE_QUERY_OCCLUSION_COUNTER:
    case PIPE_QUERY_OCCLUSION_PREDICATE:
+   case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE:
       hq->rotate = 32;
       space = NVC0_HW_QUERY_ALLOC_SPACE;
       break;
@@ -520,14 +546,14 @@ nvc0_hw_create_query(struct nvc0_context *nvc0, unsigned type, unsigned index)
       space = 512;
       break;
    case PIPE_QUERY_SO_STATISTICS:
-   case PIPE_QUERY_SO_OVERFLOW_PREDICATE:
       hq->is64bit = true;
       space = 64;
       break;
+   case PIPE_QUERY_SO_OVERFLOW_PREDICATE:
+   case PIPE_QUERY_SO_OVERFLOW_ANY_PREDICATE:
    case PIPE_QUERY_PRIMITIVES_GENERATED:
    case PIPE_QUERY_PRIMITIVES_EMITTED:
       hq->is64bit = true;
-      q->index = index;
       space = 32;
       break;
    case PIPE_QUERY_TIME_ELAPSED:
@@ -599,7 +625,9 @@ nvc0_hw_query_fifo_wait(struct nvc0_context *nvc0, struct nvc0_query *q)
    struct nvc0_hw_query *hq = nvc0_hw_query(q);
    unsigned offset = hq->offset;
 
-   if (q->type == PIPE_QUERY_SO_OVERFLOW_PREDICATE) offset += 0x20;
+   /* ensure the query's fence has been emitted */
+   if (hq->is64bit && hq->fence->state < NOUVEAU_FENCE_STATE_EMITTED)
+      nouveau_fence_emit(hq->fence);
 
    PUSH_SPACE(push, 5);
    PUSH_REFN (push, hq->bo, NOUVEAU_BO_GART | NOUVEAU_BO_RD);
@@ -614,5 +642,5 @@ nvc0_hw_query_fifo_wait(struct nvc0_context *nvc0, struct nvc0_query *q)
       PUSH_DATA (push, hq->sequence);
    }
    PUSH_DATA (push, (1 << 12) |
-              NV84_SUBCHAN_SEMAPHORE_TRIGGER_ACQUIRE_EQUAL);
+              NV84_SUBCHAN_SEMAPHORE_TRIGGER_ACQUIRE_GEQUAL);
 }

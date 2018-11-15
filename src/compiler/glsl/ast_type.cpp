@@ -69,6 +69,10 @@ ast_type_qualifier::has_layout() const
           || this->flags.q.column_major
           || this->flags.q.row_major
           || this->flags.q.packed
+          || this->flags.q.bindless_sampler
+          || this->flags.q.bindless_image
+          || this->flags.q.bound_sampler
+          || this->flags.q.bound_image
           || this->flags.q.explicit_align
           || this->flags.q.explicit_component
           || this->flags.q.explicit_location
@@ -181,6 +185,30 @@ validate_point_mode(MAYBE_UNUSED const ast_type_qualifier &qualifier,
    return true;
 }
 
+static void
+merge_bindless_qualifier(_mesa_glsl_parse_state *state)
+{
+   if (state->default_uniform_qualifier->flags.q.bindless_sampler) {
+      state->bindless_sampler_specified = true;
+      state->default_uniform_qualifier->flags.q.bindless_sampler = false;
+   }
+
+   if (state->default_uniform_qualifier->flags.q.bindless_image) {
+      state->bindless_image_specified = true;
+      state->default_uniform_qualifier->flags.q.bindless_image = false;
+   }
+
+   if (state->default_uniform_qualifier->flags.q.bound_sampler) {
+      state->bound_sampler_specified = true;
+      state->default_uniform_qualifier->flags.q.bound_sampler = false;
+   }
+
+   if (state->default_uniform_qualifier->flags.q.bound_image) {
+      state->bound_image_specified = true;
+      state->default_uniform_qualifier->flags.q.bound_image = false;
+   }
+}
+
 /**
  * This function merges duplicate layout identifiers.
  *
@@ -242,6 +270,17 @@ ast_type_qualifier::merge_qualifier(YYLTYPE *loc,
    input_layout_mask.flags.q.precise = 1;
    input_layout_mask.flags.q.sample = 1;
    input_layout_mask.flags.q.smooth = 1;
+   input_layout_mask.flags.q.non_coherent = 1;
+
+   if (state->has_bindless()) {
+      /* Allow to use image qualifiers with shader inputs/outputs. */
+      input_layout_mask.flags.q.coherent = 1;
+      input_layout_mask.flags.q._volatile = 1;
+      input_layout_mask.flags.q.restrict_flag = 1;
+      input_layout_mask.flags.q.read_only = 1;
+      input_layout_mask.flags.q.write_only = 1;
+      input_layout_mask.flags.q.explicit_image_format = 1;
+   }
 
    /* Uniform block layout qualifiers get to overwrite each
     * other (rightmost having priority), while all other
@@ -393,6 +432,18 @@ ast_type_qualifier::merge_qualifier(YYLTYPE *loc,
    if (q.flags.q.local_size_variable)
       this->flags.q.local_size_variable = true;
 
+   if (q.flags.q.bindless_sampler)
+      this->flags.q.bindless_sampler = true;
+
+   if (q.flags.q.bindless_image)
+      this->flags.q.bindless_image = true;
+
+   if (q.flags.q.bound_sampler)
+      this->flags.q.bound_sampler = true;
+
+   if (q.flags.q.bound_image)
+      this->flags.q.bound_image = true;
+
    this->flags.i |= q.flags.i;
 
    if (this->flags.q.in &&
@@ -426,6 +477,12 @@ ast_type_qualifier::merge_qualifier(YYLTYPE *loc,
       this->image_format = q.image_format;
       this->image_base_type = q.image_base_type;
    }
+
+   if (q.flags.q.bindless_sampler ||
+       q.flags.q.bindless_image ||
+       q.flags.q.bound_sampler ||
+       q.flags.q.bound_image)
+      merge_bindless_qualifier(state);
 
    return r;
 }
@@ -580,6 +637,10 @@ ast_type_qualifier::validate_in_qualifier(YYLTYPE *loc,
       valid_in_mask.flags.q.early_fragment_tests = 1;
       valid_in_mask.flags.q.inner_coverage = 1;
       valid_in_mask.flags.q.post_depth_coverage = 1;
+      valid_in_mask.flags.q.pixel_interlock_ordered = 1;
+      valid_in_mask.flags.q.pixel_interlock_unordered = 1;
+      valid_in_mask.flags.q.sample_interlock_ordered = 1;
+      valid_in_mask.flags.q.sample_interlock_unordered = 1;
       break;
    case MESA_SHADER_COMPUTE:
       valid_in_mask.flags.q.local_size = 7;
@@ -651,6 +712,35 @@ ast_type_qualifier::merge_into_in_qualifier(YYLTYPE *loc,
       r = false;
    }
 
+   if (state->in_qualifier->flags.q.pixel_interlock_ordered) {
+      state->fs_pixel_interlock_ordered = true;
+      state->in_qualifier->flags.q.pixel_interlock_ordered = false;
+   }
+
+   if (state->in_qualifier->flags.q.pixel_interlock_unordered) {
+      state->fs_pixel_interlock_unordered = true;
+      state->in_qualifier->flags.q.pixel_interlock_unordered = false;
+   }
+
+   if (state->in_qualifier->flags.q.sample_interlock_ordered) {
+      state->fs_sample_interlock_ordered = true;
+      state->in_qualifier->flags.q.sample_interlock_ordered = false;
+   }
+
+   if (state->in_qualifier->flags.q.sample_interlock_unordered) {
+      state->fs_sample_interlock_unordered = true;
+      state->in_qualifier->flags.q.sample_interlock_unordered = false;
+   }
+
+   if (state->fs_pixel_interlock_ordered +
+       state->fs_pixel_interlock_unordered +
+       state->fs_sample_interlock_ordered +
+       state->fs_sample_interlock_unordered > 1) {
+      _mesa_glsl_error(loc, state,
+                       "only one interlock mode can be used at any time.");
+      r = false;
+   }
+
    /* We allow the creation of multiple cs_input_layout nodes. Coherence among
     * all existing nodes is checked later, when the AST node is transformed
     * into HIR.
@@ -719,7 +809,7 @@ ast_type_qualifier::validate_flags(YYLTYPE *loc,
                     "%s '%s':"
                     "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s"
                     "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s"
-                    "%s%s%s%s%s%s%s%s%s%s%s%s%s%s\n",
+                    "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\n",
                     message, name,
                     bad.flags.q.invariant ? " invariant" : "",
                     bad.flags.q.precise ? " precise" : "",
@@ -778,7 +868,16 @@ ast_type_qualifier::validate_flags(YYLTYPE *loc,
                     bad.flags.q.subroutine ? " subroutine" : "",
                     bad.flags.q.blend_support ? " blend_support" : "",
                     bad.flags.q.inner_coverage ? " inner_coverage" : "",
-                    bad.flags.q.post_depth_coverage ? " post_depth_coverage" : "");
+                    bad.flags.q.bindless_sampler ? " bindless_sampler" : "",
+                    bad.flags.q.bindless_image ? " bindless_image" : "",
+                    bad.flags.q.bound_sampler ? " bound_sampler" : "",
+                    bad.flags.q.bound_image ? " bound_image" : "",
+                    bad.flags.q.post_depth_coverage ? " post_depth_coverage" : "",
+                    bad.flags.q.pixel_interlock_ordered ? " pixel_interlock_ordered" : "",
+                    bad.flags.q.pixel_interlock_unordered ? " pixel_interlock_unordered": "",
+                    bad.flags.q.sample_interlock_ordered ? " sample_interlock_ordered": "",
+                    bad.flags.q.sample_interlock_unordered ? " sample_interlock_unordered": "",
+                    bad.flags.q.non_coherent ? " noncoherent" : "");
    return false;
 }
 
@@ -803,7 +902,9 @@ ast_layout_expression::process_qualifier_constant(struct _mesa_glsl_parse_state 
 
       ir_rvalue *const ir = const_expression->hir(&dummy_instructions, state);
 
-      ir_constant *const const_int = ir->constant_expression_value();
+      ir_constant *const const_int =
+         ir->constant_expression_value(ralloc_parent(ir));
+
       if (const_int == NULL || !const_int->type->is_integer()) {
          YYLTYPE loc = const_expression->get_location();
          _mesa_glsl_error(&loc, state, "%s must be an integral constant "
@@ -858,7 +959,8 @@ process_qualifier_constant(struct _mesa_glsl_parse_state *state,
 
    ir_rvalue *const ir = const_expression->hir(&dummy_instructions, state);
 
-   ir_constant *const const_int = ir->constant_expression_value();
+   ir_constant *const const_int =
+      ir->constant_expression_value(ralloc_parent(ir));
    if (const_int == NULL || !const_int->type->is_integer()) {
       _mesa_glsl_error(loc, state, "%s must be an integral constant "
                        "expression", qual_indentifier);

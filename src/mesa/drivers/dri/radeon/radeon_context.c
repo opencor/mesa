@@ -67,7 +67,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "radeon_fog.h"
 
 #include "utils.h"
-#include "xmlpool.h" /* for symbolic values of enum-type options */
+#include "util/xmlpool.h" /* for symbolic values of enum-type options */
 
 extern const struct tnl_pipeline_stage _radeon_render_stage;
 extern const struct tnl_pipeline_stage _radeon_tcl_stage;
@@ -76,7 +76,7 @@ static const struct tnl_pipeline_stage *radeon_pipeline[] = {
 
    /* Try and go straight to t&l
     */
-   &_radeon_tcl_stage,
+   &_radeon_tcl_stage,  
 
    /* Catch any t&l fallbacks
     */
@@ -95,7 +95,7 @@ static const struct tnl_pipeline_stage *radeon_pipeline[] = {
 static void r100_vtbl_pre_emit_state(radeonContextPtr radeon)
 {
    r100ContextPtr rmesa = (r100ContextPtr)radeon;
-
+   
    /* r100 always needs to emit ZBS to avoid TCL lockups */
    rmesa->hw.zbs.dirty = 1;
    radeon->hw.is_dirty = 1;
@@ -140,10 +140,7 @@ GLboolean
 r100CreateContext( gl_api api,
 		   const struct gl_config *glVisual,
 		   __DRIcontext *driContextPriv,
-		   unsigned major_version,
-		   unsigned minor_version,
-		   uint32_t flags,
-                   bool notify_reset,
+		   const struct __DriverContextConfig *ctx_config,
 		   unsigned *error,
 		   void *sharedContextPrivate)
 {
@@ -155,17 +152,16 @@ r100CreateContext( gl_api api,
    int i;
    int tcl_mode, fthrottle_mode;
 
-   if (flags & ~__DRI_CTX_FLAG_DEBUG) {
+   if (ctx_config->flags & ~(__DRI_CTX_FLAG_DEBUG | __DRI_CTX_FLAG_NO_ERROR)) {
       *error = __DRI_CTX_ERROR_UNKNOWN_FLAG;
       return false;
    }
 
-   if (notify_reset) {
+   if (ctx_config->attribute_mask) {
       *error = __DRI_CTX_ERROR_UNKNOWN_ATTRIBUTE;
       return false;
    }
 
-   assert(glVisual);
    assert(driContextPriv);
    assert(screen);
 
@@ -181,7 +177,7 @@ r100CreateContext( gl_api api,
 
    /* init exp fog table data */
    radeonInitStaticFogData();
-
+   
    /* Parse configuration files.
     * Do this here so that initialMaxAnisotropy is set before we create
     * the default textures.
@@ -198,6 +194,7 @@ r100CreateContext( gl_api api,
     * (the texture functions are especially important)
     */
    _mesa_init_driver_functions( &functions );
+   _tnl_init_driver_draw_function( &functions );
    radeonInitTextureFuncs( &rmesa->radeon, &functions );
    radeonInitQueryObjFunctions(&functions);
 
@@ -214,7 +211,7 @@ r100CreateContext( gl_api api,
 
    ctx = &rmesa->radeon.glCtx;
 
-   driContextSetFlags(ctx, flags);
+   driContextSetFlags(ctx, ctx_config->flags);
 
    /* Initialize the software rasterizer and helper modules.
     */
@@ -232,7 +229,7 @@ r100CreateContext( gl_api api,
 
    ctx->Const.StripTextureBorder = GL_TRUE;
 
-   /* FIXME: When no memory manager is available we should set this
+   /* FIXME: When no memory manager is available we should set this 
     * to some reasonable value based on texture memory pool size */
    ctx->Const.MaxTextureLevels = 12;
    ctx->Const.Max3DTextureLevels = 9;
@@ -259,9 +256,9 @@ r100CreateContext( gl_api api,
     * fit in a single dma buffer for indexed rendering of quad strips,
     * etc.
     */
-   ctx->Const.MaxArrayLockSize =
-      MIN2( ctx->Const.MaxArrayLockSize,
- 	    RADEON_BUFFER_SIZE / RADEON_MAX_TCL_VERTSIZE );
+   ctx->Const.MaxArrayLockSize = 
+      MIN2( ctx->Const.MaxArrayLockSize, 
+ 	    RADEON_BUFFER_SIZE / RADEON_MAX_TCL_VERTSIZE ); 
 
    rmesa->boxes = 0;
 
@@ -301,6 +298,7 @@ r100CreateContext( gl_api api,
    ctx->Extensions.ARB_texture_env_combine = true;
    ctx->Extensions.ARB_texture_env_crossbar = true;
    ctx->Extensions.ARB_texture_env_dot3 = true;
+   ctx->Extensions.ARB_texture_filter_anisotropic = true;
    ctx->Extensions.ARB_texture_mirror_clamp_to_edge = true;
    ctx->Extensions.ATI_texture_env_combine3 = true;
    ctx->Extensions.ATI_texture_mirror_once = true;
@@ -311,14 +309,8 @@ r100CreateContext( gl_api api,
    ctx->Extensions.NV_texture_rectangle = true;
    ctx->Extensions.OES_EGL_image = true;
 
-   if (rmesa->radeon.glCtx.Mesa_DXTn) {
-      ctx->Extensions.EXT_texture_compression_s3tc = true;
-      ctx->Extensions.ANGLE_texture_compression_dxt = true;
-   }
-   else if (driQueryOptionb (&rmesa->radeon.optionCache, "force_s3tc_enable")) {
-      ctx->Extensions.EXT_texture_compression_s3tc = true;
-      ctx->Extensions.ANGLE_texture_compression_dxt = true;
-   }
+   ctx->Extensions.EXT_texture_compression_s3tc = true;
+   ctx->Extensions.ANGLE_texture_compression_dxt = true;
 
    /* XXX these should really go right after _mesa_init_driver_functions() */
    radeon_fbo_init(&rmesa->radeon);
@@ -328,7 +320,7 @@ r100CreateContext( gl_api api,
    radeonInitState( rmesa );
    radeonInitSwtcl( ctx );
 
-   _mesa_vector4f_alloc( &rmesa->tcl.ObjClean, 0,
+   _mesa_vector4f_alloc( &rmesa->tcl.ObjClean, 0, 
 			 ctx->Const.MaxArrayLockSize, 32 );
 
    fthrottle_mode = driQueryOptioni(&rmesa->radeon.optionCache, "fthrottle_mode");
@@ -338,12 +330,6 @@ r100CreateContext( gl_api api,
 			    fthrottle_mode == DRI_CONF_FTHROTTLE_IRQS);
 
    rmesa->radeon.do_usleeps = (fthrottle_mode == DRI_CONF_FTHROTTLE_USLEEPS);
-
-
-#if DO_DEBUG
-   RADEON_DEBUG = parse_debug_string( getenv( "RADEON_DEBUG" ),
-                                      debug_control );
-#endif
 
    tcl_mode = driQueryOptioni(&rmesa->radeon.optionCache, "tcl_mode");
    if (driQueryOptionb(&rmesa->radeon.optionCache, "no_rast")) {
@@ -362,6 +348,7 @@ r100CreateContext( gl_api api,
 /*       _tnl_need_dlist_norm_lengths( ctx, GL_FALSE ); */
    }
 
+   _mesa_override_extensions(ctx);
    _mesa_compute_version(ctx);
 
    /* Exec table initialization requires the version to be computed */

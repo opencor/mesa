@@ -183,7 +183,7 @@ static void so_emit_prim(struct pt_so_emit *so,
                             draw->so.targets[ob]->target.buffer_offset +
                             draw->so.targets[ob]->internal_offset) +
             state->output[slot].dst_offset;
-
+         
          if (idx == so->pos_idx && pcp_ptr)
             memcpy(buffer, &pre_clip_pos[start_comp],
                    num_comps * sizeof(float));

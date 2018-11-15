@@ -1,19 +1,19 @@
 /*
  * Mesa 3-D graphics library
- *
+ * 
  * Copyright (C) 1999-2008  Brian Paul   All Rights Reserved.
  * Copyright (C) 2009  VMware, Inc.  All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
  * the rights to use, copy, modify, merge, publish, distribute, sublicense,
  * and/or sell copies of the Software, and to permit persons to whom the
  * Software is furnished to do so, subject to the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice shall be included
  * in all copies or substantial portions of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
@@ -43,7 +43,7 @@ struct name_address_pair {
 };
 
 
-static struct name_address_pair GLX_functions[] = {
+static const struct name_address_pair GLX_functions[] = {
    /*** GLX_VERSION_1_0 ***/
    { "glXChooseVisual", (__GLXextFuncPtr) glXChooseVisual },
    { "glXCopyContext", (__GLXextFuncPtr) glXCopyContext },
@@ -146,13 +146,6 @@ static struct name_address_pair GLX_functions[] = {
 #if defined(_DM_BUFFER_H_)
    { "glXAssociateDMPbufferSGIX", (__GLXextFuncPtr) glXAssociateDMPbufferSGIX },
 #endif
-
-   /*** GLX_SGIX_swap_group ***/
-   { "glXJoinSwapGroupSGIX", (__GLXextFuncPtr) glXJoinSwapGroupSGIX },
-
-   /*** GLX_SGIX_swap_barrier ***/
-   { "glXBindSwapBarrierSGIX", (__GLXextFuncPtr) glXBindSwapBarrierSGIX },
-   { "glXQueryMaxSwapBarriersSGIX", (__GLXextFuncPtr) glXQueryMaxSwapBarriersSGIX },
 
    /*** GLX_SUN_get_transparent_index ***/
    { "glXGetTransparentIndexSUN", (__GLXextFuncPtr) glXGetTransparentIndexSUN },

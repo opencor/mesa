@@ -168,7 +168,8 @@ svga_shader_emit_header(struct svga_shader_emitter *emit)
 struct svga_shader_variant *
 svga_tgsi_vgpu9_translate(struct svga_context *svga,
                           const struct svga_shader *shader,
-                          const struct svga_compile_key *key, unsigned unit)
+                          const struct svga_compile_key *key,
+                          enum pipe_shader_type unit)
 {
    struct svga_shader_variant *variant = NULL;
    struct svga_shader_emitter emit;
@@ -206,6 +207,12 @@ svga_tgsi_vgpu9_translate(struct svga_context *svga,
    if (emit.nr_hw_temp >= SVGA3D_TEMPREG_MAX) {
       debug_printf("svga: too many temporary registers (%u)\n",
                    emit.nr_hw_temp);
+      goto fail;
+   }
+
+   if (emit.info.indirect_files & (1 << TGSI_FILE_TEMPORARY)) {
+      debug_printf(
+         "svga: indirect indexing of temporary registers is not supported.\n");
       goto fail;
    }
 

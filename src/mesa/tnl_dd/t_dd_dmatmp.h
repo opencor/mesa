@@ -140,7 +140,7 @@ static void TAG(render_line_strip_verts)(struct gl_context *ctx,
       TAG(emit_verts)(ctx, start + j, nr, ALLOC_VERTS(nr));
       currentsz = dmasz;
    }
-
+ 
    FLUSH();
 }
 
@@ -476,7 +476,7 @@ static bool TAG(validate_render)(struct gl_context *ctx,
       default:
          break;
       }
-
+      
       if (!ok) {
 /*          fprintf(stderr, "not ok %s\n", _mesa_enum_to_string(prim & PRIM_MODE_MASK)); */
          return false;

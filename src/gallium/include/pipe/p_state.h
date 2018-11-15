@@ -34,6 +34,10 @@
  * Basic notes:
  *   1. Want compact representations, so we use bitfields.
  *   2. Put bitfields before other (GLfloat) fields.
+ *   3. enum bitfields need to be at least one bit extra in size so the most
+ *      significant bit is zero.  MSVC treats enums as signed so if the high
+ *      bit is set, the value will be interpreted as a negative number.
+ *      That causes trouble in various places.
  */
 
 
@@ -60,7 +64,7 @@ extern "C" {
 #define PIPE_MAX_SAMPLERS         32
 #define PIPE_MAX_SHADER_INPUTS    80 /* 32 GENERIC + 32 PATCH + 16 others */
 #define PIPE_MAX_SHADER_OUTPUTS   80 /* 32 GENERIC + 32 PATCH + 16 others */
-#define PIPE_MAX_SHADER_SAMPLER_VIEWS 32
+#define PIPE_MAX_SHADER_SAMPLER_VIEWS 128
 #define PIPE_MAX_SHADER_BUFFERS   32
 #define PIPE_MAX_SHADER_IMAGES    32
 #define PIPE_MAX_TEXTURE_LEVELS   16
@@ -70,7 +74,9 @@ extern "C" {
 #define PIPE_MAX_CLIP_OR_CULL_DISTANCE_COUNT 8
 #define PIPE_MAX_CLIP_OR_CULL_DISTANCE_ELEMENT_COUNT 2
 #define PIPE_MAX_WINDOW_RECTANGLES 8
+#define PIPE_MAX_SAMPLE_LOCATION_GRID_SIZE 4
 
+#define PIPE_MAX_HW_ATOMIC_BUFFERS 32
 
 struct pipe_reference
 {
@@ -108,6 +114,7 @@ struct pipe_rasterizer_state
    unsigned line_smooth:1;
    unsigned line_stipple_enable:1;
    unsigned line_last_pixel:1;
+   unsigned conservative_raster_mode:2; /**< PIPE_CONSERVATIVE_RASTER_x */
 
    /**
     * Use the first vertex of a primitive as the provoking vertex for
@@ -118,11 +125,27 @@ struct pipe_rasterizer_state
    unsigned half_pixel_center:1;
    unsigned bottom_edge_rule:1;
 
+   /*
+    * Conservative rasterization subpixel precision bias in bits
+    */
+   unsigned subpixel_precision_x:4;
+   unsigned subpixel_precision_y:4;
+
    /**
     * When true, rasterization is disabled and no pixels are written.
     * This only makes sense with the Stream Out functionality.
     */
    unsigned rasterizer_discard:1;
+
+   /**
+    * Exposed by PIPE_CAP_TILE_RASTER_ORDER.  When true,
+    * tile_raster_order_increasing_* indicate the order that the rasterizer
+    * should render tiles, to meet the requirements of
+    * GL_MESA_tile_raster_order.
+    */
+   unsigned tile_raster_order_fixed:1;
+   unsigned tile_raster_order_increasing_x:1;
+   unsigned tile_raster_order_increasing_y:1;
 
    /**
     * When false, depth clipping is disabled and the depth value will be
@@ -171,6 +194,7 @@ struct pipe_rasterizer_state
    float offset_units;
    float offset_scale;
    float offset_clamp;
+   float conservative_raster_dilate;
 };
 
 
@@ -252,7 +276,6 @@ struct pipe_shader_state
    /* TODO move tokens into union. */
    const struct tgsi_token *tokens;
    union {
-      void *llvm;
       void *native;
       void *nir;
    } ir;
@@ -426,8 +449,8 @@ struct pipe_surface
 struct pipe_sampler_view
 {
    struct pipe_reference reference;
-   enum pipe_format format:16;      /**< typed PIPE_FORMAT_x */
-   enum pipe_texture_target target:4; /**< PIPE_TEXTURE_x */
+   enum pipe_format format:15;      /**< typed PIPE_FORMAT_x */
+   enum pipe_texture_target target:5; /**< PIPE_TEXTURE_x */
    unsigned swizzle_r:3;         /**< PIPE_SWIZZLE_x for red component */
    unsigned swizzle_g:3;         /**< PIPE_SWIZZLE_x for green component */
    unsigned swizzle_b:3;         /**< PIPE_SWIZZLE_x for blue component */
@@ -496,7 +519,6 @@ struct pipe_box
 struct pipe_resource
 {
    struct pipe_reference reference;
-   struct pipe_screen *screen; /**< screen that this texture belongs to */
 
    unsigned width0; /**< Used by both buffers and textures. */
    uint16_t height0; /* Textures: The maximum height/depth/array_size is 16k. */
@@ -506,9 +528,20 @@ struct pipe_resource
    enum pipe_format format:16;         /**< PIPE_FORMAT_x */
    enum pipe_texture_target target:8; /**< PIPE_TEXTURE_x */
    unsigned last_level:8;    /**< Index of last mipmap level present/defined */
-   unsigned nr_samples:8;    /**< for multisampled surfaces, nr of samples */
-   unsigned usage:8;         /**< PIPE_USAGE_x (not a bitmask) */
 
+   /** Number of samples determining quality, driving rasterizer, shading,
+    *  and framebuffer.
+    */
+   unsigned nr_samples:8;
+
+   /** Multiple samples within a pixel can have the same value.
+    *  nr_storage_samples determines how many slots for different values
+    *  there are per pixel. Only color buffers can set this lower than
+    *  nr_samples.
+    */
+   unsigned nr_storage_samples:8;
+
+   unsigned usage:8;         /**< PIPE_USAGE_x (not a bitmask) */
    unsigned bind;            /**< bitmask of PIPE_BIND_x */
    unsigned flags;           /**< bitmask of PIPE_RESOURCE_FLAG_x */
 
@@ -517,6 +550,8 @@ struct pipe_resource
     * next plane.
     */
    struct pipe_resource *next;
+   /* The screen pointer should be last for optimal structure packing. */
+   struct pipe_screen *screen; /**< screen that this texture belongs to */
 };
 
 
@@ -534,7 +569,6 @@ struct pipe_transfer
 };
 
 
-
 /**
  * A vertex buffer.  Typically, all the vertex data/attributes for
  * drawing something will be in one buffer.  But it's also possible, for
@@ -542,10 +576,14 @@ struct pipe_transfer
  */
 struct pipe_vertex_buffer
 {
-   unsigned stride;    /**< stride to same attrib in next vertex, in bytes */
+   uint16_t stride;    /**< stride to same attrib in next vertex, in bytes */
+   bool is_user_buffer;
    unsigned buffer_offset;  /**< offset to start of data in buffer, in bytes */
-   struct pipe_resource *buffer;  /**< the actual buffer */
-   const void *user_buffer;  /**< pointer to a user buffer if buffer == NULL */
+
+   union {
+      struct pipe_resource *resource;  /**< the actual buffer */
+      const void *user;  /**< pointer to a user buffer */
+   } buffer;
 };
 
 
@@ -625,16 +663,37 @@ struct pipe_vertex_element
 };
 
 
-/**
- * An index buffer.  When an index buffer is bound, all indices to vertices
- * will be looked up in the buffer.
- */
-struct pipe_index_buffer
+struct pipe_draw_indirect_info
 {
-   unsigned index_size;  /**< size of an index, in bytes */
-   unsigned offset;  /**< offset to start of data in buffer, in bytes */
-   struct pipe_resource *buffer; /**< the actual buffer */
-   const void *user_buffer;  /**< pointer to a user buffer if buffer == NULL */
+   unsigned offset; /**< must be 4 byte aligned */
+   unsigned stride; /**< must be 4 byte aligned */
+   unsigned draw_count; /**< number of indirect draws */
+   unsigned indirect_draw_count_offset; /**< must be 4 byte aligned */
+
+   /* Indirect draw parameters resource is laid out as follows:
+    *
+    * if using indexed drawing:
+    *  struct {
+    *     uint32_t count;
+    *     uint32_t instance_count;
+    *     uint32_t start;
+    *     int32_t index_bias;
+    *     uint32_t start_instance;
+    *  };
+    * otherwise:
+    *  struct {
+    *     uint32_t count;
+    *     uint32_t instance_count;
+    *     uint32_t start;
+    *     uint32_t start_instance;
+    *  };
+    */
+   struct pipe_resource *buffer;
+
+   /* Indirect draw count resource: If not NULL, contains a 32-bit value which
+    * is to be used as the real draw_count.
+    */
+   struct pipe_resource *indirect_draw_count;
 };
 
 
@@ -643,12 +702,18 @@ struct pipe_index_buffer
  */
 struct pipe_draw_info
 {
-   boolean indexed;  /**< use index buffer */
+   ubyte index_size;  /**< if 0, the draw is not indexed. */
    enum pipe_prim_type mode:8;  /**< the mode of the primitive */
-   boolean primitive_restart;
+   unsigned primitive_restart:1;
+   unsigned has_user_indices:1; /**< if true, use index.user_buffer */
    ubyte vertices_per_patch; /**< the number of vertices per patch */
 
-   unsigned start;  /**< the index of the first vertex */
+   /**
+    * Direct draws: start is the index of the first vertex
+    * Non-indexed indirect draws: not used
+    * Indexed indirect draws: start is added to the indirect start.
+    */
+   unsigned start;
    unsigned count;  /**< number of vertices */
 
    unsigned start_instance; /**< first instance id */
@@ -668,40 +733,20 @@ struct pipe_draw_info
     */
    unsigned restart_index;
 
-   unsigned indirect_offset; /**< must be 4 byte aligned */
-   unsigned indirect_stride; /**< must be 4 byte aligned */
-   unsigned indirect_count; /**< number of indirect draws */
-
-   unsigned indirect_params_offset; /**< must be 4 byte aligned */
-
    /* Pointers must be at the end for an optimal structure layout on 64-bit. */
 
-   /* Indirect draw parameters resource: If not NULL, most values are taken
-    * from this buffer instead, which is laid out as follows:
+   /**
+    * An index buffer.  When an index buffer is bound, all indices to vertices
+    * will be looked up from the buffer.
     *
-    * if indexed is TRUE:
-    *  struct {
-    *     uint32_t count;
-    *     uint32_t instance_count;
-    *     uint32_t start;
-    *     int32_t index_bias;
-    *     uint32_t start_instance;
-    *  };
-    * otherwise:
-    *  struct {
-    *     uint32_t count;
-    *     uint32_t instance_count;
-    *     uint32_t start;
-    *     uint32_t start_instance;
-    *  };
+    * If has_user_indices, use index.user, else use index.resource.
     */
-   struct pipe_resource *indirect;
+   union {
+      struct pipe_resource *resource;  /**< real buffer */
+      const void *user;  /**< pointer to a user buffer */
+   } index;
 
-   /* Indirect draw count resource: If not NULL, contains a 32-bit value which
-    * is to be used as the real indirect_count. In that case indirect_count
-    * becomes the maximum possible value.
-    */
-   struct pipe_resource *indirect_params;
+   struct pipe_draw_indirect_info *indirect; /**< Indirect draw. */
 
    /**
     * Stream output target. If not NULL, it's used to provide the 'count'
@@ -757,8 +802,9 @@ struct pipe_blit_info
 struct pipe_grid_info
 {
    /**
-    * For drivers that use PIPE_SHADER_IR_LLVM as their prefered IR, this value
-    * will be the index of the kernel in the opencl.kernels metadata list.
+    * For drivers that use PIPE_SHADER_IR_NATIVE as their prefered IR, this
+    * value will be the index of the kernel in the opencl.kernels metadata
+    * list.
     */
    uint32_t pc;
 
@@ -876,6 +922,14 @@ struct pipe_memory_info
    unsigned avail_staging_memory; /**< free staging memory at the moment */
    unsigned device_memory_evicted; /**< size of memory evicted (monotonic counter) */
    unsigned nr_device_memory_evictions; /**< # of evictions (monotonic counter) */
+};
+
+/**
+ * Structure that contains information about external memory
+ */
+struct pipe_memory_object
+{
+   bool dedicated;
 };
 
 #ifdef __cplusplus

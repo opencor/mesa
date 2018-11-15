@@ -32,8 +32,9 @@
 #include "util/u_surface.h"
 #include "util/u_pack_color.h"
 #include "util/u_string.h"
+#include "util/u_thread.h"
 
-#include "os/os_time.h"
+#include "util/os_time.h"
 
 #include "lp_scene_queue.h"
 #include "lp_context.h"
@@ -106,7 +107,7 @@ lp_rast_tile_begin(struct lp_rasterizer_task *task,
                     task->scene->fb.height - y * TILE_SIZE : TILE_SIZE;
 
    task->thread_data.vis_counter = 0;
-   task->ps_invocations = 0;
+   task->thread_data.ps_invocations = 0;
 
    for (i = 0; i < task->scene->fb.nr_cbufs; i++) {
       if (task->scene->fb.cbufs[i]) {
@@ -445,10 +446,6 @@ lp_rast_shade_quads_mask(struct lp_rasterizer_task *task,
     * allocated 4x4 blocks hence need to filter them out here.
     */
    if ((x % TILE_SIZE) < task->width && (y % TILE_SIZE) < task->height) {
-      /* not very accurate would need a popcount on the mask */
-      /* always count this not worth bothering? */
-      task->ps_invocations += 1 * variant->ps_inv_multiplier;
-
       /* Propagate non-interpolated raster state. */
       task->thread_data.raster_state.viewport_index = inputs->viewport_index;
 
@@ -486,10 +483,11 @@ lp_rast_begin_query(struct lp_rasterizer_task *task,
    switch (pq->type) {
    case PIPE_QUERY_OCCLUSION_COUNTER:
    case PIPE_QUERY_OCCLUSION_PREDICATE:
+   case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE:
       pq->start[task->thread_index] = task->thread_data.vis_counter;
       break;
    case PIPE_QUERY_PIPELINE_STATISTICS:
-      pq->start[task->thread_index] = task->ps_invocations;
+      pq->start[task->thread_index] = task->thread_data.ps_invocations;
       break;
    default:
       assert(0);
@@ -512,6 +510,7 @@ lp_rast_end_query(struct lp_rasterizer_task *task,
    switch (pq->type) {
    case PIPE_QUERY_OCCLUSION_COUNTER:
    case PIPE_QUERY_OCCLUSION_PREDICATE:
+   case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE:
       pq->end[task->thread_index] +=
          task->thread_data.vis_counter - pq->start[task->thread_index];
       pq->start[task->thread_index] = 0;
@@ -521,7 +520,7 @@ lp_rast_end_query(struct lp_rasterizer_task *task,
       break;
    case PIPE_QUERY_PIPELINE_STATISTICS:
       pq->end[task->thread_index] +=
-         task->ps_invocations - pq->start[task->thread_index];
+         task->thread_data.ps_invocations - pq->start[task->thread_index];
       pq->start[task->thread_index] = 0;
       break;
    default:
@@ -645,7 +644,7 @@ rasterize_bin(struct lp_rasterizer_task *task,
  * stores them again unchanged.  This typically happens when bins have
  * been flushed for some reason in the middle of a frame, or when
  * incremental updates are being made to a render target.
- *
+ * 
  * Try to avoid doing pointless work in this case.
  */
 static boolean
@@ -676,7 +675,7 @@ rasterize_scene(struct lp_rasterizer_task *task,
 #endif
 #endif
 
-   if (!task->rast->no_rast && !scene->discard) {
+   if (!task->rast->no_rast) {
       /* loop over scene bins, rasterize each */
       {
          struct cmd_bin *bin;
@@ -726,7 +725,7 @@ lp_rast_queue_scene( struct lp_rasterizer *rast,
       /* no threading */
       unsigned fpstate = util_fpstate_get();
 
-      /* Make sure that denorms are treated like zeros. This is
+      /* Make sure that denorms are treated like zeros. This is 
        * the behavior required by D3D10. OpenGL doesn't care.
        */
       util_fpstate_set_denorms_to_zero(fpstate);
@@ -793,7 +792,7 @@ thread_function(void *init_data)
    util_snprintf(thread_name, sizeof thread_name, "llvmpipe-%u", task->thread_index);
    u_thread_setname(thread_name);
 
-   /* Make sure that denorms are treated like zeros. This is
+   /* Make sure that denorms are treated like zeros. This is 
     * the behavior required by D3D10. OpenGL doesn't care.
     */
    fpstate = util_fpstate_get();
@@ -813,14 +812,14 @@ thread_function(void *init_data)
           *  - get next scene to rasterize
           *  - map the framebuffer surfaces
           */
-         lp_rast_begin( rast,
+         lp_rast_begin( rast, 
                         lp_scene_dequeue( rast->full_scenes, TRUE ) );
       }
 
       /* Wait for all threads to get here so that threads[1+] don't
        * get a null rast->curr_scene pointer.
        */
-      pipe_barrier_wait( &rast->barrier );
+      util_barrier_wait( &rast->barrier );
 
       /* do work */
       if (debug)
@@ -828,9 +827,9 @@ thread_function(void *init_data)
 
       rasterize_scene(task,
                       rast->curr_scene);
-
+      
       /* wait for all threads to finish with this scene */
-      pipe_barrier_wait( &rast->barrier );
+      util_barrier_wait( &rast->barrier );
 
       /* XXX: shouldn't be necessary:
        */
@@ -912,7 +911,7 @@ lp_rast_create( unsigned num_threads )
 
    /* for synchronizing rasterization threads */
    if (rast->num_threads > 0) {
-      pipe_barrier_init( &rast->barrier, rast->num_threads );
+      util_barrier_init( &rast->barrier, rast->num_threads );
    }
 
    memset(lp_dummy_tile, 0, sizeof lp_dummy_tile);
@@ -971,7 +970,7 @@ void lp_rast_destroy( struct lp_rasterizer *rast )
 
    /* for synchronizing rasterization threads */
    if (rast->num_threads > 0) {
-      pipe_barrier_destroy( &rast->barrier );
+      util_barrier_destroy( &rast->barrier );
    }
 
    lp_scene_queue_destroy(rast->full_scenes);

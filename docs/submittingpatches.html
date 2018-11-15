@@ -36,7 +36,7 @@
 perhaps, in very trivial cases.)
 <li>Code patches should follow Mesa
 <a href="codingstyle.html" target="_parent">coding conventions</a>.
-<li>Whenever possible, patches should only effect individual Mesa/Gallium
+<li>Whenever possible, patches should only affect individual Mesa/Gallium
 components.
 <li>Patches should never introduce build breaks and should be bisectable (see
 <code>git bisect</code>.)
@@ -66,7 +66,7 @@ with a module name.  Examples:
 if needed.  For example:
 <pre>
     i965: Remove end-of-thread SEND alignment code.
-
+    
     This was present in Eric's initial implementation of the compaction code
     for Sandybridge (commit 077d01b6). There is no documentation saying this
     is necessary, and removing it causes no regressions in piglit on any
@@ -87,11 +87,11 @@ noted in the patch comment.  For example:
 process, they should be noted such as in this example:
 <pre>
     st/mesa: add ARB_texture_stencil8 support (v4)
-
+    
     if we support stencil texturing, enable texture_stencil8
     there is no requirement to support native S8 for this,
     the texture can be converted to x24s8 fine.
-
+    
     v2: fold fixes from Marek in:
        a) put S8 last in the list
        b) fix renderable to always test for d/s renderable
@@ -122,9 +122,9 @@ Please use common sense and do <strong>not</strong> blindly add everyone.
 <pre>
     $ scripts/get_reviewer.pl --help # to get the help screen
     $ scripts/get_reviewer.pl -f src/egl/drivers/dri2/platform_android.c
-    Rob Herring <robh@kernel.org> (reviewer:ANDROID EGL SUPPORT,added_lines:188/700=27%,removed_lines:58/283=20%)
-    Tomasz Figa <tfiga@chromium.org> (reviewer:ANDROID EGL SUPPORT,authored:12/41=29%,added_lines:308/700=44%,removed_lines:115/283=41%)
-    Emil Velikov <emil.l.velikov@gmail.com> (authored:13/41=32%,removed_lines:76/283=27%)
+    Rob Herring &lt;robh@kernel.org&gt; (reviewer:ANDROID EGL SUPPORT,added_lines:188/700=27%,removed_lines:58/283=20%)
+    Tomasz Figa &lt;tfiga@chromium.org&gt; (reviewer:ANDROID EGL SUPPORT,authored:12/41=29%,added_lines:308/700=44%,removed_lines:115/283=41%)
+    Emil Velikov &lt;emil.l.velikov@gmail.com&gt; (authored:13/41=32%,removed_lines:76/283=27%)
 </pre>
 </ul>
 
@@ -149,6 +149,18 @@ Whenever possible and applicable, test the patch with
 <a href="https://piglit.freedesktop.org">Piglit</a> and/or
 <a href="https://android.googlesource.com/platform/external/deqp/">dEQP</a>
 to check for regressions.
+</p>
+
+<p>
+As mentioned at the begining, patches should be bisectable.
+A good way to test this is to make use of the `git rebase` command,
+to run your tests on each commit. Assuming your branch is based off
+<code>origin/master</code>, you can run:
+<pre>
+$ git rebase --interactive --exec "make check" origin/master
+</pre>
+replacing <code>"make check"</code> with whatever other test you want to
+run.
 </p>
 
 
@@ -233,6 +245,10 @@ release.
 <p>
 Note: resending patch identical to one on mesa-dev@ or one that differs only
 by the extra mesa-stable@ tag is <strong>not</strong> recommended.
+</p>
+<p>
+If you are not the author of the original patch, please Cc: them in your
+nomination request.
 </p>
 
 

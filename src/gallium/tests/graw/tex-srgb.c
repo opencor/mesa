@@ -73,7 +73,7 @@ set_vertices(struct vertex *verts, unsigned num_verts)
 
    vbuf.stride = sizeof(struct vertex);
    vbuf.buffer_offset = 0;
-   vbuf.buffer = pipe_buffer_create_with_data(info.ctx,
+   vbuf.buffer.resource = pipe_buffer_create_with_data(info.ctx,
                                               PIPE_BIND_VERTEX_BUFFER,
                                               PIPE_USAGE_DEFAULT,
                                               num_verts * sizeof(struct vertex),
@@ -144,7 +144,7 @@ static void draw( void )
 
 
 static void init_tex( void )
-{
+{ 
 #define SIZE 64
    ubyte tex2d[SIZE][SIZE][4];
    int s, t;
@@ -158,7 +158,7 @@ static void init_tex( void )
       }
    }
 
-   texture = graw_util_create_tex2d(&info, SIZE, SIZE,
+   texture = graw_util_create_tex2d(&info, SIZE, SIZE, 
                                     PIPE_FORMAT_B8G8R8A8_UNORM, tex2d);
 
    {
@@ -208,7 +208,7 @@ static void init( void )
       exit(1);
 
    graw_util_default_state(&info, FALSE);
-
+   
    graw_util_viewport(&info, 0, 0, WIDTH, HEIGHT, 30, 10000);
 
    init_tex();

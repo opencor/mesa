@@ -80,7 +80,7 @@ XXX do not use tabs in this file.
             fb layer
               | | |
               V V V
-  +---------------------------------+
+  +---------------------------------+ 
   | Optional Draw module helpers    |
   | * Polygon Stipple               |
   | * Line Stipple                  |

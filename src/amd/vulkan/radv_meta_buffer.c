@@ -10,22 +10,22 @@ build_buffer_fill_shader(struct radv_device *dev)
 	nir_builder b;
 
 	nir_builder_init_simple_shader(&b, NULL, MESA_SHADER_COMPUTE, NULL);
-	b.shader->info->name = ralloc_strdup(b.shader, "meta_buffer_fill");
-	b.shader->info->cs.local_size[0] = 64;
-	b.shader->info->cs.local_size[1] = 1;
-	b.shader->info->cs.local_size[2] = 1;
+	b.shader->info.name = ralloc_strdup(b.shader, "meta_buffer_fill");
+	b.shader->info.cs.local_size[0] = 64;
+	b.shader->info.cs.local_size[1] = 1;
+	b.shader->info.cs.local_size[2] = 1;
 
 	nir_ssa_def *invoc_id = nir_load_system_value(&b, nir_intrinsic_load_local_invocation_id, 0);
 	nir_ssa_def *wg_id = nir_load_system_value(&b, nir_intrinsic_load_work_group_id, 0);
 	nir_ssa_def *block_size = nir_imm_ivec4(&b,
-						b.shader->info->cs.local_size[0],
-						b.shader->info->cs.local_size[1],
-						b.shader->info->cs.local_size[2], 0);
+						b.shader->info.cs.local_size[0],
+						b.shader->info.cs.local_size[1],
+						b.shader->info.cs.local_size[2], 0);
 
 	nir_ssa_def *global_id = nir_iadd(&b, nir_imul(&b, wg_id, block_size), invoc_id);
 
 	nir_ssa_def *offset = nir_imul(&b, global_id, nir_imm_int(&b, 16));
-	offset = nir_swizzle(&b, offset, (unsigned[]) {0, 0, 0, 0}, 1, false);
+	offset = nir_channel(&b, offset, 0);
 
 	nir_intrinsic_instr *dst_buf = nir_intrinsic_instr_create(b.shader,
 	                                                          nir_intrinsic_vulkan_resource_index);
@@ -36,6 +36,8 @@ build_buffer_fill_shader(struct radv_device *dev)
 	nir_builder_instr_insert(&b, &dst_buf->instr);
 
 	nir_intrinsic_instr *load = nir_intrinsic_instr_create(b.shader, nir_intrinsic_load_push_constant);
+	nir_intrinsic_set_base(load, 0);
+	nir_intrinsic_set_range(load, 4);
 	load->src[0] = nir_src_for_ssa(nir_imm_int(&b, 0));
 	load->num_components = 1;
 	nir_ssa_dest_init(&load->instr, &load->dest, 1, 32, "fill_value");
@@ -60,22 +62,22 @@ build_buffer_copy_shader(struct radv_device *dev)
 	nir_builder b;
 
 	nir_builder_init_simple_shader(&b, NULL, MESA_SHADER_COMPUTE, NULL);
-	b.shader->info->name = ralloc_strdup(b.shader, "meta_buffer_copy");
-	b.shader->info->cs.local_size[0] = 64;
-	b.shader->info->cs.local_size[1] = 1;
-	b.shader->info->cs.local_size[2] = 1;
+	b.shader->info.name = ralloc_strdup(b.shader, "meta_buffer_copy");
+	b.shader->info.cs.local_size[0] = 64;
+	b.shader->info.cs.local_size[1] = 1;
+	b.shader->info.cs.local_size[2] = 1;
 
 	nir_ssa_def *invoc_id = nir_load_system_value(&b, nir_intrinsic_load_local_invocation_id, 0);
 	nir_ssa_def *wg_id = nir_load_system_value(&b, nir_intrinsic_load_work_group_id, 0);
 	nir_ssa_def *block_size = nir_imm_ivec4(&b,
-						b.shader->info->cs.local_size[0],
-						b.shader->info->cs.local_size[1],
-						b.shader->info->cs.local_size[2], 0);
+						b.shader->info.cs.local_size[0],
+						b.shader->info.cs.local_size[1],
+						b.shader->info.cs.local_size[2], 0);
 
 	nir_ssa_def *global_id = nir_iadd(&b, nir_imul(&b, wg_id, block_size), invoc_id);
 
 	nir_ssa_def *offset = nir_imul(&b, global_id, nir_imm_int(&b, 16));
-	offset = nir_swizzle(&b, offset, (unsigned[]) {0, 0, 0, 0}, 1, false);
+	offset = nir_channel(&b, offset, 0);
 
 	nir_intrinsic_instr *dst_buf = nir_intrinsic_instr_create(b.shader,
 	                                                          nir_intrinsic_vulkan_resource_index);
@@ -118,8 +120,6 @@ VkResult radv_device_init_meta_buffer_state(struct radv_device *device)
 	VkResult result;
 	struct radv_shader_module fill_cs = { .nir = NULL };
 	struct radv_shader_module copy_cs = { .nir = NULL };
-
-	zero(device->meta_state.buffer);
 
 	fill_cs.nir = build_buffer_fill_shader(device);
 	copy_cs.nir = build_buffer_copy_shader(device);
@@ -261,35 +261,22 @@ fail:
 
 void radv_device_finish_meta_buffer_state(struct radv_device *device)
 {
-	if (device->meta_state.buffer.copy_pipeline)
-		radv_DestroyPipeline(radv_device_to_handle(device),
-				     device->meta_state.buffer.copy_pipeline,
-				     &device->meta_state.alloc);
+	struct radv_meta_state *state = &device->meta_state;
 
-	if (device->meta_state.buffer.fill_pipeline)
-		radv_DestroyPipeline(radv_device_to_handle(device),
-				     device->meta_state.buffer.fill_pipeline,
-				     &device->meta_state.alloc);
-
-	if (device->meta_state.buffer.copy_p_layout)
-		radv_DestroyPipelineLayout(radv_device_to_handle(device),
-					   device->meta_state.buffer.copy_p_layout,
-					   &device->meta_state.alloc);
-
-	if (device->meta_state.buffer.fill_p_layout)
-		radv_DestroyPipelineLayout(radv_device_to_handle(device),
-					   device->meta_state.buffer.fill_p_layout,
-					   &device->meta_state.alloc);
-
-	if (device->meta_state.buffer.copy_ds_layout)
-		radv_DestroyDescriptorSetLayout(radv_device_to_handle(device),
-						device->meta_state.buffer.copy_ds_layout,
-						&device->meta_state.alloc);
-
-	if (device->meta_state.buffer.fill_ds_layout)
-		radv_DestroyDescriptorSetLayout(radv_device_to_handle(device),
-						device->meta_state.buffer.fill_ds_layout,
-						&device->meta_state.alloc);
+	radv_DestroyPipeline(radv_device_to_handle(device),
+			     state->buffer.copy_pipeline, &state->alloc);
+	radv_DestroyPipeline(radv_device_to_handle(device),
+			     state->buffer.fill_pipeline, &state->alloc);
+	radv_DestroyPipelineLayout(radv_device_to_handle(device),
+				   state->buffer.copy_p_layout, &state->alloc);
+	radv_DestroyPipelineLayout(radv_device_to_handle(device),
+				   state->buffer.fill_p_layout, &state->alloc);
+	radv_DestroyDescriptorSetLayout(radv_device_to_handle(device),
+					state->buffer.copy_ds_layout,
+					&state->alloc);
+	radv_DestroyDescriptorSetLayout(radv_device_to_handle(device),
+					state->buffer.fill_ds_layout,
+					&state->alloc);
 }
 
 static void fill_buffer_shader(struct radv_cmd_buffer *cmd_buffer,
@@ -298,9 +285,12 @@ static void fill_buffer_shader(struct radv_cmd_buffer *cmd_buffer,
 {
 	struct radv_device *device = cmd_buffer->device;
 	uint64_t block_count = round_up_u64(size, 1024);
-	struct radv_meta_saved_compute_state saved_state;
+	struct radv_meta_saved_state saved_state;
 
-	radv_meta_save_compute(&saved_state, cmd_buffer, 4);
+	radv_meta_save(&saved_state, cmd_buffer,
+		       RADV_META_SAVE_COMPUTE_PIPELINE |
+		       RADV_META_SAVE_CONSTANTS |
+		       RADV_META_SAVE_DESCRIPTORS);
 
 	struct radv_buffer dst_buffer = {
 		.bo = bo,
@@ -338,7 +328,7 @@ static void fill_buffer_shader(struct radv_cmd_buffer *cmd_buffer,
 
 	radv_CmdDispatch(radv_cmd_buffer_to_handle(cmd_buffer), block_count, 1, 1);
 
-	radv_meta_restore_compute(&saved_state, cmd_buffer, 4);
+	radv_meta_restore(&saved_state, cmd_buffer);
 }
 
 static void copy_buffer_shader(struct radv_cmd_buffer *cmd_buffer,
@@ -349,9 +339,11 @@ static void copy_buffer_shader(struct radv_cmd_buffer *cmd_buffer,
 {
 	struct radv_device *device = cmd_buffer->device;
 	uint64_t block_count = round_up_u64(size, 1024);
-	struct radv_meta_saved_compute_state saved_state;
+	struct radv_meta_saved_state saved_state;
 
-	radv_meta_save_compute(&saved_state, cmd_buffer, 0);
+	radv_meta_save(&saved_state, cmd_buffer,
+		       RADV_META_SAVE_COMPUTE_PIPELINE |
+		       RADV_META_SAVE_DESCRIPTORS);
 
 	struct radv_buffer dst_buffer = {
 		.bo = dst_bo,
@@ -402,25 +394,32 @@ static void copy_buffer_shader(struct radv_cmd_buffer *cmd_buffer,
 
 	radv_CmdDispatch(radv_cmd_buffer_to_handle(cmd_buffer), block_count, 1, 1);
 
-	radv_meta_restore_compute(&saved_state, cmd_buffer, 0);
+	radv_meta_restore(&saved_state, cmd_buffer);
 }
 
 
-void radv_fill_buffer(struct radv_cmd_buffer *cmd_buffer,
+uint32_t radv_fill_buffer(struct radv_cmd_buffer *cmd_buffer,
 		      struct radeon_winsys_bo *bo,
 		      uint64_t offset, uint64_t size, uint32_t value)
 {
+	uint32_t flush_bits = 0;
+
 	assert(!(offset & 3));
 	assert(!(size & 3));
 
-	if (size >= 4096)
+	if (size >= RADV_BUFFER_OPS_CS_THRESHOLD) {
 		fill_buffer_shader(cmd_buffer, bo, offset, size, value);
-	else if (size) {
-		uint64_t va = cmd_buffer->device->ws->buffer_get_va(bo);
+		flush_bits = RADV_CMD_FLAG_CS_PARTIAL_FLUSH |
+			     RADV_CMD_FLAG_INV_VMEM_L1 |
+			     RADV_CMD_FLAG_WRITEBACK_GLOBAL_L2;
+	} else if (size) {
+		uint64_t va = radv_buffer_get_va(bo);
 		va += offset;
-		cmd_buffer->device->ws->cs_add_buffer(cmd_buffer->cs, bo, 8);
+		radv_cs_add_buffer(cmd_buffer->device->ws, cmd_buffer->cs, bo);
 		si_cp_dma_clear_buffer(cmd_buffer, va, size, value);
 	}
+
+	return flush_bits;
 }
 
 static
@@ -430,17 +429,17 @@ void radv_copy_buffer(struct radv_cmd_buffer *cmd_buffer,
 		      uint64_t src_offset, uint64_t dst_offset,
 		      uint64_t size)
 {
-	if (size >= 4096 && !(size & 3) && !(src_offset & 3) && !(dst_offset & 3))
+	if (size >= RADV_BUFFER_OPS_CS_THRESHOLD && !(size & 3) && !(src_offset & 3) && !(dst_offset & 3))
 		copy_buffer_shader(cmd_buffer, src_bo, dst_bo,
 				   src_offset, dst_offset, size);
 	else if (size) {
-		uint64_t src_va = cmd_buffer->device->ws->buffer_get_va(src_bo);
-		uint64_t dst_va = cmd_buffer->device->ws->buffer_get_va(dst_bo);
+		uint64_t src_va = radv_buffer_get_va(src_bo);
+		uint64_t dst_va = radv_buffer_get_va(dst_bo);
 		src_va += src_offset;
 		dst_va += dst_offset;
 
-		cmd_buffer->device->ws->cs_add_buffer(cmd_buffer->cs, src_bo, 8);
-		cmd_buffer->device->ws->cs_add_buffer(cmd_buffer->cs, dst_bo, 8);
+		radv_cs_add_buffer(cmd_buffer->device->ws, cmd_buffer->cs, src_bo);
+		radv_cs_add_buffer(cmd_buffer->device->ws, cmd_buffer->cs, dst_bo);
 
 		si_cp_dma_buffer_copy(cmd_buffer, src_va, dst_va, size);
 	}
@@ -473,6 +472,13 @@ void radv_CmdCopyBuffer(
 	RADV_FROM_HANDLE(radv_cmd_buffer, cmd_buffer, commandBuffer);
 	RADV_FROM_HANDLE(radv_buffer, src_buffer, srcBuffer);
 	RADV_FROM_HANDLE(radv_buffer, dest_buffer, destBuffer);
+	bool old_predicating;
+
+	/* VK_EXT_conditional_rendering says that copy commands should not be
+	 * affected by conditional rendering.
+	 */
+	old_predicating = cmd_buffer->state.predicating;
+	cmd_buffer->state.predicating = false;
 
 	for (unsigned r = 0; r < regionCount; r++) {
 		uint64_t src_offset = src_buffer->offset + pRegions[r].srcOffset;
@@ -482,6 +488,9 @@ void radv_CmdCopyBuffer(
 		radv_copy_buffer(cmd_buffer, src_buffer->bo, dest_buffer->bo,
 				 src_offset, dest_offset, copy_size);
 	}
+
+	/* Restore conditional rendering. */
+	cmd_buffer->state.predicating = old_predicating;
 }
 
 void radv_CmdUpdateBuffer(
@@ -495,7 +504,7 @@ void radv_CmdUpdateBuffer(
 	RADV_FROM_HANDLE(radv_buffer, dst_buffer, dstBuffer);
 	bool mec = radv_cmd_buffer_uses_mec(cmd_buffer);
 	uint64_t words = dataSize / 4;
-	uint64_t va = cmd_buffer->device->ws->buffer_get_va(dst_buffer->bo);
+	uint64_t va = radv_buffer_get_va(dst_buffer->bo);
 	va += dstOffset + dst_buffer->offset;
 
 	assert(!(dataSize & 3));
@@ -504,10 +513,10 @@ void radv_CmdUpdateBuffer(
 	if (!dataSize)
 		return;
 
-	if (dataSize < 4096) {
+	if (dataSize < RADV_BUFFER_OPS_CS_THRESHOLD) {
 		si_emit_cache_flush(cmd_buffer);
 
-		cmd_buffer->device->ws->cs_add_buffer(cmd_buffer->cs, dst_buffer->bo, 8);
+		radv_cs_add_buffer(cmd_buffer->device->ws, cmd_buffer->cs, dst_buffer->bo);
 
 		radeon_check_space(cmd_buffer->device->ws, cmd_buffer->cs, words + 4);
 
@@ -520,7 +529,8 @@ void radv_CmdUpdateBuffer(
 		radeon_emit(cmd_buffer->cs, va >> 32);
 		radeon_emit_array(cmd_buffer->cs, pData, words);
 
-		radv_cmd_buffer_trace_emit(cmd_buffer);
+		if (unlikely(cmd_buffer->device->trace_bo))
+			radv_cmd_buffer_trace_emit(cmd_buffer);
 	} else {
 		uint32_t buf_offset;
 		radv_cmd_buffer_upload_data(cmd_buffer, dataSize, 32, pData, &buf_offset);

@@ -48,7 +48,7 @@ struct fd4_emit {
 	const struct fd_program_stateobj *prog;
 	const struct pipe_draw_info *info;
 	struct ir3_shader_key key;
-	uint32_t dirty;
+	enum fd_dirty_3d_state dirty;
 
 	uint32_t sprite_coord_enable;  /* bitmask */
 	bool sprite_coord_mode;
@@ -71,8 +71,8 @@ static inline const struct ir3_shader_variant *
 fd4_emit_get_vp(struct fd4_emit *emit)
 {
 	if (!emit->vp) {
-		struct fd4_shader_stateobj *so = emit->prog->vp;
-		emit->vp = ir3_shader_variant(so->shader, emit->key, emit->debug);
+		struct ir3_shader *shader = emit->prog->vp;
+		emit->vp = ir3_shader_variant(shader, emit->key, emit->debug);
 	}
 	return emit->vp;
 }
@@ -86,8 +86,8 @@ fd4_emit_get_fp(struct fd4_emit *emit)
 			static const struct ir3_shader_variant binning_fp = {};
 			emit->fp = &binning_fp;
 		} else {
-			struct fd4_shader_stateobj *so = emit->prog->fp;
-			emit->fp = ir3_shader_variant(so->shader, emit->key, emit->debug);
+			struct ir3_shader *shader = emit->prog->fp;
+			emit->fp = ir3_shader_variant(shader, emit->key, emit->debug);
 		}
 	}
 	return emit->fp;

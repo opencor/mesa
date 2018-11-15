@@ -109,13 +109,6 @@
 #define BRW_CLIP_API_OGL     0
 #define BRW_CLIP_API_DX      1
 
-#define BRW_CLIPMODE_NORMAL              0
-#define BRW_CLIPMODE_CLIP_ALL            1
-#define BRW_CLIPMODE_CLIP_NON_REJECTED   2
-#define BRW_CLIPMODE_REJECT_ALL          3
-#define BRW_CLIPMODE_ACCEPT_ALL          4
-#define BRW_CLIPMODE_KERNEL_CLIP         5
-
 #define BRW_CLIP_NDCSPACE     0
 #define BRW_CLIP_SCREENSPACE  1
 
@@ -152,8 +145,6 @@
 
 #define BRW_FRONTWINDING_CW      0
 #define BRW_FRONTWINDING_CCW     1
-
-#define BRW_SPRITE_POINT_ENABLE  16
 
 #define BRW_CUT_INDEX_ENABLE     (1 << 10)
 
@@ -1342,6 +1333,8 @@ enum brw_pixel_shader_coverage_mask_mode {
 /* DW2: start address */
 /* DW3: end address. */
 
+#define _3DSTATE_3D_MODE                     0x791e
+
 #define CMD_MI_FLUSH                  0x0200
 
 # define BLT_X_SHIFT					0
@@ -1359,53 +1352,12 @@ enum brw_pixel_shader_coverage_mask_mode {
 
 #define GEN6_MI_REPORT_PERF_COUNT ((0x28 << 23) | (3 - 2))
 
+#define GEN8_MI_REPORT_PERF_COUNT ((0x28 << 23) | (4 - 2))
 
 /* Maximum number of entries that can be addressed using a binding table
  * pointer of type SURFTYPE_BUFFER
  */
 #define BRW_MAX_NUM_BUFFER_ENTRIES	(1 << 27)
-
-/* Memory Object Control State:
- * Specifying zero for L3 means "uncached in L3", at least on Haswell
- * and Baytrail, since there are no PTE flags for setting L3 cacheability.
- * On Ivybridge, the PTEs do have a cache-in-L3 bit, so setting MOCS to 0
- * may still respect that.
- */
-#define GEN7_MOCS_L3                    1
-
-/* Ivybridge only: cache in LLC.
- * Specifying zero here means to use the PTE values set by the kernel;
- * non-zero overrides the PTE values.
- */
-#define IVB_MOCS_LLC                    (1 << 1)
-
-/* Baytrail only: snoop in CPU cache */
-#define BYT_MOCS_SNOOP                  (1 << 1)
-
-/* Haswell only: LLC/eLLC controls (write-back or uncached).
- * Specifying zero here means to use the PTE values set by the kernel,
- * which is useful since it offers additional control (write-through
- * cacheing and age).  Non-zero overrides the PTE values.
- */
-#define HSW_MOCS_UC_LLC_UC_ELLC         (1 << 1)
-#define HSW_MOCS_WB_LLC_WB_ELLC         (2 << 1)
-#define HSW_MOCS_UC_LLC_WB_ELLC         (3 << 1)
-
-/* Broadwell: these defines always use all available caches (L3, LLC, eLLC),
- * and let you force write-back (WB) or write-through (WT) caching, or leave
- * it up to the page table entry (PTE) specified by the kernel.
- */
-#define BDW_MOCS_WB  0x78
-#define BDW_MOCS_WT  0x58
-#define BDW_MOCS_PTE 0x18
-
-/* Skylake: MOCS is now an index into an array of 62 different caching
- * configurations programmed by the kernel.
- */
-/* TC=LLC/eLLC, LeCC=WB, LRUM=3, L3CC=WB */
-#define SKL_MOCS_WB  (2 << 1)
-/* TC=LLC/eLLC, LeCC=PTE, LRUM=3, L3CC=WB */
-#define SKL_MOCS_PTE (1 << 1)
 
 #define MEDIA_VFE_STATE                         0x7000
 /* GEN7 DW2, GEN8+ DW3 */
@@ -1478,7 +1430,7 @@ enum brw_pixel_shader_coverage_mask_mode {
 #define MI_LOAD_REGISTER_IMM		(CMD_MI | (0x22 << 23))
 #define MI_LOAD_REGISTER_REG		(CMD_MI | (0x2A << 23))
 
-#define MI_FLUSH_DW			(CMD_MI | (0x26 << 23) | 2)
+#define MI_FLUSH_DW			(CMD_MI | (0x26 << 23))
 
 #define MI_STORE_REGISTER_MEM		(CMD_MI | (0x24 << 23))
 # define MI_STORE_REGISTER_MEM_USE_GGTT		(1 << 22)
@@ -1537,49 +1489,6 @@ enum brw_pixel_shader_coverage_mask_mode {
 #define MI_MATH_OPERAND_ACCU 0x31
 #define MI_MATH_OPERAND_ZF   0x32
 #define MI_MATH_OPERAND_CF   0x33
-
-/** @{
- *
- * PIPE_CONTROL operation, a combination MI_FLUSH and register write with
- * additional flushing control.
- */
-#define _3DSTATE_PIPE_CONTROL		(CMD_3D | (3 << 27) | (2 << 24))
-#define PIPE_CONTROL_CS_STALL		(1 << 20)
-#define PIPE_CONTROL_GLOBAL_SNAPSHOT_COUNT_RESET	(1 << 19)
-#define PIPE_CONTROL_TLB_INVALIDATE	(1 << 18)
-#define PIPE_CONTROL_SYNC_GFDT		(1 << 17)
-#define PIPE_CONTROL_MEDIA_STATE_CLEAR	(1 << 16)
-#define PIPE_CONTROL_NO_WRITE		(0 << 14)
-#define PIPE_CONTROL_WRITE_IMMEDIATE	(1 << 14)
-#define PIPE_CONTROL_WRITE_DEPTH_COUNT	(2 << 14)
-#define PIPE_CONTROL_WRITE_TIMESTAMP	(3 << 14)
-#define PIPE_CONTROL_DEPTH_STALL	(1 << 13)
-#define PIPE_CONTROL_RENDER_TARGET_FLUSH (1 << 12)
-#define PIPE_CONTROL_INSTRUCTION_INVALIDATE (1 << 11)
-#define PIPE_CONTROL_TEXTURE_CACHE_INVALIDATE	(1 << 10) /* GM45+ only */
-#define PIPE_CONTROL_ISP_DIS		(1 << 9)
-#define PIPE_CONTROL_INTERRUPT_ENABLE	(1 << 8)
-#define PIPE_CONTROL_FLUSH_ENABLE	(1 << 7) /* Gen7+ only */
-/* GT */
-#define PIPE_CONTROL_DATA_CACHE_FLUSH   	(1 << 5)
-#define PIPE_CONTROL_VF_CACHE_INVALIDATE	(1 << 4)
-#define PIPE_CONTROL_CONST_CACHE_INVALIDATE	(1 << 3)
-#define PIPE_CONTROL_STATE_CACHE_INVALIDATE	(1 << 2)
-#define PIPE_CONTROL_STALL_AT_SCOREBOARD	(1 << 1)
-#define PIPE_CONTROL_DEPTH_CACHE_FLUSH		(1 << 0)
-#define PIPE_CONTROL_PPGTT_WRITE	(0 << 2)
-#define PIPE_CONTROL_GLOBAL_GTT_WRITE	(1 << 2)
-
-#define PIPE_CONTROL_CACHE_FLUSH_BITS \
-   (PIPE_CONTROL_DEPTH_CACHE_FLUSH | PIPE_CONTROL_DATA_CACHE_FLUSH | \
-    PIPE_CONTROL_RENDER_TARGET_FLUSH)
-
-#define PIPE_CONTROL_CACHE_INVALIDATE_BITS \
-   (PIPE_CONTROL_STATE_CACHE_INVALIDATE | PIPE_CONTROL_CONST_CACHE_INVALIDATE | \
-    PIPE_CONTROL_VF_CACHE_INVALIDATE | PIPE_CONTROL_TEXTURE_CACHE_INVALIDATE | \
-    PIPE_CONTROL_INSTRUCTION_INVALIDATE)
-
-/** @} */
 
 #define XY_SETUP_BLT_CMD		(CMD_2D | (0x01 << 22))
 
@@ -1659,12 +1568,21 @@ enum brw_pixel_shader_coverage_mask_mode {
 #define GEN7_GPGPU_DISPATCHDIMY         0x2504
 #define GEN7_GPGPU_DISPATCHDIMZ         0x2508
 
+#define GEN7_CACHE_MODE_0               0x7000
 #define GEN7_CACHE_MODE_1               0x7004
+# define GEN9_FLOAT_BLEND_OPTIMIZATION_ENABLE (1 << 4)
 # define GEN8_HIZ_NP_PMA_FIX_ENABLE        (1 << 11)
 # define GEN8_HIZ_NP_EARLY_Z_FAILS_DISABLE (1 << 13)
 # define GEN9_PARTIAL_RESOLVE_DISABLE_IN_VC (1 << 1)
 # define GEN8_HIZ_PMA_MASK_BITS \
    REG_MASK(GEN8_HIZ_NP_PMA_FIX_ENABLE | GEN8_HIZ_NP_EARLY_Z_FAILS_DISABLE)
+
+#define GEN7_GT_MODE                    0x7008
+# define GEN9_SUBSLICE_HASHING_8x8      (0 << 8)
+# define GEN9_SUBSLICE_HASHING_16x4     (1 << 8)
+# define GEN9_SUBSLICE_HASHING_8x4      (2 << 8)
+# define GEN9_SUBSLICE_HASHING_16x16    (3 << 8)
+# define GEN9_SUBSLICE_HASHING_MASK_BITS REG_MASK(3 << 8)
 
 /* Predicate registers */
 #define MI_PREDICATE_SRC0               0x2400
@@ -1728,5 +1646,31 @@ enum brw_pixel_shader_coverage_mask_mode {
 # define GEN8_L3CNTLREG_DC_ALLOC_MASK      INTEL_MASK(24, 18)
 # define GEN8_L3CNTLREG_ALL_ALLOC_SHIFT    25
 # define GEN8_L3CNTLREG_ALL_ALLOC_MASK     INTEL_MASK(31, 25)
+
+#define GEN10_CACHE_MODE_SS            0x0e420
+#define GEN10_FLOAT_BLEND_OPTIMIZATION_ENABLE (1 << 4)
+
+#define INSTPM                             0x20c0
+# define INSTPM_CONSTANT_BUFFER_ADDRESS_OFFSET_DISABLE (1 << 6)
+
+#define CS_DEBUG_MODE2                     0x20d8 /* Gen9+ */
+# define CSDBG2_CONSTANT_BUFFER_ADDRESS_OFFSET_DISABLE (1 << 4)
+
+#define GEN7_RPSTAT1                       0xA01C
+#define  GEN7_RPSTAT1_CURR_GT_FREQ_SHIFT   7
+#define  GEN7_RPSTAT1_CURR_GT_FREQ_MASK    INTEL_MASK(13, 7)
+#define  GEN7_RPSTAT1_PREV_GT_FREQ_SHIFT   0
+#define  GEN7_RPSTAT1_PREV_GT_FREQ_MASK    INTEL_MASK(6, 0)
+
+#define GEN9_RPSTAT0                       0xA01C
+#define  GEN9_RPSTAT0_CURR_GT_FREQ_SHIFT   23
+#define  GEN9_RPSTAT0_CURR_GT_FREQ_MASK    INTEL_MASK(31, 23)
+#define  GEN9_RPSTAT0_PREV_GT_FREQ_SHIFT   0
+#define  GEN9_RPSTAT0_PREV_GT_FREQ_MASK    INTEL_MASK(8, 0)
+
+#define SLICE_COMMON_ECO_CHICKEN1          0x731c /* Gen9+ */
+# define GLK_SCEC_BARRIER_MODE_GPGPU       (0 << 7)
+# define GLK_SCEC_BARRIER_MODE_3D_HULL     (1 << 7)
+# define GLK_SCEC_BARRIER_MODE_MASK        REG_MASK(1 << 7)
 
 #endif

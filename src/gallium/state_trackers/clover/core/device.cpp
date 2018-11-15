@@ -20,10 +20,12 @@
 // OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#include <unistd.h>
 #include "core/device.hpp"
 #include "core/platform.hpp"
 #include "pipe/p_screen.h"
 #include "pipe/p_state.h"
+#include "util/u_debug.h"
 
 using namespace clover;
 
@@ -189,6 +191,28 @@ device::has_doubles() const {
    return pipe->get_param(pipe, PIPE_CAP_DOUBLES);
 }
 
+bool
+device::has_halves() const {
+   return pipe->get_shader_param(pipe, PIPE_SHADER_COMPUTE,
+                                 PIPE_SHADER_CAP_FP16);
+}
+
+bool
+device::has_int64_atomics() const {
+   return pipe->get_shader_param(pipe, PIPE_SHADER_COMPUTE,
+                                 PIPE_SHADER_CAP_INT64_ATOMICS);
+}
+
+bool
+device::has_unified_memory() const {
+   return pipe->get_param(pipe, PIPE_CAP_UMA);
+}
+
+cl_uint
+device::mem_base_addr_align() const {
+   return sysconf(_SC_PAGESIZE);
+}
+
 std::vector<size_t>
 device::max_block_size() const {
    auto v = get_compute_param<uint64_t>(pipe, ir_format(),
@@ -220,8 +244,15 @@ device::vendor_name() const {
 
 enum pipe_shader_ir
 device::ir_format() const {
-   return (enum pipe_shader_ir) pipe->get_shader_param(
-      pipe, PIPE_SHADER_COMPUTE, PIPE_SHADER_CAP_PREFERRED_IR);
+   int supported_irs =
+      pipe->get_shader_param(pipe, PIPE_SHADER_COMPUTE,
+                             PIPE_SHADER_CAP_SUPPORTED_IRS);
+
+   if (supported_irs & (1 << PIPE_SHADER_IR_NATIVE)) {
+      return PIPE_SHADER_IR_NATIVE;
+   }
+
+   return PIPE_SHADER_IR_TGSI;
 }
 
 std::string
@@ -234,4 +265,18 @@ device::ir_target() const {
 enum pipe_endian
 device::endianness() const {
    return (enum pipe_endian)pipe->get_param(pipe, PIPE_CAP_ENDIANNESS);
+}
+
+std::string
+device::device_version() const {
+   static const std::string device_version =
+         debug_get_option("CLOVER_DEVICE_VERSION_OVERRIDE", "1.1");
+   return device_version;
+}
+
+std::string
+device::device_clc_version() const {
+   static const std::string device_clc_version =
+         debug_get_option("CLOVER_DEVICE_CLC_VERSION_OVERRIDE", "1.1");
+   return device_clc_version;
 }

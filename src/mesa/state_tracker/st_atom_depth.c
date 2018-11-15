@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
  /*
@@ -31,7 +31,7 @@
   *   Brian Paul
   *   Zack  Rusin
   */
-
+ 
 
 #include <assert.h>
 
@@ -41,7 +41,6 @@
 #include "pipe/p_defines.h"
 #include "cso_cache/cso_context.h"
 
-#include "main/core.h"
 #include "main/stencil.h"
 
 
@@ -95,8 +94,8 @@ gl_stencil_op_to_pipe(GLenum func)
    }
 }
 
-static void
-update_depth_stencil_alpha(struct st_context *st)
+void
+st_update_depth_stencil_alpha(struct st_context *st)
 {
    struct pipe_depth_stencil_alpha_state *dsa = &st->state.depth_stencil;
    struct pipe_stencil_ref sr;
@@ -108,8 +107,9 @@ update_depth_stencil_alpha(struct st_context *st)
    if (ctx->DrawBuffer->Visual.depthBits > 0) {
       if (ctx->Depth.Test) {
          dsa->depth.enabled = 1;
-         dsa->depth.writemask = ctx->Depth.Mask;
          dsa->depth.func = st_compare_func_to_pipe(ctx->Depth.Func);
+         if (dsa->depth.func != PIPE_FUNC_EQUAL)
+            dsa->depth.writemask = ctx->Depth.Mask;
       }
       if (ctx->Depth.BoundsTest) {
          dsa->depth.bounds_test = 1;
@@ -128,7 +128,7 @@ update_depth_stencil_alpha(struct st_context *st)
       dsa->stencil[0].writemask = ctx->Stencil.WriteMask[0] & 0xff;
       sr.ref_value[0] = _mesa_get_stencil_ref(ctx, 0);
 
-      if (ctx->Stencil._TestTwoSide) {
+      if (_mesa_stencil_is_two_sided(ctx)) {
          const GLuint back = ctx->Stencil._BackFace;
          dsa->stencil[1].enabled = 1;
          dsa->stencil[1].func = st_compare_func_to_pipe(ctx->Stencil.Function[back]);
@@ -159,8 +159,3 @@ update_depth_stencil_alpha(struct st_context *st)
    cso_set_depth_stencil_alpha(st->cso_context, dsa);
    cso_set_stencil_ref(st->cso_context, &sr);
 }
-
-
-const struct st_tracked_state st_update_depth_stencil_alpha = {
-   update_depth_stencil_alpha				/* update */
-};

@@ -35,7 +35,7 @@ write_texture_p0(struct vc4_job *job,
 {
         struct vc4_sampler_view *sview =
                 vc4_sampler_view(texstate->textures[unit]);
-        struct vc4_resource *rsc = vc4_resource(sview->base.texture);
+        struct vc4_resource *rsc = vc4_resource(sview->texture);
 
         cl_reloc(job, &job->uniforms, uniforms, rsc->bo, sview->texture_p0);
 }
@@ -149,6 +149,7 @@ write_texture_border_color(struct vc4_job *job,
                                         PIPE_FORMAT_R8G8B8A8_UNORM, &uc);
                         break;
                 case VC4_TEXTURE_TYPE_RGBA4444:
+                case VC4_TEXTURE_TYPE_RGBA5551:
                         util_pack_color(storage_color,
                                         PIPE_FORMAT_A8B8G8R8_UNORM, &uc);
                         break;
@@ -272,7 +273,19 @@ vc4_write_uniforms(struct vc4_context *vc4, struct vc4_compiled_shader *shader,
                         break;
 
                 case QUNIFORM_UBO_ADDR:
-                        cl_aligned_reloc(job, &job->uniforms, &uniforms, ubo, 0);
+                        if (uinfo->data[i] == 0) {
+                                cl_aligned_reloc(job, &job->uniforms,
+                                                 &uniforms, ubo, 0);
+                        } else {
+                                struct pipe_constant_buffer *c =
+                                        &cb->cb[uinfo->data[i]];
+                                struct vc4_resource *rsc =
+                                        vc4_resource(c->buffer);
+
+                                cl_aligned_reloc(job, &job->uniforms,
+                                                 &uniforms,
+                                                 rsc->bo, c->buffer_offset);
+                        }
                         break;
 
                 case QUNIFORM_TEXTURE_MSAA_ADDR:

@@ -3,10 +3,12 @@
 from __future__ import (
     absolute_import, division, print_function, unicode_literals
 )
+import ast
 import xml.parsers.expat
 import re
 import sys
 import copy
+import textwrap
 
 license =  """/*
  * Copyright (C) 2016 Intel Corporation
@@ -55,6 +57,12 @@ pack_header = """%(license)s
 #ifndef __gen_field_functions
 #define __gen_field_functions
 
+#ifdef NDEBUG
+#define NDEBUG_UNUSED __attribute__((unused))
+#else
+#define NDEBUG_UNUSED
+#endif
+
 union __gen_value {
    float f;
    uint32_t dw;
@@ -67,11 +75,11 @@ __gen_mbo(uint32_t start, uint32_t end)
 }
 
 static inline uint64_t
-__gen_uint(uint64_t v, uint32_t start, uint32_t end)
+__gen_uint(uint64_t v, uint32_t start, NDEBUG_UNUSED uint32_t end)
 {
    __gen_validate_value(v);
 
-#if DEBUG
+#ifndef NDEBUG
    const int width = end - start + 1;
    if (width < 64) {
       const uint64_t max = (1ull << width) - 1;
@@ -89,7 +97,7 @@ __gen_sint(int64_t v, uint32_t start, uint32_t end)
 
    __gen_validate_value(v);
 
-#if DEBUG
+#ifndef NDEBUG
    if (width < 64) {
       const int64_t max = (1ll << (width - 1)) - 1;
       const int64_t min = -(1ll << (width - 1));
@@ -103,10 +111,10 @@ __gen_sint(int64_t v, uint32_t start, uint32_t end)
 }
 
 static inline uint64_t
-__gen_offset(uint64_t v, uint32_t start, uint32_t end)
+__gen_offset(uint64_t v, NDEBUG_UNUSED uint32_t start, NDEBUG_UNUSED uint32_t end)
 {
    __gen_validate_value(v);
-#if DEBUG
+#ifndef NDEBUG
    uint64_t mask = (~0ull >> (64 - (end - start + 1))) << start;
 
    assert((v & ~mask) == 0);
@@ -129,7 +137,7 @@ __gen_sfixed(float v, uint32_t start, uint32_t end, uint32_t fract_bits)
 
    const float factor = (1 << fract_bits);
 
-#if DEBUG
+#ifndef NDEBUG
    const float max = ((1 << (end - start)) - 1) / factor;
    const float min = -(1 << (end - start)) / factor;
    assert(min <= v && v <= max);
@@ -142,13 +150,13 @@ __gen_sfixed(float v, uint32_t start, uint32_t end, uint32_t fract_bits)
 }
 
 static inline uint64_t
-__gen_ufixed(float v, uint32_t start, uint32_t end, uint32_t fract_bits)
+__gen_ufixed(float v, uint32_t start, NDEBUG_UNUSED uint32_t end, uint32_t fract_bits)
 {
    __gen_validate_value(v);
 
    const float factor = (1 << fract_bits);
 
-#if DEBUG
+#ifndef NDEBUG
    const float max = ((1 << (end - start + 1)) - 1) / factor;
    const float min = 0.0f;
    assert(min <= v && v <= max);
@@ -166,6 +174,8 @@ __gen_ufixed(float v, uint32_t start, uint32_t end, uint32_t fract_bits)
 #ifndef __gen_user_data
 #error #define __gen_combine_address before including this file
 #endif
+
+#undef NDEBUG_UNUSED
 
 #endif
 
@@ -210,7 +220,7 @@ def num_from_str(num_str):
     if num_str.lower().startswith('0x'):
         return int(num_str, base=16)
     else:
-        assert(not num_str.startswith('0') and 'octals numbers not allowed')
+        assert not num_str.startswith('0'), 'octals numbers not allowed'
         return int(num_str)
 
 class Field(object):
@@ -225,13 +235,21 @@ class Field(object):
         self.end = int(attrs["end"])
         self.type = attrs["type"]
 
+        assert self.start <= self.end, \
+               'field {} has end ({}) < start ({})'.format(self.name, self.end,
+                                                           self.start)
+        if self.type == 'bool':
+            assert self.end == self.start, \
+                   'bool field ({}) is too wide'.format(self.name)
+
         if "prefix" in attrs:
             self.prefix = attrs["prefix"]
         else:
             self.prefix = None
 
         if "default" in attrs:
-            self.default = int(attrs["default"])
+            # Base 0 recognizes 0x, 0o, 0b prefixes in addition to decimal ints.
+            self.default = int(attrs["default"], base=0)
         else:
             self.default = None
 
@@ -244,6 +262,17 @@ class Field(object):
         if sfixed_match:
             self.type = 'sfixed'
             self.fractional_size = int(sfixed_match.group(2))
+
+    def is_builtin_type(self):
+        builtins =  [ 'address', 'bool', 'float', 'ufixed',
+                      'offset', 'sfixed', 'offset', 'int', 'uint', 'mbo' ]
+        return self.type in builtins
+
+    def is_struct_type(self):
+        return self.type in self.parser.structs
+
+    def is_enum_type(self):
+        return self.type in self.parser.enums
 
     def emit_template_struct(self, dim):
         if self.type == 'address':
@@ -264,22 +293,22 @@ class Field(object):
             type = 'int32_t'
         elif self.type == 'uint':
             type = 'uint32_t'
-        elif self.type in self.parser.structs:
+        elif self.is_struct_type():
             type = 'struct ' + self.parser.gen_prefix(safe_name(self.type))
-        elif self.type in self.parser.enums:
+        elif self.is_enum_type():
             type = 'enum ' + self.parser.gen_prefix(safe_name(self.type))
         elif self.type == 'mbo':
             return
         else:
             print("#error unhandled type: %s" % self.type)
+            return
 
         print("   %-36s %s%s;" % (type, self.name, dim))
 
+        prefix = ""
         if len(self.values) > 0 and self.default == None:
             if self.prefix:
                 prefix = self.prefix + "_"
-            else:
-                prefix = ""
 
         for value in self.values:
             print("#define %-40s %d" % (prefix + value.name, value.value))
@@ -346,7 +375,7 @@ class Group(object):
                 dwords[index + 1] = dwords[index]
                 index = index + 1
 
-    def emit_pack_function(self, start):
+    def collect_dwords_and_length(self):
         dwords = {}
         self.collect_dwords(dwords, 0, "")
 
@@ -356,9 +385,14 @@ class Group(object):
         # index we've seen plus one.
         if self.size > 0:
             length = self.size // 32
-        else:
+        elif dwords:
             length = max(dwords.keys()) + 1
+        else:
+            length = 0
 
+        return (dwords, length)
+
+    def emit_pack_function(self, dwords, length):
         for index in range(length):
             # Handle MBZ dwords
             if not index in dwords:
@@ -380,7 +414,7 @@ class Group(object):
             if len(dw.fields) == 1:
                 field = dw.fields[0]
                 name = field.name + field.dim
-                if field.type in self.parser.structs and field.start % 32 == 0:
+                if field.is_struct_type() and field.start % 32 == 0:
                     print("")
                     print("   %s_pack(data, &dw[%d], &values->%s);" %
                           (self.parser.gen_prefix(safe_name(field.type)), index, name))
@@ -390,7 +424,7 @@ class Group(object):
             # to the dword for those fields.
             field_index = 0
             for field in dw.fields:
-                if type(field) is Field and field.type in self.parser.structs:
+                if type(field) is Field and field.is_struct_type():
                     name = field.name + field.dim
                     print("")
                     print("   uint32_t v%d_%d;" % (index, field_index))
@@ -428,7 +462,7 @@ class Group(object):
                 elif field.type == "uint":
                     non_address_fields.append("__gen_uint(values->%s, %d, %d)" % \
                         (name, field.start - dword_start, field.end - dword_start))
-                elif field.type in self.parser.enums:
+                elif field.is_enum_type():
                     non_address_fields.append("__gen_uint(values->%s, %d, %d)" % \
                         (name, field.start - dword_start, field.end - dword_start))
                 elif field.type == "int":
@@ -448,7 +482,7 @@ class Group(object):
                 elif field.type == 'sfixed':
                     non_address_fields.append("__gen_sfixed(values->%s, %d, %d, %d)" % \
                         (name, field.start - dword_start, field.end - dword_start, field.fractional_size))
-                elif field.type in self.parser.structs:
+                elif field.is_struct_type():
                     non_address_fields.append("__gen_uint(v%d_%d, %d, %d)" % \
                         (index, field_index, field.start - dword_start, field.end - dword_start))
                     field_index = field_index + 1
@@ -461,22 +495,26 @@ class Group(object):
 
             if dw.size == 32:
                 if dw.address:
-                    print("   dw[%d] = __gen_combine_address(data, &dw[%d], values->%s, %s);" % (index, index, dw.address.name, v))
+                    print("   dw[%d] = __gen_combine_address(data, &dw[%d], values->%s, %s);" % (index, index, dw.address.name + field.dim, v))
                 continue
 
             if dw.address:
                 v_address = "v%d_address" % index
                 print("   const uint64_t %s =\n      __gen_combine_address(data, &dw[%d], values->%s, %s);" %
-                      (v_address, index, dw.address.name, v))
-                v = v_address
-
+                      (v_address, index, dw.address.name + field.dim, v))
+                if len(dw.fields) > address_count:
+                    print("   dw[%d] = %s;" % (index, v_address))
+                    print("   dw[%d] = (%s >> 32) | (%s >> 32);" % (index + 1, v_address, v))
+                    continue
+                else:
+                    v = v_address
             print("   dw[%d] = %s;" % (index, v))
             print("   dw[%d] = %s >> 32;" % (index + 1, v))
 
 class Value(object):
     def __init__(self, attrs):
         self.name = safe_name(attrs["name"])
-        self.value = int(attrs["value"])
+        self.value = ast.literal_eval(attrs["value"])
 
 class Parser(object):
     def __init__(self):
@@ -486,7 +524,8 @@ class Parser(object):
 
         self.instruction = None
         self.structs = {}
-        self.enums = {}
+        # Set of enum names we've seen.
+        self.enums = set()
         self.registers = {}
 
     def gen_prefix(self, name):
@@ -533,7 +572,7 @@ class Parser(object):
         elif name == "enum":
             self.values = []
             self.enum = safe_name(attrs["name"])
-            self.enums[attrs["name"]] = 1
+            self.enums.add(attrs["name"])
             if "prefix" in attrs:
                 self.prefix = safe_name(attrs["prefix"])
             else:
@@ -572,13 +611,19 @@ class Parser(object):
 
     def emit_pack_function(self, name, group):
         name = self.gen_prefix(name)
-        print("static inline void\n%s_pack(__gen_user_data *data, void * restrict dst,\n%sconst struct %s * restrict values)\n{" %
-              (name, ' ' * (len(name) + 6), name))
+        print(textwrap.dedent("""\
+            static inline void
+            %s_pack(__attribute__((unused)) __gen_user_data *data,
+                  %s__attribute__((unused)) void * restrict dst,
+                  %s__attribute__((unused)) const struct %s * restrict values)
+            {""") % (name, ' ' * len(name), ' ' * len(name), name))
 
-        # Cast dst to make header C++ friendly
-        print("   uint32_t * restrict dw = (uint32_t * restrict) dst;")
+        (dwords, length) = group.collect_dwords_and_length()
+        if length:
+            # Cast dst to make header C++ friendly
+            print("   uint32_t * restrict dw = (uint32_t * restrict) dst;")
 
-        group.emit_pack_function(0)
+            group.emit_pack_function(dwords, length)
 
         print("}\n")
 

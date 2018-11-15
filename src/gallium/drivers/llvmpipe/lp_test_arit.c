@@ -143,9 +143,9 @@ const float exp2_values[] = {
    0.1,
    0.9,
    0.99,
-   1,
-   2,
-   4,
+   1, 
+   2, 
+   4, 
    60,
    INFINITY,
    NAN
@@ -154,7 +154,7 @@ const float exp2_values[] = {
 
 const float log2_values[] = {
 #if 0
-   /*
+   /* 
     * Smallest denormalized number; meant just for experimentation, but not
     * validation.
     */
@@ -345,11 +345,11 @@ build_unary_test_func(struct gallivm_state *gallivm,
    LLVMSetFunctionCallConv(func, LLVMCCallConv);
 
    LLVMPositionBuilderAtEnd(builder, block);
-
+   
    arg1 = LLVMBuildLoad(builder, arg1, "");
 
    ret = test->builder(&bld, arg1);
-
+   
    LLVMBuildStore(builder, ret, arg0);
 
    LLVMBuildRetVoid(builder);
@@ -458,7 +458,7 @@ test_unary(unsigned verbose, FILE *fp, const struct unary_test_t *test, unsigned
             continue;
          }
 
-         if (test->ref == &nearbyintf && length == 2 &&
+         if (test->ref == &nearbyintf && length == 2 && 
              ref != roundf(testval)) {
             /* FIXME: The generic (non SSE) path in lp_build_iround, which is
              * always taken for length==2 regardless of native round support,

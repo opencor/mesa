@@ -41,7 +41,7 @@ extern "C" {
 struct pipe_resource;
 struct cso_context;
 
-extern void
+extern void 
 util_draw_vertex_buffer(struct pipe_context *pipe, struct cso_context *cso,
                         struct pipe_resource *vbuf, uint vbuf_slot,
                         uint offset, uint prim_type, uint num_attribs,

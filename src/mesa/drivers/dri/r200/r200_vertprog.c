@@ -30,6 +30,8 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
  *   Aapo Tahkola <aet@rasterburn.org>
  *   Roland Scheidegger <rscheidegger_lists@hispeed.ch>
  */
+
+#include "main/errors.h"
 #include "main/glheader.h"
 #include "main/macros.h"
 #include "main/enums.h"
@@ -120,14 +122,16 @@ static GLboolean r200VertexProgUpdateParams(struct gl_context *ctx, struct r200_
    }
 
    for(pi = 0; pi < paramList->NumParameters; pi++) {
+      unsigned pvo = paramList->ParameterValueOffset[pi];
+
       switch(paramList->Parameters[pi].Type) {
       case PROGRAM_STATE_VAR:
       //fprintf(stderr, "%s", vp->Parameters->Parameters[pi].Name);
       case PROGRAM_CONSTANT:
-	 *fcmd++ = paramList->ParameterValues[pi][0].f;
-	 *fcmd++ = paramList->ParameterValues[pi][1].f;
-	 *fcmd++ = paramList->ParameterValues[pi][2].f;
-	 *fcmd++ = paramList->ParameterValues[pi][3].f;
+	 *fcmd++ = paramList->ParameterValues[pvo + 0].f;
+	 *fcmd++ = paramList->ParameterValues[pvo + 1].f;
+	 *fcmd++ = paramList->ParameterValues[pvo + 2].f;
+	 *fcmd++ = paramList->ParameterValues[pvo + 3].f;
 	 break;
       default:
 	 _mesa_problem(NULL, "Bad param type in %s", __func__);
@@ -263,7 +267,7 @@ static unsigned long t_src_index(struct r200_vertex_program *vp, struct prog_src
 
       vp->inputs[src->Index] = max_reg+1;*/
 
-      //vp_dump_inputs(vp, __func__);
+      //vp_dump_inputs(vp, __func__);	
       assert(vp->inputs[src->Index] != -1);
       return vp->inputs[src->Index];
    } else {
@@ -324,7 +328,7 @@ static unsigned long t_opcode(enum prog_opcode opcode)
    case OPCODE_SGE: return R200_VPI_OUT_OP_SGE;
    case OPCODE_SLT: return R200_VPI_OUT_OP_SLT;
 
-   default:
+   default: 
       fprintf(stderr, "%s: Should not be called with opcode %d!", __func__, opcode);
    }
    exit(-1);
@@ -350,7 +354,7 @@ static unsigned long op_operands(enum prog_opcode opcode)
 		       ((t_src_class(a.File) == VSF_IN_CLASS_PARAM && \
 			 t_src_class(b.File) == VSF_IN_CLASS_PARAM) || \
 			(t_src_class(a.File) == VSF_IN_CLASS_ATTR && \
-			 t_src_class(b.File) == VSF_IN_CLASS_ATTR))) \
+			 t_src_class(b.File) == VSF_IN_CLASS_ATTR)))
 
 /* fglrx on rv250 codes up unused sources as follows:
    unused but necessary sources are same as previous source, zero-ed out.
@@ -456,7 +460,7 @@ static GLboolean r200_translate_vertex_program(struct gl_context *ctx, struct r2
    if ((mesa_vp->info.outputs_written & (1 << VARYING_SLOT_FOGC)) &&
        !vp->fogpidx) {
       struct gl_program_parameter_list *paramList;
-      gl_state_index tokens[STATE_LENGTH] = { STATE_FOG_PARAMS, 0, 0, 0, 0 };
+      gl_state_index16 tokens[STATE_LENGTH] = { STATE_FOG_PARAMS, 0, 0, 0, 0 };
       paramList = mesa_vp->Parameters;
       vp->fogpidx = _mesa_add_state_reference(paramList, tokens);
    }
@@ -496,11 +500,6 @@ static GLboolean r200_translate_vertex_program(struct gl_context *ctx, struct r2
       vp->inputs[VERT_ATTRIB_POS] = 0;
       vp->inputmap_rev[0] = VERT_ATTRIB_POS;
       free_inputs &= ~(1 << 0);
-      array_count++;
-   }
-   if (mesa_vp->info.inputs_read & VERT_BIT_WEIGHT) {
-      vp->inputs[VERT_ATTRIB_WEIGHT] = 12;
-      vp->inputmap_rev[1] = VERT_ATTRIB_WEIGHT;
       array_count++;
    }
    if (mesa_vp->info.inputs_read & VERT_BIT_NORMAL) {
@@ -742,7 +741,7 @@ static GLboolean r200_translate_vertex_program(struct gl_context *ctx, struct r2
 	 }
 	 goto next;
 
-      case OPCODE_MOV://ADD RESULT 1.X Y Z W PARAM 0{} {X Y Z W} PARAM 0{} {ZERO ZERO ZERO ZERO}
+      case OPCODE_MOV://ADD RESULT 1.X Y Z W PARAM 0{} {X Y Z W} PARAM 0{} {ZERO ZERO ZERO ZERO} 
       case OPCODE_SWZ:
 	 o_inst->op = MAKE_VSF_OP(R200_VPI_OUT_OP_ADD, t_dst(&dst),
 		t_dst_mask(dst.WriteMask));
@@ -788,7 +787,7 @@ else {
 #endif
 	 goto next;
 
-      case OPCODE_DP3://DOT RESULT 1.X Y Z W PARAM 0{} {X Y Z ZERO} PARAM 0{} {X Y Z ZERO}
+      case OPCODE_DP3://DOT RESULT 1.X Y Z W PARAM 0{} {X Y Z ZERO} PARAM 0{} {X Y Z ZERO} 
 	 o_inst->op = MAKE_VSF_OP(R200_VPI_OUT_OP_DOT, t_dst(&dst),
 		t_dst_mask(dst.WriteMask));
 
@@ -811,7 +810,7 @@ else {
 	 o_inst->src2 = UNUSED_SRC_1;
 	 goto next;
 
-      case OPCODE_DPH://DOT RESULT 1.X Y Z W PARAM 0{} {X Y Z ONE} PARAM 0{} {X Y Z W}
+      case OPCODE_DPH://DOT RESULT 1.X Y Z W PARAM 0{} {X Y Z ONE} PARAM 0{} {X Y Z W} 
 	 o_inst->op = MAKE_VSF_OP(R200_VPI_OUT_OP_DOT, t_dst(&dst),
 		t_dst_mask(dst.WriteMask));
 
@@ -857,7 +856,7 @@ else {
 	 goto next;
 
       case OPCODE_FLR:
-      /* FRC TMP 0.X Y Z W PARAM 0{} {X Y Z W}
+      /* FRC TMP 0.X Y Z W PARAM 0{} {X Y Z W} 
          ADD RESULT 1.X Y Z W PARAM 0{} {X Y Z W} TMP 0{X Y Z W } {X Y Z W} neg Xneg Yneg Zneg W */
 
 	 o_inst->op = MAKE_VSF_OP(R200_VPI_OUT_OP_FRC,

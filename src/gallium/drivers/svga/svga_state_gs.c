@@ -153,13 +153,12 @@ svga_reemit_gs_bindings(struct svga_context *svga)
    if (!svga_need_to_rebind_resources(svga)) {
       ret =  svga->swc->resource_rebind(svga->swc, NULL, gbshader,
                                         SVGA_RELOC_READ);
-      goto out;
+   }
+   else {
+      ret = SVGA3D_vgpu10_SetShader(svga->swc, SVGA3D_SHADERTYPE_GS,
+                                    gbshader, shaderId);
    }
 
-   ret = SVGA3D_vgpu10_SetShader(svga->swc, SVGA3D_SHADERTYPE_GS,
-                                 gbshader, shaderId);
-
- out:
    if (ret != PIPE_OK)
       return ret;
 
@@ -190,6 +189,8 @@ emit_hw_gs(struct svga_context *svga, unsigned dirty)
           *  Needs to unbind the geometry shader.
           */
          ret = svga_set_shader(svga, SVGA3D_SHADERTYPE_GS, NULL);
+         if (ret != PIPE_OK)
+            goto done;
          svga->state.hw_draw.gs = NULL;
       }
       goto done;
@@ -199,11 +200,17 @@ emit_hw_gs(struct svga_context *svga, unsigned dirty)
     * it instead of the one from the vertex shader.
     */
    if (svga_have_gs_streamout(svga)) {
-      svga_set_stream_output(svga, gs->base.stream_output);
+      ret = svga_set_stream_output(svga, gs->base.stream_output);
+      if (ret != PIPE_OK) {
+         goto done;
+      }
    }
    else if (!svga_have_vs_streamout(svga)) {
       /* turn off stream out */
-      svga_set_stream_output(svga, NULL);
+      ret = svga_set_stream_output(svga, NULL);
+      if (ret != PIPE_OK) {
+         goto done;
+      }
    }
 
    /* SVGA_NEW_NEED_SWTNL */

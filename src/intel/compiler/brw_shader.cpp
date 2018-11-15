@@ -34,14 +34,24 @@ enum brw_reg_type
 brw_type_for_base_type(const struct glsl_type *type)
 {
    switch (type->base_type) {
+   case GLSL_TYPE_FLOAT16:
+      return BRW_REGISTER_TYPE_HF;
    case GLSL_TYPE_FLOAT:
       return BRW_REGISTER_TYPE_F;
    case GLSL_TYPE_INT:
    case GLSL_TYPE_BOOL:
    case GLSL_TYPE_SUBROUTINE:
       return BRW_REGISTER_TYPE_D;
+   case GLSL_TYPE_INT16:
+      return BRW_REGISTER_TYPE_W;
+   case GLSL_TYPE_INT8:
+      return BRW_REGISTER_TYPE_B;
    case GLSL_TYPE_UINT:
       return BRW_REGISTER_TYPE_UD;
+   case GLSL_TYPE_UINT16:
+      return BRW_REGISTER_TYPE_UW;
+   case GLSL_TYPE_UINT8:
+      return BRW_REGISTER_TYPE_UB;
    case GLSL_TYPE_ARRAY:
       return brw_type_for_base_type(type->fields.array);
    case GLSL_TYPE_STRUCT:
@@ -76,10 +86,6 @@ brw_conditional_for_comparison(unsigned int op)
    switch (op) {
    case ir_binop_less:
       return BRW_CONDITIONAL_L;
-   case ir_binop_greater:
-      return BRW_CONDITIONAL_G;
-   case ir_binop_lequal:
-      return BRW_CONDITIONAL_LE;
    case ir_binop_gequal:
       return BRW_CONDITIONAL_GE;
    case ir_binop_equal:
@@ -290,6 +296,18 @@ brw_instruction_name(const struct gen_device_info *devinfo, enum opcode op)
       return "typed_surface_write_logical";
    case SHADER_OPCODE_MEMORY_FENCE:
       return "memory_fence";
+   case SHADER_OPCODE_INTERLOCK:
+      /* For an interlock we actually issue a memory fence via sendc. */
+      return "interlock";
+
+   case SHADER_OPCODE_BYTE_SCATTERED_READ:
+      return "byte_scattered_read";
+   case SHADER_OPCODE_BYTE_SCATTERED_READ_LOGICAL:
+      return "byte_scattered_read_logical";
+   case SHADER_OPCODE_BYTE_SCATTERED_WRITE:
+      return "byte_scattered_write";
+   case SHADER_OPCODE_BYTE_SCATTERED_WRITE_LOGICAL:
+      return "byte_scattered_write_logical";
 
    case SHADER_OPCODE_LOAD_PAYLOAD:
       return "load_payload";
@@ -319,6 +337,17 @@ brw_instruction_name(const struct gen_device_info *devinfo, enum opcode op)
       return "find_live_channel";
    case SHADER_OPCODE_BROADCAST:
       return "broadcast";
+   case SHADER_OPCODE_SHUFFLE:
+      return "shuffle";
+   case SHADER_OPCODE_SEL_EXEC:
+      return "sel_exec";
+   case SHADER_OPCODE_QUAD_SWIZZLE:
+      return "quad_swizzle";
+   case SHADER_OPCODE_CLUSTER_BROADCAST:
+      return "cluster_broadcast";
+
+   case SHADER_OPCODE_GET_BUFFER_SIZE:
+      return "get_buffer_size";
 
    case VEC4_OPCODE_MOV_BYTES:
       return "mov_bytes";
@@ -352,8 +381,6 @@ brw_instruction_name(const struct gen_device_info *devinfo, enum opcode op)
    case FS_OPCODE_DDY_FINE:
       return "ddy_fine";
 
-   case FS_OPCODE_CINTERP:
-      return "cinterp";
    case FS_OPCODE_LINTERP:
       return "linterp";
 
@@ -361,9 +388,6 @@ brw_instruction_name(const struct gen_device_info *devinfo, enum opcode op)
       return "pixel_x";
    case FS_OPCODE_PIXEL_Y:
       return "pixel_y";
-
-   case FS_OPCODE_GET_BUFFER_SIZE:
-      return "fs_get_buffer_size";
 
    case FS_OPCODE_UNIFORM_PULL_CONSTANT_LOAD:
       return "uniform_pull_const";
@@ -376,8 +400,6 @@ brw_instruction_name(const struct gen_device_info *devinfo, enum opcode op)
    case FS_OPCODE_VARYING_PULL_CONSTANT_LOAD_LOGICAL:
       return "varying_pull_const_logical";
 
-   case FS_OPCODE_MOV_DISPATCH_TO_FLAGS:
-      return "mov_dispatch_to_flags";
    case FS_OPCODE_DISCARD_JUMP:
       return "discard_jump";
 
@@ -410,9 +432,6 @@ brw_instruction_name(const struct gen_device_info *devinfo, enum opcode op)
 
    case VS_OPCODE_SET_SIMD4X2_HEADER_GEN9:
       return "set_simd4x2_header_gen9";
-
-   case VS_OPCODE_GET_BUFFER_SIZE:
-      return "vs_get_buffer_size";
 
    case VS_OPCODE_UNPACK_FLAGS_SIMD4X2:
       return "unpack_flags_simd4x2";
@@ -480,6 +499,9 @@ brw_instruction_name(const struct gen_device_info *devinfo, enum opcode op)
       return "tes_add_indirect_urb_offset";
    case TES_OPCODE_GET_PRIMITIVE_ID:
       return "tes_get_primitive_id";
+
+   case SHADER_OPCODE_RND_MODE:
+      return "rnd_mode";
    }
 
    unreachable("not reached");
@@ -530,6 +552,8 @@ brw_saturate_immediate(enum brw_reg_type type, struct brw_reg *reg)
       unreachable("unimplemented: saturate vector immediate");
    case BRW_REGISTER_TYPE_HF:
       unreachable("unimplemented: saturate HF immediate");
+   case BRW_REGISTER_TYPE_NF:
+      unreachable("no NF immediates");
    }
 
    if (size < 8) {
@@ -555,9 +579,11 @@ brw_negate_immediate(enum brw_reg_type type, struct brw_reg *reg)
       reg->d = -reg->d;
       return true;
    case BRW_REGISTER_TYPE_W:
-   case BRW_REGISTER_TYPE_UW:
-      reg->d = -(int16_t)reg->ud;
+   case BRW_REGISTER_TYPE_UW: {
+      uint16_t value = -(int16_t)reg->ud;
+      reg->ud = value | (uint32_t)value << 16;
       return true;
+   }
    case BRW_REGISTER_TYPE_F:
       reg->f = -reg->f;
       return true;
@@ -578,7 +604,10 @@ brw_negate_immediate(enum brw_reg_type type, struct brw_reg *reg)
    case BRW_REGISTER_TYPE_V:
       assert(!"unimplemented: negate UV/V immediate");
    case BRW_REGISTER_TYPE_HF:
-      assert(!"unimplemented: negate HF immediate");
+      reg->ud ^= 0x80008000;
+      return true;
+   case BRW_REGISTER_TYPE_NF:
+      unreachable("no NF immediates");
    }
 
    return false;
@@ -591,9 +620,11 @@ brw_abs_immediate(enum brw_reg_type type, struct brw_reg *reg)
    case BRW_REGISTER_TYPE_D:
       reg->d = abs(reg->d);
       return true;
-   case BRW_REGISTER_TYPE_W:
-      reg->d = abs((int16_t)reg->ud);
+   case BRW_REGISTER_TYPE_W: {
+      uint16_t value = abs((int16_t)reg->ud);
+      reg->ud = value | (uint32_t)value << 16;
       return true;
+   }
    case BRW_REGISTER_TYPE_F:
       reg->f = fabsf(reg->f);
       return true;
@@ -620,42 +651,13 @@ brw_abs_immediate(enum brw_reg_type type, struct brw_reg *reg)
    case BRW_REGISTER_TYPE_V:
       assert(!"unimplemented: abs V immediate");
    case BRW_REGISTER_TYPE_HF:
-      assert(!"unimplemented: abs HF immediate");
+      reg->ud &= ~0x80008000;
+      return true;
+   case BRW_REGISTER_TYPE_NF:
+      unreachable("no NF immediates");
    }
 
    return false;
-}
-
-/**
- * Get the appropriate atomic op for an image atomic intrinsic.
- */
-unsigned
-get_atomic_counter_op(nir_intrinsic_op op)
-{
-   switch (op) {
-   case nir_intrinsic_atomic_counter_inc:
-      return BRW_AOP_INC;
-   case nir_intrinsic_atomic_counter_dec:
-      return BRW_AOP_PREDEC;
-   case nir_intrinsic_atomic_counter_add:
-      return BRW_AOP_ADD;
-   case nir_intrinsic_atomic_counter_min:
-      return BRW_AOP_UMIN;
-   case nir_intrinsic_atomic_counter_max:
-      return BRW_AOP_UMAX;
-   case nir_intrinsic_atomic_counter_and:
-      return BRW_AOP_AND;
-   case nir_intrinsic_atomic_counter_or:
-      return BRW_AOP_OR;
-   case nir_intrinsic_atomic_counter_xor:
-      return BRW_AOP_XOR;
-   case nir_intrinsic_atomic_counter_exchange:
-      return BRW_AOP_MOV;
-   case nir_intrinsic_atomic_counter_comp_swap:
-      return BRW_AOP_CMPWR;
-   default:
-      unreachable("Not reachable.");
-   }
 }
 
 backend_shader::backend_shader(const struct brw_compiler *compiler,
@@ -670,17 +672,27 @@ backend_shader::backend_shader(const struct brw_compiler *compiler,
      stage_prog_data(stage_prog_data),
      mem_ctx(mem_ctx),
      cfg(NULL),
-     stage(shader->stage)
+     stage(shader->info.stage)
 {
    debug_enabled = INTEL_DEBUG & intel_debug_flag_for_shader_stage(stage);
    stage_name = _mesa_shader_stage_to_string(stage);
    stage_abbrev = _mesa_shader_stage_to_abbrev(stage);
 }
 
+backend_shader::~backend_shader()
+{
+}
+
 bool
 backend_reg::equals(const backend_reg &r) const
 {
    return brw_regs_equal(this, &r) && offset == r.offset;
+}
+
+bool
+backend_reg::negative_equals(const backend_reg &r) const
+{
+   return brw_regs_negative_equal(this, &r) && offset == r.offset;
 }
 
 bool
@@ -855,6 +867,9 @@ backend_instruction::can_do_source_mods() const
    case BRW_OPCODE_FBH:
    case BRW_OPCODE_FBL:
    case BRW_OPCODE_SUBB:
+   case SHADER_OPCODE_BROADCAST:
+   case SHADER_OPCODE_CLUSTER_BROADCAST:
+   case SHADER_OPCODE_MOV_INDIRECT:
       return false;
    default:
       return true;
@@ -944,7 +959,6 @@ backend_instruction::can_do_cmod() const
    case BRW_OPCODE_SHR:
    case BRW_OPCODE_SUBB:
    case BRW_OPCODE_XOR:
-   case FS_OPCODE_CINTERP:
    case FS_OPCODE_LINTERP:
       return true;
    default:
@@ -971,8 +985,9 @@ backend_instruction::writes_accumulator_implicitly(const struct gen_device_info 
    return writes_accumulator ||
           (devinfo->gen < 6 &&
            ((opcode >= BRW_OPCODE_ADD && opcode < BRW_OPCODE_NOP) ||
-            (opcode >= FS_OPCODE_DDX_COARSE && opcode <= FS_OPCODE_LINTERP &&
-             opcode != FS_OPCODE_CINTERP)));
+            (opcode >= FS_OPCODE_DDX_COARSE && opcode <= FS_OPCODE_LINTERP))) ||
+          (opcode == FS_OPCODE_LINTERP &&
+           (!devinfo->has_pln || devinfo->gen <= 6));
 }
 
 bool
@@ -984,23 +999,28 @@ backend_instruction::has_side_effects() const
    case SHADER_OPCODE_GEN4_SCRATCH_WRITE:
    case SHADER_OPCODE_UNTYPED_SURFACE_WRITE:
    case SHADER_OPCODE_UNTYPED_SURFACE_WRITE_LOGICAL:
+   case SHADER_OPCODE_BYTE_SCATTERED_WRITE:
+   case SHADER_OPCODE_BYTE_SCATTERED_WRITE_LOGICAL:
    case SHADER_OPCODE_TYPED_ATOMIC:
    case SHADER_OPCODE_TYPED_ATOMIC_LOGICAL:
    case SHADER_OPCODE_TYPED_SURFACE_WRITE:
    case SHADER_OPCODE_TYPED_SURFACE_WRITE_LOGICAL:
    case SHADER_OPCODE_MEMORY_FENCE:
+   case SHADER_OPCODE_INTERLOCK:
    case SHADER_OPCODE_URB_WRITE_SIMD8:
    case SHADER_OPCODE_URB_WRITE_SIMD8_PER_SLOT:
    case SHADER_OPCODE_URB_WRITE_SIMD8_MASKED:
    case SHADER_OPCODE_URB_WRITE_SIMD8_MASKED_PER_SLOT:
    case FS_OPCODE_FB_WRITE:
    case FS_OPCODE_FB_WRITE_LOGICAL:
+   case FS_OPCODE_REP_FB_WRITE:
    case SHADER_OPCODE_BARRIER:
    case TCS_OPCODE_URB_WRITE:
    case TCS_OPCODE_RELEASE_INPUT:
+   case SHADER_OPCODE_RND_MODE:
       return true;
    default:
-      return false;
+      return eot;
    }
 }
 
@@ -1012,6 +1032,8 @@ backend_instruction::is_volatile() const
    case SHADER_OPCODE_UNTYPED_SURFACE_READ_LOGICAL:
    case SHADER_OPCODE_TYPED_SURFACE_READ:
    case SHADER_OPCODE_TYPED_SURFACE_READ_LOGICAL:
+   case SHADER_OPCODE_BYTE_SCATTERED_READ:
+   case SHADER_OPCODE_BYTE_SCATTERED_READ_LOGICAL:
    case SHADER_OPCODE_URB_READ_SIMD8:
    case SHADER_OPCODE_URB_READ_SIMD8_PER_SLOT:
    case VEC4_OPCODE_URB_READ:
@@ -1161,24 +1183,24 @@ brw_compile_tes(const struct brw_compiler *compiler,
                 const nir_shader *src_shader,
                 struct gl_program *prog,
                 int shader_time_index,
-                unsigned *final_assembly_size,
                 char **error_str)
 {
    const struct gen_device_info *devinfo = compiler->devinfo;
    const bool is_scalar = compiler->scalar_stage[MESA_SHADER_TESS_EVAL];
+   const unsigned *assembly;
 
    nir_shader *nir = nir_shader_clone(mem_ctx, src_shader);
-   nir->info->inputs_read = key->inputs_read;
-   nir->info->patch_inputs_read = key->patch_inputs_read;
+   nir->info.inputs_read = key->inputs_read;
+   nir->info.patch_inputs_read = key->patch_inputs_read;
 
    nir = brw_nir_apply_sampler_key(nir, compiler, &key->tex, is_scalar);
    brw_nir_lower_tes_inputs(nir, input_vue_map);
-   brw_nir_lower_vue_outputs(nir, is_scalar);
+   brw_nir_lower_vue_outputs(nir);
    nir = brw_postprocess_nir(nir, compiler, is_scalar);
 
    brw_compute_vue_map(devinfo, &prog_data->base.vue_map,
-                       nir->info->outputs_written,
-                       nir->info->separate_shader);
+                       nir->info.outputs_written,
+                       nir->info.separate_shader);
 
    unsigned output_size_bytes = prog_data->base.vue_map.num_slots * 4 * 4;
 
@@ -1190,13 +1212,21 @@ brw_compile_tes(const struct brw_compiler *compiler,
    }
 
    prog_data->base.clip_distance_mask =
-      ((1 << nir->info->clip_distance_array_size) - 1);
+      ((1 << nir->info.clip_distance_array_size) - 1);
    prog_data->base.cull_distance_mask =
-      ((1 << nir->info->cull_distance_array_size) - 1) <<
-      nir->info->clip_distance_array_size;
+      ((1 << nir->info.cull_distance_array_size) - 1) <<
+      nir->info.clip_distance_array_size;
 
    /* URB entry sizes are stored as a multiple of 64 bytes. */
    prog_data->base.urb_entry_size = ALIGN(output_size_bytes, 64) / 64;
+
+   /* On Cannonlake software shall not program an allocation size that
+    * specifies a size that is a multiple of 3 64B (512-bit) cachelines.
+    */
+   if (devinfo->gen == 10 &&
+       prog_data->base.urb_entry_size % 3 == 0)
+      prog_data->base.urb_entry_size++;
+
    prog_data->base.urb_read_length = 0;
 
    STATIC_ASSERT(BRW_TESS_PARTITIONING_INTEGER == TESS_SPACING_EQUAL - 1);
@@ -1206,9 +1236,9 @@ brw_compile_tes(const struct brw_compiler *compiler,
                  TESS_SPACING_FRACTIONAL_EVEN - 1);
 
    prog_data->partitioning =
-      (enum brw_tess_partitioning) (nir->info->tess.spacing - 1);
+      (enum brw_tess_partitioning) (nir->info.tess.spacing - 1);
 
-   switch (nir->info->tess.primitive_mode) {
+   switch (nir->info.tess.primitive_mode) {
    case GL_QUADS:
       prog_data->domain = BRW_TESS_DOMAIN_QUAD;
       break;
@@ -1222,14 +1252,14 @@ brw_compile_tes(const struct brw_compiler *compiler,
       unreachable("invalid domain shader primitive mode");
    }
 
-   if (nir->info->tess.point_mode) {
+   if (nir->info.tess.point_mode) {
       prog_data->output_topology = BRW_TESS_OUTPUT_TOPOLOGY_POINT;
-   } else if (nir->info->tess.primitive_mode == GL_ISOLINES) {
+   } else if (nir->info.tess.primitive_mode == GL_ISOLINES) {
       prog_data->output_topology = BRW_TESS_OUTPUT_TOPOLOGY_LINE;
    } else {
       /* Hardware winding order is backwards from OpenGL */
       prog_data->output_topology =
-         nir->info->tess.ccw ? BRW_TESS_OUTPUT_TOPOLOGY_TRI_CW
+         nir->info.tess.ccw ? BRW_TESS_OUTPUT_TOPOLOGY_TRI_CW
                              : BRW_TESS_OUTPUT_TOPOLOGY_TRI_CCW;
    }
 
@@ -1253,20 +1283,20 @@ brw_compile_tes(const struct brw_compiler *compiler,
       prog_data->base.base.dispatch_grf_start_reg = v.payload.num_regs;
       prog_data->base.dispatch_mode = DISPATCH_MODE_SIMD8;
 
-      fs_generator g(compiler, log_data, mem_ctx, (void *) key,
+      fs_generator g(compiler, log_data, mem_ctx,
                      &prog_data->base.base, v.promoted_constants, false,
                      MESA_SHADER_TESS_EVAL);
       if (unlikely(INTEL_DEBUG & DEBUG_TES)) {
          g.enable_debug(ralloc_asprintf(mem_ctx,
                                         "%s tessellation evaluation shader %s",
-                                        nir->info->label ? nir->info->label
+                                        nir->info.label ? nir->info.label
                                                         : "unnamed",
-                                        nir->info->name));
+                                        nir->info.name));
       }
 
       g.generate_code(v.cfg, 8);
 
-      return g.get_assembly(final_assembly_size);
+      assembly = g.get_assembly();
    } else {
       brw::vec4_tes_visitor v(compiler, log_data, key, prog_data,
 			      nir, mem_ctx, shader_time_index);
@@ -1279,8 +1309,9 @@ brw_compile_tes(const struct brw_compiler *compiler,
       if (unlikely(INTEL_DEBUG & DEBUG_TES))
 	 v.dump_instructions();
 
-      return brw_vec4_generate_assembly(compiler, log_data, mem_ctx, nir,
-					&prog_data->base, v.cfg,
-					final_assembly_size);
+      assembly = brw_vec4_generate_assembly(compiler, log_data, mem_ctx, nir,
+                                            &prog_data->base, v.cfg);
    }
+
+   return assembly;
 }

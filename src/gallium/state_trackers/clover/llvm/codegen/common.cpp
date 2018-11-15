@@ -70,7 +70,6 @@ namespace {
    make_kernel_args(const Module &mod, const std::string &kernel_name,
                     const clang::CompilerInstance &c) {
       std::vector<module::argument> args;
-      const auto address_spaces = c.getTarget().getAddressSpaceMap();
       const Function &f = *mod.getFunction(kernel_name);
       ::llvm::DataLayout dl(&mod);
       const auto size_type =
@@ -86,8 +85,7 @@ namespace {
          const unsigned arg_store_size = dl.getTypeStoreSize(arg_type);
          const unsigned arg_api_size = dl.getTypeAllocSize(arg_type);
 
-         const auto target_type = !arg_type->isIntegerTy() ? arg_type :
-            dl.getSmallestLegalIntType(mod.getContext(), arg_store_size * 8);
+         const auto target_type = compat::get_abi_type(arg_type, mod);
          const unsigned target_size = dl.getTypeStoreSize(target_type);
          const unsigned target_align = dl.getABITypeAlignment(target_type);
 
@@ -128,8 +126,8 @@ namespace {
                const unsigned address_space =
                   cast< ::llvm::PointerType>(actual_type)->getAddressSpace();
 
-               if (address_space == address_spaces[clang::LangAS::opencl_local
-                                                   - compat::lang_as_offset]) {
+               if (address_space == compat::target_address_space(
+                                  c.getTarget(), clang::LangAS::opencl_local)) {
                   args.emplace_back(module::argument::local, arg_api_size,
                                     target_size, target_align,
                                     module::argument::zero_ext);

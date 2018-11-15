@@ -1,18 +1,18 @@
 /*
  * Mesa 3-D graphics library
- *
+ * 
  * Copyright (C) 1999-2004  Brian Paul   All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
  * the rights to use, copy, modify, merge, publish, distribute, sublicense,
  * and/or sell copies of the Software, and to permit persons to whom the
  * Software is furnished to do so, subject to the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice shall be included
  * in all copies or substantial portions of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
@@ -37,7 +37,6 @@
  * work properly.
  */
 typedef struct __GLXcontextRec {
-   Display *currentDpy;
    GLboolean isDirect;
    GLXDrawable currentDrawable;
    GLXDrawable currentReadable;
@@ -165,13 +164,6 @@ struct _glxapi_table {
    void *AssociciateDMPbufferSGIX;
 #endif
 
-   /*** GLX_SGIX_swap_group ***/
-   void (*JoinSwapGroupSGIX)(Display *, GLXDrawable, GLXDrawable);
-
-   /*** GLX_SGIX_swap_barrier ***/
-   void (*BindSwapBarrierSGIX)(Display *, GLXDrawable, int);
-   Bool (*QueryMaxSwapBarriersSGIX)(Display *, int, int *);
-
    /*** GLX_SUN_get_transparent_index ***/
    Status (*GetTransparentIndexSUN)(Display *, Window, Window, long *);
 
@@ -183,19 +175,6 @@ struct _glxapi_table {
 
    /*** GLX_MESA_pixmap_colormap ***/
    GLXPixmap (*CreateGLXPixmapMESA)(Display *dpy, XVisualInfo *visinfo, Pixmap pixmap, Colormap cmap);
-
-   /*** GLX_MESA_set_3dfx_mode ***/
-   Bool (*Set3DfxModeMESA)(int mode);
-
-   /*** GLX_NV_vertex_array_range ***/
-   void * (*AllocateMemoryNV)( GLsizei size,
-                               GLfloat readFrequency,
-                               GLfloat writeFrequency,
-                               GLfloat priority );
-   void (*FreeMemoryNV)( GLvoid *pointer );
-
-   /*** GLX_MESA_agp_offset ***/
-   GLuint (*GetAGPOffsetMESA)( const GLvoid *pointer );
 
    /*** GLX_EXT_texture_from_pixmap ***/
    void (*BindTexImageEXT)(Display *dpy, GLXDrawable drawable, int buffer,

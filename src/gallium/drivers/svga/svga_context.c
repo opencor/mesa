@@ -130,9 +130,11 @@ svga_context_create(struct pipe_screen *screen, void *priv, unsigned flags)
    struct svga_context *svga = NULL;
    enum pipe_error ret;
 
+   SVGA_STATS_TIME_PUSH(svgascreen->sws, SVGA_STATS_TIME_CREATECONTEXT);
+
    svga = CALLOC_STRUCT(svga_context);
    if (!svga)
-      goto cleanup;
+      goto done;
 
    LIST_INITHEAD(&svga->dirty_buffers);
 
@@ -142,13 +144,13 @@ svga_context_create(struct pipe_screen *screen, void *priv, unsigned flags)
    svga->pipe.stream_uploader = u_upload_create(&svga->pipe, 1024 * 1024,
                                                 PIPE_BIND_VERTEX_BUFFER |
                                                 PIPE_BIND_INDEX_BUFFER,
-                                                PIPE_USAGE_STREAM);
+                                                PIPE_USAGE_STREAM, 0);
    if (!svga->pipe.stream_uploader)
       goto cleanup;
 
    svga->pipe.const_uploader = u_upload_create(&svga->pipe, 128 * 1024,
                                                PIPE_BIND_CONSTANT_BUFFER,
-                                               PIPE_USAGE_STREAM);
+                                               PIPE_USAGE_STREAM, 0);
    if (!svga->pipe.const_uploader)
       goto cleanup;
 
@@ -229,7 +231,7 @@ svga_context_create(struct pipe_screen *screen, void *priv, unsigned flags)
    svga->const0_upload = u_upload_create(&svga->pipe,
                                          CONST0_UPLOAD_DEFAULT_SIZE,
                                          PIPE_BIND_CONSTANT_BUFFER,
-                                         PIPE_USAGE_STREAM);
+                                         PIPE_USAGE_STREAM, 0);
    if (!svga->const0_upload)
       goto cleanup;
 
@@ -241,6 +243,8 @@ svga_context_create(struct pipe_screen *screen, void *priv, unsigned flags)
    memset(&svga->state.hw_clear, 0xcd, sizeof(svga->state.hw_clear));
    memset(&svga->state.hw_clear.framebuffer, 0x0,
           sizeof(svga->state.hw_clear.framebuffer));
+   svga->state.hw_clear.num_rendertargets = 0;
+   svga->state.hw_clear.dsv = NULL;
 
    memset(&svga->state.hw_draw, 0xcd, sizeof(svga->state.hw_draw));
    memset(&svga->state.hw_draw.views, 0x0, sizeof(svga->state.hw_draw.views));
@@ -251,8 +255,7 @@ svga_context_create(struct pipe_screen *screen, void *priv, unsigned flags)
    memset(svga->state.hw_draw.sampler_views, 0,
           sizeof(svga->state.hw_draw.sampler_views));
    svga->state.hw_draw.num_views = 0;
-   svga->state.hw_draw.num_rendertargets = 0;
-   svga->state.hw_draw.dsv = NULL;
+   svga->state.hw_draw.num_backed_views = 0;
    svga->state.hw_draw.rasterizer_discard = FALSE;
 
    /* Initialize the shader pointers */
@@ -297,7 +300,7 @@ svga_context_create(struct pipe_screen *screen, void *priv, unsigned flags)
    svga->pred.query_id = SVGA3D_INVALID_ID;
    svga->disable_rasterizer = FALSE;
 
-   return &svga->pipe;
+   goto done;
 
 cleanup:
    svga_destroy_swtnl(svga);
@@ -324,7 +327,11 @@ cleanup:
    util_bitmask_destroy(svga->stream_output_id_bm);
    util_bitmask_destroy(svga->query_id_bm);
    FREE(svga);
-   return NULL;
+   svga = NULL;
+
+done:
+   SVGA_STATS_TIME_POP(svgascreen->sws);
+   return svga ? &svga->pipe:NULL;
 }
 
 

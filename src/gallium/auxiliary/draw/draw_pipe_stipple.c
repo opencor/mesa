@@ -50,6 +50,7 @@ struct stipple_stage {
    float counter;
    uint pattern;
    uint factor;
+   bool smooth;
 };
 
 
@@ -66,11 +67,11 @@ stipple_stage(struct draw_stage *stage)
  * XXX using linear interpolation for all attribs at this time.
  */
 static void
-screen_interp( struct draw_context *draw,
-               struct vertex_header *dst,
-               float t,
-               const struct vertex_header *v0,
-               const struct vertex_header *v1 )
+screen_interp(struct draw_context *draw,
+              struct vertex_header *dst,
+              float t,
+              const struct vertex_header *v0,
+              const struct vertex_header *v1)
 {
    uint attr;
    uint num_outputs = draw_current_shader_outputs(draw);
@@ -95,16 +96,16 @@ emit_segment(struct draw_stage *stage, struct prim_header *header,
    struct prim_header newprim = *header;
 
    if (t0 > 0.0) {
-      screen_interp( stage->draw, v0new, t0, header->v[0], header->v[1] );
+      screen_interp(stage->draw, v0new, t0, header->v[0], header->v[1]);
       newprim.v[0] = v0new;
    }
 
    if (t1 < 1.0) {
-      screen_interp( stage->draw, v1new, t1, header->v[0], header->v[1] );
+      screen_interp(stage->draw, v1new, t1, header->v[0], header->v[1]);
       newprim.v[1] = v1new;
    }
 
-   stage->next->line( stage->next, &newprim );
+   stage->next->line(stage->next, &newprim);
 }
 
 
@@ -133,15 +134,21 @@ stipple_line(struct draw_stage *stage, struct prim_header *header)
    float y0 = pos0[1];
    float y1 = pos1[1];
 
-   float dx = x0 > x1 ? x0 - x1 : x1 - x0;
-   float dy = y0 > y1 ? y0 - y1 : y1 - y0;
-
-   float length = MAX2(dx, dy);
+   float length;
    int i;
+
+   if (stipple->smooth) {
+      float dx = x1 - x0;
+      float dy = y1 - y0;
+      length = sqrtf(dx*dx + dy*dy);
+   } else {
+      float dx = x0 > x1 ? x0 - x1 : x1 - x0;
+      float dy = y0 > y1 ? y0 - y1 : y1 - y0;
+      length = MAX2(dx, dy);
+   }
 
    if (header->flags & DRAW_PIPE_RESET_STIPPLE)
       stipple->counter = 0;
-
 
    /* XXX ToDo: instead of iterating pixel-by-pixel, use a look-up table.
     */
@@ -176,7 +183,7 @@ reset_stipple_counter(struct draw_stage *stage)
 {
    struct stipple_stage *stipple = stipple_stage(stage);
    stipple->counter = 0;
-   stage->next->reset_stipple_counter( stage->next );
+   stage->next->reset_stipple_counter(stage->next);
 }
 
 static void
@@ -198,16 +205,17 @@ stipple_reset_tri(struct draw_stage *stage, struct prim_header *header)
 
 static void
 stipple_first_line(struct draw_stage *stage,
-		   struct prim_header *header)
+                   struct prim_header *header)
 {
    struct stipple_stage *stipple = stipple_stage(stage);
    struct draw_context *draw = stage->draw;
 
    stipple->pattern = draw->rasterizer->line_stipple_pattern;
    stipple->factor = draw->rasterizer->line_stipple_factor + 1;
+   stipple->smooth = draw->rasterizer->line_smooth;
 
    stage->line = stipple_line;
-   stage->line( stage, header );
+   stage->line(stage, header);
 }
 
 
@@ -215,24 +223,23 @@ static void
 stipple_flush(struct draw_stage *stage, unsigned flags)
 {
    stage->line = stipple_first_line;
-   stage->next->flush( stage->next, flags );
+   stage->next->flush(stage->next, flags);
 }
 
 
-
-
 static void
-stipple_destroy( struct draw_stage *stage )
+stipple_destroy(struct draw_stage *stage)
 {
-   draw_free_temp_verts( stage );
-   FREE( stage );
+   draw_free_temp_verts(stage);
+   FREE(stage);
 }
 
 
 /**
  * Create line stippler stage
  */
-struct draw_stage *draw_stipple_stage( struct draw_context *draw )
+struct draw_stage *
+draw_stipple_stage(struct draw_context *draw)
 {
    struct stipple_stage *stipple = CALLOC_STRUCT(stipple_stage);
    if (!stipple)
@@ -248,14 +255,14 @@ struct draw_stage *draw_stipple_stage( struct draw_context *draw )
    stipple->stage.flush = stipple_flush;
    stipple->stage.destroy = stipple_destroy;
 
-   if (!draw_alloc_temp_verts( &stipple->stage, 2 ))
+   if (!draw_alloc_temp_verts(&stipple->stage, 2))
       goto fail;
 
    return &stipple->stage;
 
 fail:
    if (stipple)
-      stipple->stage.destroy( &stipple->stage );
+      stipple->stage.destroy(&stipple->stage);
 
    return NULL;
 }

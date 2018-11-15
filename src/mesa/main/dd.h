@@ -31,9 +31,9 @@
 #ifndef DD_INCLUDED
 #define DD_INCLUDED
 
-/* THIS FILE ONLY INCLUDED BY mtypes.h !!!!! */
-
 #include "glheader.h"
+#include "formats.h"
+#include "menums.h"
 
 struct gl_bitmap_atlas;
 struct gl_buffer_object;
@@ -50,6 +50,11 @@ struct gl_shader_program;
 struct gl_texture_image;
 struct gl_texture_object;
 struct gl_memory_info;
+struct gl_transform_feedback_object;
+struct ati_fragment_shader;
+struct util_queue_monitoring;
+struct _mesa_prim;
+struct _mesa_index_buffer;
 
 /* GL_ARB_vertex_buffer_object */
 /* Modifies GL_MAP_UNSYNCHRONIZED_BIT to allow driver to fail (return
@@ -88,12 +93,12 @@ struct dd_function_table {
    const GLubyte * (*GetString)( struct gl_context *ctx, GLenum name );
 
    /**
-    * Notify the driver after Mesa has made some internal state changes.
+    * Notify the driver after Mesa has made some internal state changes.  
     *
     * This is in addition to any state change callbacks Mesa may already have
     * made.
     */
-   void (*UpdateState)( struct gl_context *ctx, GLbitfield new_state );
+   void (*UpdateState)(struct gl_context *ctx);
 
    /**
     * This is called whenever glFinish() is called.
@@ -142,14 +147,14 @@ struct dd_function_table {
 		       GLvoid *dest );
 
    /**
-    * Called by glCopyPixels().
+    * Called by glCopyPixels().  
     */
    void (*CopyPixels)( struct gl_context *ctx, GLint srcx, GLint srcy,
                        GLsizei width, GLsizei height,
                        GLint dstx, GLint dsty, GLenum type );
 
    /**
-    * Called by glBitmap().
+    * Called by glBitmap().  
     */
    void (*Bitmap)( struct gl_context *ctx,
 		   GLint x, GLint y, GLsizei width, GLsizei height,
@@ -165,7 +170,7 @@ struct dd_function_table {
                             GLuint count, const GLubyte *ids);
    /*@}*/
 
-
+   
    /**
     * \name Texture image functions
     */
@@ -314,7 +319,7 @@ struct dd_function_table {
                                   GLint depth);
    /*@}*/
 
-
+   
    /**
     * \name Compressed texture functions
     */
@@ -336,16 +341,6 @@ struct dd_function_table {
                                  GLsizei width, GLsizei height, GLsizei depth,
                                  GLenum format,
                                  GLsizei imageSize, const GLvoid *data);
-
-   /**
-    * Called by glGetCompressedTexImage.
-    */
-   void (*GetCompressedTexSubImage)(struct gl_context *ctx,
-                                    struct gl_texture_image *texImage,
-                                    GLint xoffset, GLint yoffset,
-                                    GLint zoffset, GLsizei width,
-                                    GLsizei height, GLsizei depth,
-                                    GLvoid *data);
    /*@}*/
 
    /**
@@ -425,22 +420,6 @@ struct dd_function_table {
                             struct gl_texture_object *texObj,
                             struct gl_texture_object *origTexObj);
 
-   /** Sets the given buffer object as the texture's storage.  The given
-    * texture must have target GL_TEXTURE_1D, GL_TEXTURE_2D,
-    * GL_TEXTURE_RECTANGLE, and GL_TEXTURE_2D_ARRAY; have only a single
-    * mipmap level; be immutable; and must not have any assigned storage.
-    * The format and dimensions of the gl_texture_object will already be
-    * initialized.
-    *
-    * This function is used by the meta PBO texture upload path.
-    */
-   bool (*SetTextureStorageForBufferObject)(struct gl_context *ctx,
-                                            struct gl_texture_object *texObj,
-                                            struct gl_buffer_object *bufferObj,
-                                            uint32_t buffer_offset,
-                                            uint32_t row_stride,
-                                            bool read_only);
-
    /**
     * Map a renderbuffer into user space.
     * \param mode  bitmask of GL_MAP_READ_BIT, GL_MAP_WRITE_BIT and
@@ -450,7 +429,8 @@ struct dd_function_table {
 			   struct gl_renderbuffer *rb,
 			   GLuint x, GLuint y, GLuint w, GLuint h,
 			   GLbitfield mode,
-			   GLubyte **mapOut, GLint *rowStrideOut);
+			   GLubyte **mapOut, GLint *rowStrideOut,
+			   bool flip_y);
 
    void (*UnmapRenderbuffer)(struct gl_context *ctx,
 			     struct gl_renderbuffer *rb);
@@ -473,7 +453,7 @@ struct dd_function_table {
    struct gl_program * (*NewProgram)(struct gl_context *ctx, GLenum target,
                                      GLuint id, bool is_arb_asm);
    /** Delete a program */
-   void (*DeleteProgram)(struct gl_context *ctx, struct gl_program *prog);
+   void (*DeleteProgram)(struct gl_context *ctx, struct gl_program *prog);   
    /**
     * Allocate a program to associate with the new ATI fragment shader (optional)
     */
@@ -484,7 +464,7 @@ struct dd_function_table {
     * or modified.  Return GL_TRUE or GL_FALSE to indicate if the program is
     * supported by the driver.
     */
-   GLboolean (*ProgramStringNotify)(struct gl_context *ctx, GLenum target,
+   GLboolean (*ProgramStringNotify)(struct gl_context *ctx, GLenum target, 
                                     struct gl_program *prog);
 
    /**
@@ -495,9 +475,9 @@ struct dd_function_table {
                                 struct gl_program *prog);
 
    /** Query if program can be loaded onto hardware */
-   GLboolean (*IsProgramNative)(struct gl_context *ctx, GLenum target,
+   GLboolean (*IsProgramNative)(struct gl_context *ctx, GLenum target, 
 				struct gl_program *prog);
-
+   
    /*@}*/
 
    /**
@@ -513,6 +493,85 @@ struct dd_function_table {
    GLboolean (*LinkShader)(struct gl_context *ctx,
                            struct gl_shader_program *shader);
    /*@}*/
+
+
+   /**
+    * \name Draw functions.
+    */
+   /*@{*/
+   /**
+    * For indirect array drawing:
+    *
+    *    typedef struct {
+    *       GLuint count;
+    *       GLuint primCount;
+    *       GLuint first;
+    *       GLuint baseInstance; // in GL 4.2 and later, must be zero otherwise
+    *    } DrawArraysIndirectCommand;
+    *
+    * For indirect indexed drawing:
+    *
+    *    typedef struct {
+    *       GLuint count;
+    *       GLuint primCount;
+    *       GLuint firstIndex;
+    *       GLint  baseVertex;
+    *       GLuint baseInstance; // in GL 4.2 and later, must be zero otherwise
+    *    } DrawElementsIndirectCommand;
+    */
+
+   /**
+    * Draw a number of primitives.
+    * \param prims  array [nr_prims] describing what to draw (prim type,
+    *               vertex count, first index, instance count, etc).
+    * \param ib  index buffer for indexed drawing, NULL for array drawing
+    * \param index_bounds_valid  are min_index and max_index valid?
+    * \param min_index  lowest vertex index used
+    * \param max_index  highest vertex index used
+    * \param tfb_vertcount  if non-null, indicates which transform feedback
+    *                       object has the vertex count.
+    * \param tfb_stream  If called via DrawTransformFeedbackStream, specifies
+    *                    the vertex stream buffer from which to get the vertex
+    *                    count.
+    * \param indirect  If any prims are indirect, this specifies the buffer
+    *                  to find the "DrawArrays/ElementsIndirectCommand" data.
+    *                  This may be deprecated in the future
+    */
+   void (*Draw)(struct gl_context *ctx,
+                const struct _mesa_prim *prims, GLuint nr_prims,
+                const struct _mesa_index_buffer *ib,
+                GLboolean index_bounds_valid,
+                GLuint min_index, GLuint max_index,
+                struct gl_transform_feedback_object *tfb_vertcount,
+                unsigned tfb_stream, struct gl_buffer_object *indirect);
+
+
+   /**
+    * Draw a primitive, getting the vertex count, instance count, start
+    * vertex, etc. from a buffer object.
+    * \param mode  GL_POINTS, GL_LINES, GL_TRIANGLE_STRIP, etc.
+    * \param indirect_data  buffer to get "DrawArrays/ElementsIndirectCommand"
+    *                       data
+    * \param indirect_offset  offset of first primitive in indrect_data buffer
+    * \param draw_count  number of primitives to draw
+    * \param stride  stride, in bytes, between
+    *                "DrawArrays/ElementsIndirectCommand" objects
+    * \param indirect_draw_count_buffer  if non-NULL specifies a buffer to get
+    *                                    the real draw_count value.  Used for
+    *                                    GL_ARB_indirect_parameters.
+    * \param indirect_draw_count_offset  offset to the draw_count value in
+    *                                    indirect_draw_count_buffer
+    * \param ib  index buffer for indexed drawing, NULL otherwise.
+    */
+   void (*DrawIndirect)(struct gl_context *ctx, GLuint mode,
+                        struct gl_buffer_object *indirect_data,
+                        GLsizeiptr indirect_offset, unsigned draw_count,
+                        unsigned stride,
+                        struct gl_buffer_object *indirect_draw_count_buffer,
+                        GLsizeiptr indirect_draw_count_offset,
+                        const struct _mesa_index_buffer *ib);
+   /*@}*/
+
 
    /**
     * \name State-changing functions.
@@ -553,9 +612,9 @@ struct dd_function_table {
    /** Specify mapping of depth values from NDC to window coordinates */
    void (*DepthRange)(struct gl_context *ctx);
    /** Specify the current buffer for writing */
-   void (*DrawBuffer)( struct gl_context *ctx, GLenum buffer );
-   /** Specify the buffers for writing for fragment programs*/
-   void (*DrawBuffers)(struct gl_context *ctx, GLsizei n, const GLenum *buffers);
+   void (*DrawBuffer)(struct gl_context *ctx);
+   /** Used to allocated any buffers with on-demand creation */
+   void (*DrawBufferAllocate)(struct gl_context *ctx);
    /** Enable or disable server-side gl capabilities */
    void (*Enable)(struct gl_context *ctx, GLenum cap, GLboolean state);
    /** Specify fog parameters */
@@ -574,7 +633,7 @@ struct dd_function_table {
    /** Specify the width of rasterized lines */
    void (*LineWidth)(struct gl_context *ctx, GLfloat width);
    /** Specify a logical pixel operation for color index rendering */
-   void (*LogicOpcode)(struct gl_context *ctx, GLenum opcode);
+   void (*LogicOpcode)(struct gl_context *ctx, enum gl_logicop_mode opcode);
    void (*PointParameterfv)(struct gl_context *ctx, GLenum pname,
                             const GLfloat *params);
    /** Specify the diameter of rasterized points */
@@ -621,7 +680,7 @@ struct dd_function_table {
    /*@{*/
    struct gl_buffer_object * (*NewBufferObject)(struct gl_context *ctx,
                                                 GLuint buffer);
-
+   
    void (*DeleteBuffer)( struct gl_context *ctx, struct gl_buffer_object *obj );
 
    GLboolean (*BufferData)(struct gl_context *ctx, GLenum target,
@@ -707,7 +766,7 @@ struct dd_function_table {
    void (*BindFramebuffer)(struct gl_context *ctx, GLenum target,
                            struct gl_framebuffer *drawFb,
                            struct gl_framebuffer *readFb);
-   void (*FramebufferRenderbuffer)(struct gl_context *ctx,
+   void (*FramebufferRenderbuffer)(struct gl_context *ctx, 
                                    struct gl_framebuffer *fb,
                                    GLenum attachment,
                                    struct gl_renderbuffer *rb);
@@ -728,6 +787,14 @@ struct dd_function_table {
    void (*DiscardFramebuffer)(struct gl_context *ctx,
                               GLenum target, GLsizei numAttachments,
                               const GLenum *attachments);
+
+   /**
+    * \name Functions for GL_ARB_sample_locations
+    */
+   void (*GetProgrammableSampleCaps)(struct gl_context *ctx,
+                                     const struct gl_framebuffer *fb,
+                                     GLuint *bits, GLuint *width, GLuint *height);
+   void (*EvaluateDepthValues)(struct gl_context *ctx);
 
    /**
     * \name Query objects
@@ -830,7 +897,7 @@ struct dd_function_table {
    /*@{*/
 
    /**
-    * Set by the driver-supplied T&L engine.
+    * Set by the driver-supplied T&L engine.  
     *
     * Set to PRIM_OUTSIDE_BEGIN_END when outside glBegin()/glEnd().
     */
@@ -871,7 +938,7 @@ struct dd_function_table {
     * \name GL_ARB_sync interfaces
     */
    /*@{*/
-   struct gl_sync_object * (*NewSyncObject)(struct gl_context *, GLenum);
+   struct gl_sync_object * (*NewSyncObject)(struct gl_context *);
    void (*FenceSync)(struct gl_context *, struct gl_sync_object *,
                      GLenum, GLbitfield);
    void (*DeleteSyncObject)(struct gl_context *, struct gl_sync_object *);
@@ -988,15 +1055,15 @@ struct dd_function_table {
    /** @} */
 
    /**
-    * GL_MESA_shader_framebuffer_fetch_non_coherent rendering barrier.
+    * GL_EXT_shader_framebuffer_fetch_non_coherent rendering barrier.
     *
     * On return from this function any framebuffer contents written by
     * previous draw commands are guaranteed to be visible from subsequent
     * fragment shader invocations using the
-    * MESA_shader_framebuffer_fetch_non_coherent interface.
+    * EXT_shader_framebuffer_fetch_non_coherent interface.
     */
    /** @{ */
-   void (*BlendBarrier)(struct gl_context *ctx);
+   void (*FramebufferFetchBarrier)(struct gl_context *ctx);
    /** @} */
 
    /**
@@ -1039,7 +1106,8 @@ struct dd_function_table {
     *
     * Mesa will only call this function if GL multithreading is enabled.
     */
-   void (*SetBackgroundContext)(struct gl_context *ctx);
+   void (*SetBackgroundContext)(struct gl_context *ctx,
+                                struct util_queue_monitoring *queue_info);
 
    /**
     * \name GL_ARB_sparse_buffer interface
@@ -1049,6 +1117,187 @@ struct dd_function_table {
                                 struct gl_buffer_object *bufferObj,
                                 GLintptr offset, GLsizeiptr size,
                                 GLboolean commit);
+   /*@}*/
+
+   /**
+    * \name GL_ARB_bindless_texture interface
+    */
+   /*@{*/
+   GLuint64 (*NewTextureHandle)(struct gl_context *ctx,
+                                struct gl_texture_object *texObj,
+                                struct gl_sampler_object *sampObj);
+   void (*DeleteTextureHandle)(struct gl_context *ctx, GLuint64 handle);
+   void (*MakeTextureHandleResident)(struct gl_context *ctx, GLuint64 handle,
+                                     bool resident);
+   GLuint64 (*NewImageHandle)(struct gl_context *ctx,
+                              struct gl_image_unit *imgObj);
+   void (*DeleteImageHandle)(struct gl_context *ctx, GLuint64 handle);
+   void (*MakeImageHandleResident)(struct gl_context *ctx, GLuint64 handle,
+                                   GLenum access, bool resident);
+   /*@}*/
+
+
+   /**
+    * \name GL_EXT_external_objects interface
+    */
+   /*@{*/
+  /**
+    * Called to allocate a new memory object.  Drivers will usually
+    * allocate/return a subclass of gl_memory_object.
+    */
+   struct gl_memory_object * (*NewMemoryObject)(struct gl_context *ctx,
+                                                GLuint name);
+   /**
+    * Called to delete/free a memory object.  Drivers should free the
+    * object and any image data it contains.
+    */
+   void (*DeleteMemoryObject)(struct gl_context *ctx,
+                              struct gl_memory_object *memObj);
+
+   /**
+    * Set the given memory object as the texture's storage.
+    */
+   GLboolean (*SetTextureStorageForMemoryObject)(struct gl_context *ctx,
+                                                 struct gl_texture_object *tex_obj,
+                                                 struct gl_memory_object *mem_obj,
+                                                 GLsizei levels, GLsizei width,
+                                                 GLsizei height, GLsizei depth,
+                                                 GLuint64 offset);
+
+   /**
+    * Use a memory object as the backing data for a buffer object
+    */
+   GLboolean (*BufferDataMem)(struct gl_context *ctx,
+                              GLenum target,
+                              GLsizeiptrARB size,
+                              struct gl_memory_object *memObj,
+                              GLuint64 offset,
+                              GLenum usage,
+                              struct gl_buffer_object *bufObj);
+
+   /**
+    * Fill uuid with an unique identifier for this driver
+    *
+    * uuid must point to GL_UUID_SIZE_EXT bytes of available memory
+    */
+   void (*GetDriverUuid)(struct gl_context *ctx, char *uuid);
+
+   /**
+    * Fill uuid with an unique identifier for the device associated
+    * to this driver
+    *
+    * uuid must point to GL_UUID_SIZE_EXT bytes of available memory
+    */
+   void (*GetDeviceUuid)(struct gl_context *ctx, char *uuid);
+
+   /*@}*/
+
+   /**
+    * \name GL_EXT_external_objects_fd interface
+    */
+   /*@{*/
+   /**
+    * Called to import a memory object. The caller relinquishes ownership
+    * of fd after the call returns.
+    *
+    * Accessing fd after ImportMemoryObjectFd returns results in undefined
+    * behaviour. This is consistent with EXT_external_object_fd.
+    */
+   void (*ImportMemoryObjectFd)(struct gl_context *ctx,
+                                struct gl_memory_object *memObj,
+                                GLuint64 size,
+                                int fd);
+   /*@}*/
+
+   /**
+    * \name GL_ARB_get_program_binary
+    */
+   /*@{*/
+   /**
+    * Calls to retrieve/store a binary serialized copy of the current program.
+    */
+   void (*GetProgramBinaryDriverSHA1)(struct gl_context *ctx, uint8_t *sha1);
+
+   void (*ProgramBinarySerializeDriverBlob)(struct gl_context *ctx,
+                                            struct gl_shader_program *shProg,
+                                            struct gl_program *prog);
+
+   void (*ProgramBinaryDeserializeDriverBlob)(struct gl_context *ctx,
+                                              struct gl_shader_program *shProg,
+                                              struct gl_program *prog);
+   /*@}*/
+
+   /**
+    * \name GL_EXT_semaphore interface
+    */
+   /*@{*/
+  /**
+    * Called to allocate a new semaphore object. Drivers will usually
+    * allocate/return a subclass of gl_semaphore_object.
+    */
+   struct gl_semaphore_object * (*NewSemaphoreObject)(struct gl_context *ctx,
+                                                      GLuint name);
+   /**
+    * Called to delete/free a semaphore object. Drivers should free the
+    * object and any associated resources.
+    */
+   void (*DeleteSemaphoreObject)(struct gl_context *ctx,
+                                 struct gl_semaphore_object *semObj);
+
+   /**
+    * Introduce an operation to wait for the semaphore object in the GL
+    * server's command stream
+    */
+   void (*ServerWaitSemaphoreObject)(struct gl_context *ctx,
+                                     struct gl_semaphore_object *semObj,
+                                     GLuint numBufferBarriers,
+                                     struct gl_buffer_object **bufObjs,
+                                     GLuint numTextureBarriers,
+                                     struct gl_texture_object **texObjs,
+                                     const GLenum *srcLayouts);
+
+   /**
+    * Introduce an operation to signal the semaphore object in the GL
+    * server's command stream
+    */
+   void (*ServerSignalSemaphoreObject)(struct gl_context *ctx,
+                                       struct gl_semaphore_object *semObj,
+                                       GLuint numBufferBarriers,
+                                       struct gl_buffer_object **bufObjs,
+                                       GLuint numTextureBarriers,
+                                       struct gl_texture_object **texObjs,
+                                       const GLenum *dstLayouts);
+   /*@}*/
+
+   /**
+    * \name GL_EXT_semaphore_fd interface
+    */
+   /*@{*/
+   /**
+    * Called to import a semaphore object. The caller relinquishes ownership
+    * of fd after the call returns.
+    *
+    * Accessing fd after ImportSemaphoreFd returns results in undefined
+    * behaviour. This is consistent with EXT_semaphore_fd.
+    */
+   void (*ImportSemaphoreFd)(struct gl_context *ctx,
+                                struct gl_semaphore_object *semObj,
+                                int fd);
+   /*@}*/
+
+   /**
+    * \name Disk shader cache functions
+    */
+   /*@{*/
+   /**
+    * Called to initialize gl_program::driver_cache_blob (and size) with a
+    * ralloc allocated buffer.
+    *
+    * This buffer will be saved and restored as part of the gl_program
+    * serialization and deserialization.
+    */
+   void (*ShaderCacheSerializeDriverBlob)(struct gl_context *ctx,
+                                          struct gl_program *prog);
    /*@}*/
 };
 
@@ -1225,6 +1474,8 @@ typedef struct {
    void (GLAPIENTRYP VertexAttribL3dv)( GLuint index, const GLdouble *v);
    void (GLAPIENTRYP VertexAttribL4dv)( GLuint index, const GLdouble *v);
 
+   void (GLAPIENTRYP VertexAttribL1ui64ARB)( GLuint index, GLuint64EXT x);
+   void (GLAPIENTRYP VertexAttribL1ui64vARB)( GLuint index, const GLuint64EXT *v);
 } GLvertexformat;
 
 

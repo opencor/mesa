@@ -5,7 +5,7 @@
 #include "svga/svga_public.h"
 
 static struct pipe_screen *
-create_screen(int fd)
+create_screen(int fd, const struct pipe_screen_config *config)
 {
    struct svga_winsys_screen *sws;
    struct pipe_screen *screen;

@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,14 +22,14 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
  /*
   * Authors:
   *   Keith Whitwell <keithw@vmware.com>
   */
-
+ 
 
 #include "main/macros.h"
 #include "main/framebuffer.h"
@@ -41,8 +41,8 @@
 /**
  * Scissor depends on the scissor box, and the framebuffer dimensions.
  */
-static void
-update_scissor( struct st_context *st )
+void
+st_update_scissor( struct st_context *st )
 {
    struct pipe_scissor_state scissor[PIPE_MAX_VIEWPORTS];
    const struct gl_context *ctx = st->ctx;
@@ -53,7 +53,7 @@ update_scissor( struct st_context *st )
    unsigned i;
    bool changed = false;
 
-   for (i = 0 ; i < ctx->Const.MaxViewports; i++) {
+   for (i = 0 ; i < st->state.num_viewports; i++) {
       scissor[i].minx = 0;
       scissor[i].miny = 0;
       scissor[i].maxx = fb_width;
@@ -73,7 +73,7 @@ update_scissor( struct st_context *st )
             scissor[i].maxx = xmax;
          if (ymax < (GLint) scissor[i].maxy)
             scissor[i].maxy = ymax;
-
+         
          /* check for null space */
          if (scissor[i].minx >= scissor[i].maxx || scissor[i].miny >= scissor[i].maxy)
             scissor[i].minx = scissor[i].miny = scissor[i].maxx = scissor[i].maxy = 0;
@@ -82,7 +82,7 @@ update_scissor( struct st_context *st )
       /* Now invert Y if needed.
        * Gallium drivers use the convention Y=0=top for surfaces.
        */
-      if (st_fb_orientation(fb) == Y_0_TOP) {
+      if (st->state.fb_orientation == Y_0_TOP) {
          miny = fb->Height - scissor[i].maxy;
          maxy = fb->Height - scissor[i].miny;
          scissor[i].miny = miny;
@@ -95,12 +95,16 @@ update_scissor( struct st_context *st )
          changed = true;
       }
    }
-   if (changed)
-      st->pipe->set_scissor_states(st->pipe, 0, ctx->Const.MaxViewports, scissor); /* activate */
+
+   if (changed) {
+      struct pipe_context *pipe = st->pipe;
+
+      pipe->set_scissor_states(pipe, 0, st->state.num_viewports, scissor);
+   }
 }
 
-static void
-update_window_rectangles(struct st_context *st)
+void
+st_update_window_rectangles(struct st_context *st)
 {
    struct pipe_scissor_state new_rects[PIPE_MAX_WINDOW_RECTANGLES];
    const struct gl_context *ctx = st->ctx;
@@ -139,11 +143,3 @@ update_window_rectangles(struct st_context *st)
       st->pipe->set_window_rectangles(
             st->pipe, include, num_rects, new_rects);
 }
-
-const struct st_tracked_state st_update_scissor = {
-   update_scissor					/* update */
-};
-
-const struct st_tracked_state st_update_window_rectangles = {
-   update_window_rectangles				/* update */
-};

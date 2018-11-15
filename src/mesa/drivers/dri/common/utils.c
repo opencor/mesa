@@ -43,18 +43,18 @@
 
 /**
  * Create the \c GL_RENDERER string for DRI drivers.
- *
+ * 
  * Almost all DRI drivers use a \c GL_RENDERER string of the form:
  *
  *    "Mesa DRI <chip> <driver date> <AGP speed) <CPU information>"
  *
  * Using the supplied chip name, driver data, and AGP speed, this function
  * creates the string.
- *
+ * 
  * \param buffer         Buffer to hold the \c GL_RENDERER string.
  * \param hardware_name  Name of the hardware.
  * \param agp_mode       AGP mode (speed).
- *
+ * 
  * \returns
  * The length of the string stored in \c buffer.  This does \b not include
  * the terminating \c NUL character.
@@ -77,7 +77,7 @@ driGetRendererString( char * buffer, const char * hardware_name,
    case 8:
       offset += sprintf( & buffer[ offset ], " AGP %ux", agp_mode );
       break;
-
+	
    default:
       break;
    }
@@ -96,11 +96,11 @@ driGetRendererString( char * buffer, const char * hardware_name,
 
 /**
  * Creates a set of \c struct gl_config that a driver will expose.
- *
+ * 
  * A set of \c struct gl_config will be created based on the supplied
  * parameters.  The number of modes processed will be 2 *
  * \c num_depth_stencil_bits * \c num_db_modes.
- *
+ * 
  * For the most part, data is just copied from \c depth_bits, \c stencil_bits,
  * \c db_modes, and \c visType into each \c struct gl_config element.
  * However, the meanings of \c fb_format and \c fb_type require further
@@ -112,7 +112,7 @@ driGetRendererString( char * buffer, const char * hardware_name,
  * \c GL_UNSIGNED_SHORT_5_6_5_REV is specified with \c GL_RGB, bits [15:11]
  * are the blue value, bits [10:5] are the green value, and bits [4:0] are
  * the red value.
- *
+ * 
  * One sublte issue is the combination of \c GL_RGB  or \c GL_BGR and either
  * of the \c GL_UNSIGNED_INT_8_8_8_8 modes.  The resulting mask values in the
  * \c struct gl_config structure is \b identical to the \c GL_RGBA or
@@ -121,7 +121,7 @@ driGetRendererString( char * buffer, const char * hardware_name,
  * still uses 32-bits.
  *
  * If in doubt, look at the tables used in the function.
- *
+ * 
  * \param ptr_to_modes  Pointer to a pointer to a linked list of
  *                      \c struct gl_config.  Upon completion, a pointer to
  *                      the next element to be process will be stored here.
@@ -147,7 +147,7 @@ driGetRendererString( char * buffer, const char * hardware_name,
  * \param color_depth_match Whether the color depth must match the zs depth
  *                          This forces 32-bit color to have 24-bit depth, and
  *                          16-bit color to have 16-bit depth.
- *
+ * 
  * \returns
  * Pointer to any array of pointers to the \c __DRIconfig structures created
  * for the specified formats.  If there is an error, \c NULL is returned.
@@ -177,6 +177,10 @@ driCreateConfigs(mesa_format format,
       { 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000 },
       /* MESA_FORMAT_R8G8B8X8_UNORM */
       { 0x000000FF, 0x0000FF00, 0x00FF0000, 0x00000000 },
+      /* MESA_FORMAT_R10G10B10X2_UNORM */
+      { 0x000003FF, 0x000FFC00, 0x3FF00000, 0x00000000 },
+      /* MESA_FORMAT_R10G10B10A2_UNORM */
+      { 0x000003FF, 0x000FFC00, 0x3FF00000, 0xC0000000 },
    };
 
    const uint32_t * masks;
@@ -204,6 +208,7 @@ driCreateConfigs(mesa_format format,
       masks = masks_table[2];
       break;
    case MESA_FORMAT_R8G8B8A8_UNORM:
+   case MESA_FORMAT_R8G8B8A8_SRGB:
       masks = masks_table[5];
       break;
    case MESA_FORMAT_R8G8B8X8_UNORM:
@@ -214,6 +219,12 @@ driCreateConfigs(mesa_format format,
       break;
    case MESA_FORMAT_B10G10R10A2_UNORM:
       masks = masks_table[4];
+      break;
+   case MESA_FORMAT_R10G10B10X2_UNORM:
+      masks = masks_table[7];
+      break;
+   case MESA_FORMAT_R10G10B10A2_UNORM:
+      masks = masks_table[8];
       break;
    default:
       fprintf(stderr, "[%s:%u] Unknown framebuffer type %s (%d).\n",
@@ -284,8 +295,9 @@ driCreateConfigs(mesa_format format,
 		    modes->transparentIndex = GLX_DONT_CARE;
 		    modes->rgbMode = GL_TRUE;
 
-		    if ( db_modes[i] == GLX_NONE ) {
+		    if (db_modes[i] == __DRI_ATTRIB_SWAP_NONE) {
 		    	modes->doubleBufferMode = GL_FALSE;
+		        modes->swapMethod = __DRI_ATTRIB_SWAP_UNDEFINED;
 		    }
 		    else {
 		    	modes->doubleBufferMode = GL_TRUE;
@@ -339,7 +351,7 @@ __DRIconfig **driConcatConfigs(__DRIconfig **a,
     j = 0;
     while (b[j] != NULL)
 	j++;
-
+   
     all = malloc((i + j + 1) * sizeof *all);
     index = 0;
     for (i = 0; a[i] != NULL; i++)
@@ -403,7 +415,6 @@ static const struct { unsigned int attrib, offset; } attribMap[] = {
      * so the iterator includes them though.*/
     __ATTRIB(__DRI_ATTRIB_RENDER_TYPE,			level),
     __ATTRIB(__DRI_ATTRIB_CONFIG_CAVEAT,		level),
-    __ATTRIB(__DRI_ATTRIB_SWAP_METHOD,			level)
 };
 
 
@@ -428,15 +439,11 @@ driGetConfigAttribIndex(const __DRIconfig *config,
 	else
 	    *value = 0;
 	break;
-    case __DRI_ATTRIB_SWAP_METHOD:
-        /* XXX no return value??? */
-	break;
-
     default:
         /* any other int-sized field */
 	*value = *(unsigned int *)
 	    ((char *) &config->modes + attribMap[index].offset);
-
+	
 	break;
     }
 

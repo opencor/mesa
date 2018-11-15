@@ -1,6 +1,8 @@
 /*
  * Copyright 2008 Corbin Simpson <MostAwesomeDude@gmail.com>
  * Copyright 2010 Marek Olšák <maraeo@gmail.com>
+ * Copyright 2018 Advanced Micro Devices, Inc.
+ * All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -26,12 +28,17 @@
 
 /* The public winsys interface header for the radeon driver. */
 
+/* Whether the next IB can start immediately and not wait for draws and
+ * dispatches from the current IB to finish. */
+#define RADEON_FLUSH_START_NEXT_GFX_IB_NOW	(1u << 31)
+
+#define RADEON_FLUSH_ASYNC_START_NEXT_GFX_IB_NOW \
+	(PIPE_FLUSH_ASYNC | RADEON_FLUSH_START_NEXT_GFX_IB_NOW)
+
 #include "pipebuffer/pb_buffer.h"
 
-#include "amd/common/amd_family.h"
-
-#define RADEON_FLUSH_ASYNC		(1 << 0)
-#define RADEON_FLUSH_END_OF_FRAME       (1 << 1)
+#include "amd/common/ac_gpu_info.h"
+#include "amd/common/ac_surface.h"
 
 /* Tiling flags. */
 enum radeon_bo_layout {
@@ -50,10 +57,12 @@ enum radeon_bo_domain { /* bitfield */
 
 enum radeon_bo_flag { /* bitfield */
     RADEON_FLAG_GTT_WC =        (1 << 0),
-    RADEON_FLAG_CPU_ACCESS =    (1 << 1),
-    RADEON_FLAG_NO_CPU_ACCESS = (1 << 2),
-    RADEON_FLAG_HANDLE =        (1 << 3), /* the buffer must not be suballocated */
-    RADEON_FLAG_SPARSE =        (1 << 4),
+    RADEON_FLAG_NO_CPU_ACCESS = (1 << 1),
+    RADEON_FLAG_NO_SUBALLOC =   (1 << 2),
+    RADEON_FLAG_SPARSE =        (1 << 3),
+    RADEON_FLAG_NO_INTERPROCESS_SHARING = (1 << 4),
+    RADEON_FLAG_READ_ONLY =     (1 << 5),
+    RADEON_FLAG_32BIT =    (1 << 6),
 };
 
 enum radeon_bo_usage { /* bitfield */
@@ -75,6 +84,9 @@ enum ring_type {
     RING_DMA,
     RING_UVD,
     RING_VCE,
+    RING_UVD_ENC,
+    RING_VCN_DEC,
+    RING_VCN_ENC,
     RING_LAST,
 };
 
@@ -88,8 +100,11 @@ enum radeon_value_id {
     RADEON_TIMESTAMP,
     RADEON_NUM_GFX_IBS,
     RADEON_NUM_SDMA_IBS,
+    RADEON_GFX_BO_LIST_COUNTER, /* number of BOs submitted in gfx IBs */
+    RADEON_GFX_IB_SIZE_COUNTER,
     RADEON_NUM_BYTES_MOVED,
     RADEON_NUM_EVICTIONS,
+    RADEON_NUM_VRAM_CPU_PAGE_FAULTS,
     RADEON_VRAM_USAGE,
     RADEON_VRAM_VIS_USAGE,
     RADEON_GTT_USAGE,
@@ -100,139 +115,72 @@ enum radeon_value_id {
     RADEON_CS_THREAD_TIME,
 };
 
-/* Each group of four has the same priority. */
 enum radeon_bo_priority {
+    /* Each group of two has the same priority. */
     RADEON_PRIO_FENCE = 0,
     RADEON_PRIO_TRACE,
-    RADEON_PRIO_SO_FILLED_SIZE,
+
+    RADEON_PRIO_SO_FILLED_SIZE = 2,
     RADEON_PRIO_QUERY,
 
     RADEON_PRIO_IB1 = 4, /* main IB submitted to the kernel */
     RADEON_PRIO_IB2, /* IB executed with INDIRECT_BUFFER */
-    RADEON_PRIO_DRAW_INDIRECT,
+
+    RADEON_PRIO_DRAW_INDIRECT = 6,
     RADEON_PRIO_INDEX_BUFFER,
 
-    RADEON_PRIO_VCE = 8,
-    RADEON_PRIO_UVD,
-    RADEON_PRIO_SDMA_BUFFER,
-    RADEON_PRIO_SDMA_TEXTURE,
-
-    RADEON_PRIO_CP_DMA = 12,
-
-    RADEON_PRIO_CONST_BUFFER = 16,
-    RADEON_PRIO_DESCRIPTORS,
+    RADEON_PRIO_CP_DMA = 8,
     RADEON_PRIO_BORDER_COLORS,
 
-    RADEON_PRIO_SAMPLER_BUFFER = 20,
+    RADEON_PRIO_CONST_BUFFER = 10,
+    RADEON_PRIO_DESCRIPTORS,
+
+    RADEON_PRIO_SAMPLER_BUFFER = 12,
     RADEON_PRIO_VERTEX_BUFFER,
 
-    RADEON_PRIO_SHADER_RW_BUFFER = 24,
+    RADEON_PRIO_SHADER_RW_BUFFER = 14,
     RADEON_PRIO_COMPUTE_GLOBAL,
 
-    RADEON_PRIO_SAMPLER_TEXTURE = 28,
+    RADEON_PRIO_SAMPLER_TEXTURE = 16,
     RADEON_PRIO_SHADER_RW_IMAGE,
 
-    RADEON_PRIO_SAMPLER_TEXTURE_MSAA = 32,
+    RADEON_PRIO_SAMPLER_TEXTURE_MSAA = 18,
+    RADEON_PRIO_COLOR_BUFFER,
 
-    RADEON_PRIO_COLOR_BUFFER = 36,
+    RADEON_PRIO_DEPTH_BUFFER = 20,
 
-    RADEON_PRIO_DEPTH_BUFFER = 40,
+    RADEON_PRIO_COLOR_BUFFER_MSAA = 22,
 
-    RADEON_PRIO_COLOR_BUFFER_MSAA = 44,
+    RADEON_PRIO_DEPTH_BUFFER_MSAA = 24,
 
-    RADEON_PRIO_DEPTH_BUFFER_MSAA = 48,
-
-    RADEON_PRIO_CMASK = 52,
-    RADEON_PRIO_DCC,
-    RADEON_PRIO_HTILE,
+    RADEON_PRIO_SEPARATE_META = 26,
     RADEON_PRIO_SHADER_BINARY, /* the hw can't hide instruction cache misses */
 
-    RADEON_PRIO_SHADER_RINGS = 56,
+    RADEON_PRIO_SHADER_RINGS = 28,
 
-    RADEON_PRIO_SCRATCH_BUFFER = 60,
-    /* 63 is the maximum value */
+    RADEON_PRIO_SCRATCH_BUFFER = 30,
+    /* 31 is the maximum value */
 };
 
 struct winsys_handle;
 struct radeon_winsys_ctx;
 
-struct radeon_winsys_cs_chunk {
+struct radeon_cmdbuf_chunk {
     unsigned cdw;  /* Number of used dwords. */
     unsigned max_dw; /* Maximum number of dwords. */
     uint32_t *buf; /* The base pointer of the chunk. */
 };
 
-struct radeon_winsys_cs {
-    struct radeon_winsys_cs_chunk current;
-    struct radeon_winsys_cs_chunk *prev;
+struct radeon_cmdbuf {
+    struct radeon_cmdbuf_chunk current;
+    struct radeon_cmdbuf_chunk *prev;
     unsigned                      num_prev; /* Number of previous chunks. */
     unsigned                      max_prev; /* Space in array pointed to by prev. */
     unsigned                      prev_dw; /* Total number of dwords in previous chunks. */
 
-    /* Memory usage of the buffer list. These are always 0 for CE and preamble
-     * IBs. */
+    /* Memory usage of the buffer list. These are always 0 for preamble IBs. */
     uint64_t                      used_vram;
     uint64_t                      used_gart;
-};
-
-struct radeon_info {
-    /* PCI info: domain:bus:dev:func */
-    uint32_t                    pci_domain;
-    uint32_t                    pci_bus;
-    uint32_t                    pci_dev;
-    uint32_t                    pci_func;
-
-    /* Device info. */
-    uint32_t                    pci_id;
-    enum radeon_family          family;
-    enum chip_class             chip_class;
-    uint32_t                    gart_page_size;
-    uint64_t                    gart_size;
-    uint64_t                    vram_size;
-    uint64_t                    vram_vis_size;
-    uint64_t                    max_alloc_size;
-    uint32_t                    min_alloc_size;
-    bool                        has_dedicated_vram;
-    bool                        has_virtual_memory;
-    bool                        gfx_ib_pad_with_type2;
-    bool                        has_sdma;
-    bool                        has_uvd;
-    uint32_t                    uvd_fw_version;
-    uint32_t                    vce_fw_version;
-    uint32_t                    me_fw_version;
-    uint32_t                    pfp_fw_version;
-    uint32_t                    ce_fw_version;
-    uint32_t                    vce_harvest_config;
-    uint32_t                    clock_crystal_freq;
-    uint32_t                    tcc_cache_line_size;
-
-    /* Kernel info. */
-    uint32_t                    drm_major; /* version */
-    uint32_t                    drm_minor;
-    uint32_t                    drm_patchlevel;
-    bool                        has_userptr;
-
-    /* Shader cores. */
-    uint32_t                    r600_max_quad_pipes; /* wave size / 16 */
-    uint32_t                    max_shader_clock;
-    uint32_t                    num_good_compute_units;
-    uint32_t                    max_se; /* shader engines */
-    uint32_t                    max_sh_per_se; /* shader arrays per shader engine */
-
-    /* Render backends (color + depth blocks). */
-    uint32_t                    r300_num_gb_pipes;
-    uint32_t                    r300_num_z_pipes;
-    uint32_t                    r600_gb_backend_map; /* R600 harvest config */
-    bool                        r600_gb_backend_map_valid;
-    uint32_t                    r600_num_banks;
-    uint32_t                    num_render_backends;
-    uint32_t                    num_tile_pipes; /* pipe count from PIPE_CONFIG */
-    uint32_t                    pipe_interleave_bytes;
-    uint32_t                    enabled_rb_mask; /* GCN harvest config */
-
-    /* Tile modes. */
-    uint32_t                    si_tile_mode_array[32];
-    uint32_t                    cik_macrotile_mode_array[16];
 };
 
 /* Tiling info for display code, DRI sharing, and other data. */
@@ -273,157 +221,10 @@ enum radeon_feature_id {
     RADEON_FID_R300_CMASK_ACCESS,
 };
 
-#define RADEON_SURF_MAX_LEVELS                  15
-
-enum radeon_surf_mode {
-    RADEON_SURF_MODE_LINEAR_ALIGNED = 1,
-    RADEON_SURF_MODE_1D = 2,
-    RADEON_SURF_MODE_2D = 3,
-};
-
-/* These are defined exactly like GB_TILE_MODEn.MICRO_TILE_MODE_NEW. */
-enum radeon_micro_mode {
-    RADEON_MICRO_MODE_DISPLAY = 0,
-    RADEON_MICRO_MODE_THIN = 1,
-    RADEON_MICRO_MODE_DEPTH = 2,
-    RADEON_MICRO_MODE_ROTATED = 3,
-};
-
-/* the first 16 bits are reserved for libdrm_radeon, don't use them */
-#define RADEON_SURF_SCANOUT                     (1 << 16)
-#define RADEON_SURF_ZBUFFER                     (1 << 17)
-#define RADEON_SURF_SBUFFER                     (1 << 18)
-#define RADEON_SURF_Z_OR_SBUFFER                (RADEON_SURF_ZBUFFER | RADEON_SURF_SBUFFER)
-/* bits 19 and 20 are reserved for libdrm_radeon, don't use them */
-#define RADEON_SURF_FMASK                       (1 << 21)
-#define RADEON_SURF_DISABLE_DCC                 (1 << 22)
-#define RADEON_SURF_TC_COMPATIBLE_HTILE         (1 << 23)
-#define RADEON_SURF_IMPORTED                    (1 << 24)
-#define RADEON_SURF_OPTIMIZE_FOR_SPACE          (1 << 25)
-
-struct legacy_surf_level {
-    uint64_t                    offset;
-    uint64_t                    slice_size;
-    uint64_t                    dcc_offset;
-    uint64_t                    dcc_fast_clear_size;
-    uint16_t                    nblk_x;
-    uint16_t                    nblk_y;
-    enum radeon_surf_mode       mode;
-};
-
-struct legacy_surf_layout {
-    unsigned                    bankw:4;  /* max 8 */
-    unsigned                    bankh:4;  /* max 8 */
-    unsigned                    mtilea:4; /* max 8 */
-    unsigned                    tile_split:13;         /* max 4K */
-    unsigned                    stencil_tile_split:13; /* max 4K */
-    unsigned                    pipe_config:5;      /* max 17 */
-    unsigned                    num_banks:5;        /* max 16 */
-    unsigned                    macro_tile_index:4; /* max 15 */
-
-    /* Whether the depth miptree or stencil miptree as used by the DB are
-     * adjusted from their TC compatible form to ensure depth/stencil
-     * compatibility. If either is true, the corresponding plane cannot be
-     * sampled from.
-     */
-    unsigned                    depth_adjusted:1;
-    unsigned                    stencil_adjusted:1;
-
-    struct legacy_surf_level    level[RADEON_SURF_MAX_LEVELS];
-    struct legacy_surf_level    stencil_level[RADEON_SURF_MAX_LEVELS];
-    uint8_t                     tiling_index[RADEON_SURF_MAX_LEVELS];
-    uint8_t                     stencil_tiling_index[RADEON_SURF_MAX_LEVELS];
-};
-
-/* Same as addrlib - AddrResourceType. */
-enum gfx9_resource_type {
-    RADEON_RESOURCE_1D = 0,
-    RADEON_RESOURCE_2D,
-    RADEON_RESOURCE_3D,
-};
-
-struct gfx9_surf_flags {
-    uint16_t                    swizzle_mode; /* tile mode */
-    uint16_t                    epitch; /* (pitch - 1) or (height - 1) */
-};
-
-struct gfx9_surf_meta_flags {
-    unsigned                    rb_aligned:1;   /* optimal for RBs */
-    unsigned                    pipe_aligned:1; /* optimal for TC */
-};
-
-struct gfx9_surf_layout {
-    struct gfx9_surf_flags      surf;    /* color or depth surface */
-    struct gfx9_surf_flags      fmask;   /* not added to surf_size */
-    struct gfx9_surf_flags      stencil; /* added to surf_size, use stencil_offset */
-
-    struct gfx9_surf_meta_flags dcc;   /* metadata of color */
-    struct gfx9_surf_meta_flags htile; /* metadata of depth and stencil */
-    struct gfx9_surf_meta_flags cmask; /* metadata of fmask */
-
-    enum gfx9_resource_type     resource_type; /* 1D, 2D or 3D */
-    uint64_t                    surf_offset; /* 0 unless imported with an offset */
-    /* The size of the 2D plane containing all mipmap levels. */
-    uint64_t                    surf_slice_size;
-    uint16_t                    surf_pitch; /* in blocks */
-    uint16_t                    surf_height;
-    /* Mipmap level offset within the slice in bytes. Only valid for LINEAR. */
-    uint32_t                    offset[RADEON_SURF_MAX_LEVELS];
-
-    uint16_t                    dcc_pitch_max;  /* (mip chain pitch - 1) */
-
-    uint64_t                    stencil_offset; /* separate stencil */
-    uint64_t                    fmask_size;
-    uint64_t                    cmask_size;
-
-    uint32_t                    fmask_alignment;
-    uint32_t                    cmask_alignment;
-};
-
-struct radeon_surf {
-    /* Format properties. */
-    unsigned                    blk_w:4;
-    unsigned                    blk_h:4;
-    unsigned                    bpe:5;
-    /* Number of mipmap levels where DCC is enabled starting from level 0.
-     * Non-zero levels may be disabled due to alignment constraints, but not
-     * the first level.
-     */
-    unsigned                    num_dcc_levels:4;
-    unsigned                    is_linear:1;
-    /* Displayable, thin, depth, rotated. AKA D,S,Z,R swizzle modes. */
-    unsigned                    micro_tile_mode:3;
-    uint32_t                    flags;
-
-    /* These are return values. Some of them can be set by the caller, but
-     * they will be treated as hints (e.g. bankw, bankh) and might be
-     * changed by the calculator.
-     */
-    uint64_t                    surf_size;
-    uint64_t                    dcc_size;
-    uint64_t                    htile_size;
-
-    uint32_t                    surf_alignment;
-    uint32_t                    dcc_alignment;
-    uint32_t                    htile_alignment;
-
-    union {
-        /* R600-VI return values.
-         *
-         * Some of them can be set by the caller if certain parameters are
-         * desirable. The allocator will try to obey them.
-         */
-        struct legacy_surf_layout legacy;
-
-        /* GFX9+ return values. */
-        struct gfx9_surf_layout gfx9;
-    } u;
-};
-
 struct radeon_bo_list_item {
     uint64_t bo_size;
     uint64_t vm_address;
-    uint64_t priority_usage; /* mask of (1 << RADEON_PRIO_*) */
+    uint32_t priority_usage; /* mask of (1 << RADEON_PRIO_*) */
 };
 
 struct radeon_winsys {
@@ -490,7 +291,7 @@ struct radeon_winsys {
      * \return          The pointer at the beginning of the buffer.
      */
     void *(*buffer_map)(struct pb_buffer *buf,
-                        struct radeon_winsys_cs *cs,
+                        struct radeon_cmdbuf *cs,
                         enum pipe_transfer_usage usage);
 
     /**
@@ -562,6 +363,9 @@ struct radeon_winsys {
      * \return          whether \p buf was created via buffer_from_ptr
      */
     bool (*buffer_is_user_ptr)(struct pb_buffer *buf);
+
+    /** Whether the buffer was suballocated. */
+    bool (*buffer_is_suballocated)(struct pb_buffer *buf);
 
     /**
      * Get a winsys handle from a winsys buffer. The internal structure
@@ -650,48 +454,18 @@ struct radeon_winsys {
      * \param flush     Flush callback function associated with the command stream.
      * \param user      User pointer that will be passed to the flush callback.
      */
-    struct radeon_winsys_cs *(*cs_create)(struct radeon_winsys_ctx *ctx,
+    struct radeon_cmdbuf *(*cs_create)(struct radeon_winsys_ctx *ctx,
                                           enum ring_type ring_type,
                                           void (*flush)(void *ctx, unsigned flags,
 							struct pipe_fence_handle **fence),
                                           void *flush_ctx);
 
     /**
-     * Add a constant engine IB to a graphics CS. This makes the graphics CS
-     * from "cs_create" a group of two IBs that share a buffer list and are
-     * flushed together.
-     *
-     * The returned constant CS is only a stream for writing packets to the new
-     * IB. Calling other winsys functions with it is not allowed, not even
-     * "cs_destroy".
-     *
-     * In order to add buffers and check memory usage, use the graphics CS.
-     * In order to flush it, use the graphics CS, which will flush both IBs.
-     * Destroying the graphics CS will destroy both of them.
-     *
-     * \param cs  The graphics CS from "cs_create" that will hold the buffer
-     *            list and will be used for flushing.
-     */
-    struct radeon_winsys_cs *(*cs_add_const_ib)(struct radeon_winsys_cs *cs);
-
-     /**
-     * Add a constant engine preamble IB to a graphics CS. This add an extra IB
-     * in similar manner to cs_add_const_ib. This should always be called after
-     * cs_add_const_ib.
-     *
-     * The returned IB is a constant engine IB that only gets flushed if the
-     * context changed.
-     *
-     * \param cs  The graphics CS from "cs_create" that will hold the buffer
-     *            list and will be used for flushing.
-     */
-    struct radeon_winsys_cs *(*cs_add_const_preamble_ib)(struct radeon_winsys_cs *cs);
-    /**
      * Destroy a command stream.
      *
      * \param cs        A command stream to destroy.
      */
-    void (*cs_destroy)(struct radeon_winsys_cs *cs);
+    void (*cs_destroy)(struct radeon_cmdbuf *cs);
 
     /**
      * Add a buffer. Each buffer used by a CS must be added using this function.
@@ -704,7 +478,7 @@ struct radeon_winsys {
      *                  placed in the requested domain. 15 is the maximum.
      * \return Buffer index.
      */
-    unsigned (*cs_add_buffer)(struct radeon_winsys_cs *cs,
+    unsigned (*cs_add_buffer)(struct radeon_cmdbuf *cs,
                              struct pb_buffer *buf,
                              enum radeon_bo_usage usage,
                              enum radeon_bo_domain domain,
@@ -720,7 +494,7 @@ struct radeon_winsys {
      * \param buf       Buffer
      * \return          The buffer index, or -1 if the buffer has not been added.
      */
-    int (*cs_lookup_buffer)(struct radeon_winsys_cs *cs,
+    int (*cs_lookup_buffer)(struct radeon_cmdbuf *cs,
                             struct pb_buffer *buf);
 
     /**
@@ -731,7 +505,7 @@ struct radeon_winsys {
      *
      * \param cs        A command stream to validate.
      */
-    bool (*cs_validate)(struct radeon_winsys_cs *cs);
+    bool (*cs_validate)(struct radeon_cmdbuf *cs);
 
     /**
      * Check whether the given number of dwords is available in the IB.
@@ -740,7 +514,7 @@ struct radeon_winsys {
      * \param cs        A command stream.
      * \param dw        Number of CS dwords requested by the caller.
      */
-    bool (*cs_check_space)(struct radeon_winsys_cs *cs, unsigned dw);
+    bool (*cs_check_space)(struct radeon_cmdbuf *cs, unsigned dw);
 
     /**
      * Return the buffer list.
@@ -752,29 +526,31 @@ struct radeon_winsys {
      * \param list  Returned buffer list. Set to NULL to query the count only.
      * \return      The buffer count.
      */
-    unsigned (*cs_get_buffer_list)(struct radeon_winsys_cs *cs,
+    unsigned (*cs_get_buffer_list)(struct radeon_cmdbuf *cs,
                                    struct radeon_bo_list_item *list);
 
     /**
      * Flush a command stream.
      *
      * \param cs          A command stream to flush.
-     * \param flags,      RADEON_FLUSH_ASYNC or 0.
+     * \param flags,      PIPE_FLUSH_* flags.
      * \param fence       Pointer to a fence. If non-NULL, a fence is inserted
      *                    after the CS and is returned through this parameter.
      * \return Negative POSIX error code or 0 for success.
      *         Asynchronous submissions never return an error.
      */
-    int (*cs_flush)(struct radeon_winsys_cs *cs,
+    int (*cs_flush)(struct radeon_cmdbuf *cs,
                     unsigned flags,
                     struct pipe_fence_handle **fence);
 
     /**
      * Create a fence before the CS is flushed.
      * The user must flush manually to complete the initializaton of the fence.
-     * The fence must not be used before the flush.
+     *
+     * The fence must not be used for anything except \ref cs_add_fence_dependency
+     * before the flush.
      */
-    struct pipe_fence_handle *(*cs_get_next_fence)(struct radeon_winsys_cs *cs);
+    struct pipe_fence_handle *(*cs_get_next_fence)(struct radeon_cmdbuf *cs);
 
     /**
      * Return true if a buffer is referenced by a command stream.
@@ -782,7 +558,7 @@ struct radeon_winsys {
      * \param cs        A command stream.
      * \param buf       A winsys buffer.
      */
-    bool (*cs_is_buffer_referenced)(struct radeon_winsys_cs *cs,
+    bool (*cs_is_buffer_referenced)(struct radeon_cmdbuf *cs,
                                     struct pb_buffer *buf,
                                     enum radeon_bo_usage usage);
 
@@ -793,7 +569,7 @@ struct radeon_winsys {
      * \param fid       Feature ID, one of RADEON_FID_*
      * \param enable    Whether to enable or disable the feature.
      */
-    bool (*cs_request_feature)(struct radeon_winsys_cs *cs,
+    bool (*cs_request_feature)(struct radeon_cmdbuf *cs,
                                enum radeon_feature_id fid,
                                bool enable);
      /**
@@ -801,7 +577,20 @@ struct radeon_winsys {
       *
       * \param cs        A command stream.
       */
-    void (*cs_sync_flush)(struct radeon_winsys_cs *cs);
+    void (*cs_sync_flush)(struct radeon_cmdbuf *cs);
+
+    /**
+     * Add a fence dependency to the CS, so that the CS will wait for
+     * the fence before execution.
+     */
+    void (*cs_add_fence_dependency)(struct radeon_cmdbuf *cs,
+                                    struct pipe_fence_handle *fence);
+
+    /**
+     * Signal a syncobj when the CS finishes execution.
+     */
+    void (*cs_add_syncobj_signal)(struct radeon_cmdbuf *cs,
+				  struct pipe_fence_handle *fence);
 
     /**
      * Wait for the fence and return true if the fence has been signalled.
@@ -818,6 +607,29 @@ struct radeon_winsys {
      */
     void (*fence_reference)(struct pipe_fence_handle **dst,
                             struct pipe_fence_handle *src);
+
+    /**
+     * Create a new fence object corresponding to the given syncobj fd.
+     */
+    struct pipe_fence_handle *(*fence_import_syncobj)(struct radeon_winsys *ws,
+						      int fd);
+
+    /**
+     * Create a new fence object corresponding to the given sync_file.
+     */
+    struct pipe_fence_handle *(*fence_import_sync_file)(struct radeon_winsys *ws,
+							int fd);
+
+    /**
+     * Return a sync_file FD corresponding to the given fence object.
+     */
+    int (*fence_export_sync_file)(struct radeon_winsys *ws,
+				  struct pipe_fence_handle *fence);
+
+    /**
+     * Return a sync file FD that is already signalled.
+     */
+    int (*export_signalled_sync_file)(struct radeon_winsys *ws);
 
     /**
      * Initialize surface
@@ -840,23 +652,169 @@ struct radeon_winsys {
 
     bool (*read_registers)(struct radeon_winsys *ws, unsigned reg_offset,
                            unsigned num_registers, uint32_t *out);
+
+    const char* (*get_chip_name)(struct radeon_winsys *ws);
 };
 
-static inline bool radeon_emitted(struct radeon_winsys_cs *cs, unsigned num_dw)
+static inline bool radeon_emitted(struct radeon_cmdbuf *cs, unsigned num_dw)
 {
     return cs && (cs->prev_dw + cs->current.cdw > num_dw);
 }
 
-static inline void radeon_emit(struct radeon_winsys_cs *cs, uint32_t value)
+static inline void radeon_emit(struct radeon_cmdbuf *cs, uint32_t value)
 {
     cs->current.buf[cs->current.cdw++] = value;
 }
 
-static inline void radeon_emit_array(struct radeon_winsys_cs *cs,
+static inline void radeon_emit_array(struct radeon_cmdbuf *cs,
 				     const uint32_t *values, unsigned count)
 {
     memcpy(cs->current.buf + cs->current.cdw, values, count * 4);
     cs->current.cdw += count;
+}
+
+enum radeon_heap {
+    RADEON_HEAP_VRAM_NO_CPU_ACCESS,
+    RADEON_HEAP_VRAM_READ_ONLY,
+    RADEON_HEAP_VRAM_READ_ONLY_32BIT,
+    RADEON_HEAP_VRAM_32BIT,
+    RADEON_HEAP_VRAM,
+    RADEON_HEAP_GTT_WC,
+    RADEON_HEAP_GTT_WC_READ_ONLY,
+    RADEON_HEAP_GTT_WC_READ_ONLY_32BIT,
+    RADEON_HEAP_GTT_WC_32BIT,
+    RADEON_HEAP_GTT,
+    RADEON_MAX_SLAB_HEAPS,
+    RADEON_MAX_CACHED_HEAPS = RADEON_MAX_SLAB_HEAPS,
+};
+
+static inline enum radeon_bo_domain radeon_domain_from_heap(enum radeon_heap heap)
+{
+    switch (heap) {
+    case RADEON_HEAP_VRAM_NO_CPU_ACCESS:
+    case RADEON_HEAP_VRAM_READ_ONLY:
+    case RADEON_HEAP_VRAM_READ_ONLY_32BIT:
+    case RADEON_HEAP_VRAM_32BIT:
+    case RADEON_HEAP_VRAM:
+        return RADEON_DOMAIN_VRAM;
+    case RADEON_HEAP_GTT_WC:
+    case RADEON_HEAP_GTT_WC_READ_ONLY:
+    case RADEON_HEAP_GTT_WC_READ_ONLY_32BIT:
+    case RADEON_HEAP_GTT_WC_32BIT:
+    case RADEON_HEAP_GTT:
+        return RADEON_DOMAIN_GTT;
+    default:
+        assert(0);
+        return (enum radeon_bo_domain)0;
+    }
+}
+
+static inline unsigned radeon_flags_from_heap(enum radeon_heap heap)
+{
+    unsigned flags = RADEON_FLAG_NO_INTERPROCESS_SHARING |
+                     (heap != RADEON_HEAP_GTT ? RADEON_FLAG_GTT_WC : 0);
+
+    switch (heap) {
+    case RADEON_HEAP_VRAM_NO_CPU_ACCESS:
+        return flags |
+               RADEON_FLAG_NO_CPU_ACCESS;
+
+    case RADEON_HEAP_VRAM_READ_ONLY:
+    case RADEON_HEAP_GTT_WC_READ_ONLY:
+        return flags |
+               RADEON_FLAG_READ_ONLY;
+
+    case RADEON_HEAP_VRAM_READ_ONLY_32BIT:
+    case RADEON_HEAP_GTT_WC_READ_ONLY_32BIT:
+        return flags |
+               RADEON_FLAG_READ_ONLY |
+               RADEON_FLAG_32BIT;
+
+    case RADEON_HEAP_VRAM_32BIT:
+    case RADEON_HEAP_GTT_WC_32BIT:
+        return flags |
+               RADEON_FLAG_32BIT;
+
+    case RADEON_HEAP_VRAM:
+    case RADEON_HEAP_GTT_WC:
+    case RADEON_HEAP_GTT:
+    default:
+        return flags;
+    }
+}
+
+/* Return the heap index for winsys allocators, or -1 on failure. */
+static inline int radeon_get_heap_index(enum radeon_bo_domain domain,
+                                        enum radeon_bo_flag flags)
+{
+    /* VRAM implies WC (write combining) */
+    assert(!(domain & RADEON_DOMAIN_VRAM) || flags & RADEON_FLAG_GTT_WC);
+    /* NO_CPU_ACCESS implies VRAM only. */
+    assert(!(flags & RADEON_FLAG_NO_CPU_ACCESS) || domain == RADEON_DOMAIN_VRAM);
+
+    /* Resources with interprocess sharing don't use any winsys allocators. */
+    if (!(flags & RADEON_FLAG_NO_INTERPROCESS_SHARING))
+        return -1;
+
+    /* Unsupported flags: NO_SUBALLOC, SPARSE. */
+    if (flags & ~(RADEON_FLAG_GTT_WC |
+                  RADEON_FLAG_NO_CPU_ACCESS |
+                  RADEON_FLAG_NO_INTERPROCESS_SHARING |
+                  RADEON_FLAG_READ_ONLY |
+                  RADEON_FLAG_32BIT))
+        return -1;
+
+    switch (domain) {
+    case RADEON_DOMAIN_VRAM:
+        switch (flags & (RADEON_FLAG_NO_CPU_ACCESS |
+                         RADEON_FLAG_READ_ONLY |
+                         RADEON_FLAG_32BIT)) {
+        case RADEON_FLAG_NO_CPU_ACCESS | RADEON_FLAG_READ_ONLY | RADEON_FLAG_32BIT:
+        case RADEON_FLAG_NO_CPU_ACCESS | RADEON_FLAG_READ_ONLY:
+            assert(!"NO_CPU_ACCESS | READ_ONLY doesn't make sense");
+            return -1;
+        case RADEON_FLAG_NO_CPU_ACCESS | RADEON_FLAG_32BIT:
+            assert(!"NO_CPU_ACCESS with 32BIT is disallowed");
+            return -1;
+        case RADEON_FLAG_NO_CPU_ACCESS:
+            return RADEON_HEAP_VRAM_NO_CPU_ACCESS;
+        case RADEON_FLAG_READ_ONLY | RADEON_FLAG_32BIT:
+            return RADEON_HEAP_VRAM_READ_ONLY_32BIT;
+        case RADEON_FLAG_READ_ONLY:
+            return RADEON_HEAP_VRAM_READ_ONLY;
+        case RADEON_FLAG_32BIT:
+            return RADEON_HEAP_VRAM_32BIT;
+        case 0:
+            return RADEON_HEAP_VRAM;
+        }
+        break;
+    case RADEON_DOMAIN_GTT:
+        switch (flags & (RADEON_FLAG_GTT_WC |
+                         RADEON_FLAG_READ_ONLY |
+                         RADEON_FLAG_32BIT)) {
+        case RADEON_FLAG_GTT_WC | RADEON_FLAG_READ_ONLY | RADEON_FLAG_32BIT:
+            return RADEON_HEAP_GTT_WC_READ_ONLY_32BIT;
+        case RADEON_FLAG_GTT_WC | RADEON_FLAG_READ_ONLY:
+            return RADEON_HEAP_GTT_WC_READ_ONLY;
+        case RADEON_FLAG_GTT_WC | RADEON_FLAG_32BIT:
+            return RADEON_HEAP_GTT_WC_32BIT;
+        case RADEON_FLAG_GTT_WC:
+            return RADEON_HEAP_GTT_WC;
+        case RADEON_FLAG_READ_ONLY | RADEON_FLAG_32BIT:
+        case RADEON_FLAG_READ_ONLY:
+            assert(!"READ_ONLY without WC is disallowed");
+            return -1;
+        case RADEON_FLAG_32BIT:
+            assert(!"32BIT without WC is disallowed");
+            return -1;
+        case 0:
+            return RADEON_HEAP_GTT;
+        }
+        break;
+    default:
+        break;
+    }
+    return -1;
 }
 
 #endif

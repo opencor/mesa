@@ -26,10 +26,9 @@
 #include "r300_fs.h"
 
 #include "util/u_format.h"
-#include "util/u_mm.h"
 
 /*
-  HiZ rules - taken from various docs
+  HiZ rules - taken from various docs 
    1. HiZ only works on depth values
    2. Cannot HiZ if stencil fail or zfail is !KEEP
    3. on R300/400, HiZ is disabled if depth test is EQUAL

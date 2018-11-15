@@ -1,5 +1,5 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2010, VMware, inc.
  * All Rights Reserved.
  *
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include "util/u_bitcast.h"
@@ -45,7 +45,7 @@ static boolean TAG(do_cliptest)( struct pt_post_vs *pvs,
    bool have_cd = false;
    unsigned viewport_index_output =
       draw_current_shader_viewport_index_output(pvs->draw);
-   int viewport_index =
+   int viewport_index = 
       draw_current_shader_uses_viewport_index(pvs->draw) ?
       u_bitcast_f2u(out->data[viewport_index_output][0]): 0;
    int num_written_clipdistance =
@@ -80,7 +80,7 @@ static boolean TAG(do_cliptest)( struct pt_post_vs *pvs,
          scale = pvs->draw->viewports[viewport_index].scale;
          trans = pvs->draw->viewports[viewport_index].translate;
       }
-
+  
       initialize_vertex_header(out);
 
       if (flags & (DO_CLIP_XY | DO_CLIP_XY_GUARD_BAND |

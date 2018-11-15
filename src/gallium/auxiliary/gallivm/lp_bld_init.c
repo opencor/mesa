@@ -32,7 +32,7 @@
 #include "util/u_debug.h"
 #include "util/u_memory.h"
 #include "util/simple_list.h"
-#include "os/os_time.h"
+#include "util/os_time.h"
 #include "lp_bld.h"
 #include "lp_bld_debug.h"
 #include "lp_bld_misc.h"
@@ -40,6 +40,9 @@
 
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Transforms/Scalar.h>
+#if HAVE_LLVM >= 0x0700
+#include <llvm-c/Transforms/Utils.h>
+#endif
 #include <llvm-c/BitWriter.h>
 
 
@@ -125,19 +128,6 @@ create_pass_manager(struct gallivm_state *gallivm)
    LLVMAddTargetData(gallivm->target, gallivm->passmgr);
 #endif
 
-   /* Setting the module's DataLayout to an empty string will cause the
-    * ExecutionEngine to copy to the DataLayout string from its target
-    * machine to the module.  As of LLVM 3.8 the module and the execution
-    * engine are required to have the same DataLayout.
-    *
-    * TODO: This is just a temporary work-around.  The correct solution is
-    * for gallivm_init_state() to create a TargetMachine and pull the
-    * DataLayout from there.  Currently, the TargetMachine used by llvmpipe
-    * is being implicitly created by the EngineBuilder in
-    * lp_build_create_jit_compiler_for_module()
-    */
-
-#if HAVE_LLVM < 0x0308
    {
       char *td_str;
       // New ones from the Module.
@@ -145,18 +135,28 @@ create_pass_manager(struct gallivm_state *gallivm)
       LLVMSetDataLayout(gallivm->module, td_str);
       free(td_str);
    }
-#else
-   LLVMSetDataLayout(gallivm->module, "");
-#endif
 
    if ((gallivm_debug & GALLIVM_DEBUG_NO_OPT) == 0) {
-      /* These are the passes currently listed in llvm-c/Transforms/Scalar.h,
-       * but there are more on SVN.
-       * TODO: Add more passes.
+      /*
+       * TODO: Evaluate passes some more - keeping in mind
+       * both quality of generated code and compile times.
+       */
+      /*
+       * NOTE: if you change this, don't forget to change the output
+       * with GALLIVM_DEBUG_DUMP_BC in gallivm_compile_module.
        */
       LLVMAddScalarReplAggregatesPass(gallivm->passmgr);
-      LLVMAddLICMPass(gallivm->passmgr);
+      LLVMAddEarlyCSEPass(gallivm->passmgr);
       LLVMAddCFGSimplificationPass(gallivm->passmgr);
+      /*
+       * FIXME: LICM is potentially quite useful. However, for some
+       * rather crazy shaders the compile time can reach _hours_ per shader,
+       * due to licm implying lcssa (since llvm 3.5), which can take forever.
+       * Even for sane shaders, the cost of licm is rather high (and not just
+       * due to lcssa, licm itself too), though mostly only in cases when it
+       * can actually move things, so having to disable it is a pity.
+       * LLVMAddLICMPass(gallivm->passmgr);
+       */
       LLVMAddReassociatePass(gallivm->passmgr);
       LLVMAddPromoteMemoryToRegisterPass(gallivm->passmgr);
       LLVMAddConstantPropagationPass(gallivm->passmgr);
@@ -455,7 +455,7 @@ lp_build_init(void)
        */
       lp_native_vector_width = 128;
    }
-
+ 
    lp_native_vector_width = debug_get_num_option("LP_NATIVE_VECTOR_WIDTH",
                                                  lp_native_vector_width);
 
@@ -581,6 +581,22 @@ gallivm_compile_module(struct gallivm_state *gallivm)
       gallivm->builder = NULL;
    }
 
+   /* Dump bitcode to a file */
+   if (gallivm_debug & GALLIVM_DEBUG_DUMP_BC) {
+      char filename[256];
+      assert(gallivm->module_name);
+      util_snprintf(filename, sizeof(filename), "ir_%s.bc", gallivm->module_name);
+      LLVMWriteBitcodeToFile(gallivm->module, filename);
+      debug_printf("%s written\n", filename);
+      debug_printf("Invoke as \"opt %s %s | llc -O%d %s%s\"\n",
+                   gallivm_debug & GALLIVM_DEBUG_NO_OPT ? "-mem2reg" :
+                   "-sroa -early-cse -simplifycfg -reassociate "
+                   "-mem2reg -constprop -instcombine -gvn",
+                   filename, gallivm_debug & GALLIVM_DEBUG_NO_OPT ? 0 : 2,
+                   (HAVE_LLVM >= 0x0305) ? "[-mcpu=<-mcpu option>] " : "",
+                   "[-mattr=<-mattr option(s)>]");
+   }
+
    if (gallivm_debug & GALLIVM_DEBUG_PERF)
       time_begin = os_time_get();
 
@@ -608,26 +624,31 @@ gallivm_compile_module(struct gallivm_state *gallivm)
 
    if (gallivm_debug & GALLIVM_DEBUG_PERF) {
       int64_t time_end = os_time_get();
-      int time_msec = (int)(time_end - time_begin) / 1000;
+      int time_msec = (int)((time_end - time_begin) / 1000);
       assert(gallivm->module_name);
       debug_printf("optimizing module %s took %d msec\n",
                    gallivm->module_name, time_msec);
    }
 
-   /* Dump byte code to a file */
-   if (gallivm_debug & GALLIVM_DEBUG_DUMP_BC) {
-      char filename[256];
-      assert(gallivm->module_name);
-      util_snprintf(filename, sizeof(filename), "ir_%s.bc", gallivm->module_name);
-      LLVMWriteBitcodeToFile(gallivm->module, filename);
-      debug_printf("%s written\n", filename);
-      debug_printf("Invoke as \"llc %s%s -o - %s\"\n",
-                   (HAVE_LLVM >= 0x0305) ? "[-mcpu=<-mcpu option] " : "",
-                   "[-mattr=<-mattr option(s)>]",
-                   filename);
-   }
-
    if (use_mcjit) {
+      /* Setting the module's DataLayout to an empty string will cause the
+       * ExecutionEngine to copy to the DataLayout string from its target
+       * machine to the module.  As of LLVM 3.8 the module and the execution
+       * engine are required to have the same DataLayout.
+       *
+       * We must make sure we do this after running the optimization passes,
+       * because those passes need a correct datalayout string.  For example,
+       * if those optimization passes see an empty datalayout, they will assume
+       * this is a little endian target and will do optimizations that break big
+       * endian machines.
+       *
+       * TODO: This is just a temporary work-around.  The correct solution is
+       * for gallivm_init_state() to create a TargetMachine and pull the
+       * DataLayout from there.  Currently, the TargetMachine used by llvmpipe
+       * is being implicitly created by the EngineBuilder in
+       * lp_build_create_jit_compiler_for_module()
+       */
+      LLVMSetDataLayout(gallivm->module, "");
       assert(!gallivm->engine);
       if (!init_gallivm_engine(gallivm)) {
          assert(0);

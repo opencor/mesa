@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
@@ -34,6 +34,7 @@
 
 
 #include "main/imports.h"
+#include "main/compiler.h"
 #include "main/context.h"
 
 #include "pipe/p_context.h"
@@ -102,8 +103,10 @@ st_BeginQuery(struct gl_context *ctx, struct gl_query_object *q)
    /* convert GL query type to Gallium query type */
    switch (q->Target) {
    case GL_ANY_SAMPLES_PASSED:
-   case GL_ANY_SAMPLES_PASSED_CONSERVATIVE:
       type = PIPE_QUERY_OCCLUSION_PREDICATE;
+      break;
+   case GL_ANY_SAMPLES_PASSED_CONSERVATIVE:
+      type = PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE;
       break;
    case GL_SAMPLES_PASSED_ARB:
       type = PIPE_QUERY_OCCLUSION_COUNTER;
@@ -118,7 +121,7 @@ st_BeginQuery(struct gl_context *ctx, struct gl_query_object *q)
       type = PIPE_QUERY_SO_OVERFLOW_PREDICATE;
       break;
    case GL_TRANSFORM_FEEDBACK_OVERFLOW_ARB:
-      type = PIPE_QUERY_SO_OVERFLOW_PREDICATE;
+      type = PIPE_QUERY_SO_OVERFLOW_ANY_PREDICATE;
       break;
    case GL_TIME_ELAPSED:
       if (st->has_time_elapsed)
@@ -260,6 +263,9 @@ get_query_result(struct pipe_context *pipe,
    default:
       switch (stq->type) {
       case PIPE_QUERY_OCCLUSION_PREDICATE:
+      case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE:
+      case PIPE_QUERY_SO_OVERFLOW_PREDICATE:
+      case PIPE_QUERY_SO_OVERFLOW_ANY_PREDICATE:
          stq->base.Result = !!data.b;
          break;
       default:

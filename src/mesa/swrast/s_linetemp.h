@@ -115,10 +115,10 @@ NAME( struct gl_context *ctx, const SWvertex *vert0, const SWvertex *vert1 )
           vert1->attrib[VARYING_SLOT_POS][1],
           vert1->attrib[VARYING_SLOT_POS][2]);
    printf(" (%d, %d, %d) -> (%d, %d, %d)\n",
-          vert0->color[0], vert0->color[1], vert0->color[2],
+          vert0->color[0], vert0->color[1], vert0->color[2], 
           vert1->color[0], vert1->color[1], vert1->color[2]);
    printf(" (%d, %d, %d) -> (%d, %d, %d)\n",
-          vert0->specular[0], vert0->specular[1], vert0->specular[2],
+          vert0->specular[0], vert0->specular[1], vert0->specular[2], 
           vert1->specular[0], vert1->specular[1], vert1->specular[2]);
    */
 

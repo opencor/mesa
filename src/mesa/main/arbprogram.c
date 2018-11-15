@@ -37,9 +37,27 @@
 #include "main/mtypes.h"
 #include "main/arbprogram.h"
 #include "main/shaderapi.h"
+#include "main/state.h"
 #include "program/arbprogparse.h"
 #include "program/program.h"
 #include "program/prog_print.h"
+
+static void
+flush_vertices_for_program_constants(struct gl_context *ctx, GLenum target)
+{
+   uint64_t new_driver_state;
+
+   if (target == GL_FRAGMENT_PROGRAM_ARB) {
+      new_driver_state =
+         ctx->DriverFlags.NewShaderConstants[MESA_SHADER_FRAGMENT];
+   } else {
+      new_driver_state =
+         ctx->DriverFlags.NewShaderConstants[MESA_SHADER_VERTEX];
+   }
+
+   FLUSH_VERTICES(ctx, new_driver_state ? 0 : _NEW_PROGRAM_CONSTANTS);
+   ctx->NewDriverState |= new_driver_state;
+}
 
 /**
  * Bind a program (make it current)
@@ -105,7 +123,8 @@ _mesa_BindProgramARB(GLenum target, GLuint id)
    }
 
    /* signal new program (and its new constants) */
-   FLUSH_VERTICES(ctx, _NEW_PROGRAM | _NEW_PROGRAM_CONSTANTS);
+   FLUSH_VERTICES(ctx, _NEW_PROGRAM);
+   flush_vertices_for_program_constants(ctx, target);
 
    /* bind newProg */
    if (target == GL_VERTEX_PROGRAM_ARB) {
@@ -114,6 +133,8 @@ _mesa_BindProgramARB(GLenum target, GLuint id)
    else if (target == GL_FRAGMENT_PROGRAM_ARB) {
       _mesa_reference_program(ctx, &ctx->FragmentProgram.Current, newProg);
    }
+
+   _mesa_update_vertex_processing_mode(ctx);
 
    /* Never null pointers */
    assert(ctx->VertexProgram.Current);
@@ -126,7 +147,7 @@ _mesa_BindProgramARB(GLenum target, GLuint id)
  * \note Not compiled into display lists.
  * \note Called by both glDeleteProgramsNV and glDeleteProgramsARB.
  */
-void GLAPIENTRY
+void GLAPIENTRY 
 _mesa_DeleteProgramsARB(GLsizei n, const GLuint *ids)
 {
    GLint i;
@@ -224,7 +245,7 @@ _mesa_GenProgramsARB(GLsizei n, GLuint *ids)
 GLboolean GLAPIENTRY
 _mesa_IsProgramARB(GLuint id)
 {
-   struct gl_program *prog = NULL;
+   struct gl_program *prog = NULL; 
    GET_CURRENT_CONTEXT(ctx);
    ASSERT_OUTSIDE_BEGIN_END_WITH_RETVAL(ctx, GL_FALSE);
 
@@ -351,6 +372,8 @@ _mesa_ProgramStringARB(GLenum target, GLenum format, GLsizei len,
       }
    }
 
+   _mesa_update_vertex_processing_mode(ctx);
+
    if (ctx->_Shader->Flags & GLSL_DUMP) {
       const char *shader_type =
          target == GL_FRAGMENT_PROGRAM_ARB ? "fragment" : "vertex";
@@ -403,7 +426,7 @@ void GLAPIENTRY
 _mesa_ProgramEnvParameter4dARB(GLenum target, GLuint index,
                                GLdouble x, GLdouble y, GLdouble z, GLdouble w)
 {
-   _mesa_ProgramEnvParameter4fARB(target, index, (GLfloat) x, (GLfloat) y,
+   _mesa_ProgramEnvParameter4fARB(target, index, (GLfloat) x, (GLfloat) y, 
 		                  (GLfloat) z, (GLfloat) w);
 }
 
@@ -416,8 +439,8 @@ void GLAPIENTRY
 _mesa_ProgramEnvParameter4dvARB(GLenum target, GLuint index,
                                 const GLdouble *params)
 {
-   _mesa_ProgramEnvParameter4fARB(target, index, (GLfloat) params[0],
-	                          (GLfloat) params[1], (GLfloat) params[2],
+   _mesa_ProgramEnvParameter4fARB(target, index, (GLfloat) params[0], 
+	                          (GLfloat) params[1], (GLfloat) params[2], 
 				  (GLfloat) params[3]);
 }
 
@@ -434,7 +457,7 @@ _mesa_ProgramEnvParameter4fARB(GLenum target, GLuint index,
 
    GET_CURRENT_CONTEXT(ctx);
 
-   FLUSH_VERTICES(ctx, _NEW_PROGRAM_CONSTANTS);
+   flush_vertices_for_program_constants(ctx, target);
 
    if (get_env_param_pointer(ctx, "glProgramEnvParameter",
 			     target, index, &param)) {
@@ -456,7 +479,7 @@ _mesa_ProgramEnvParameter4fvARB(GLenum target, GLuint index,
 
    GET_CURRENT_CONTEXT(ctx);
 
-   FLUSH_VERTICES(ctx, _NEW_PROGRAM_CONSTANTS);
+   flush_vertices_for_program_constants(ctx, target);
 
    if (get_env_param_pointer(ctx, "glProgramEnvParameter4fv",
 			      target, index, &param)) {
@@ -472,7 +495,7 @@ _mesa_ProgramEnvParameters4fvEXT(GLenum target, GLuint index, GLsizei count,
    GET_CURRENT_CONTEXT(ctx);
    GLfloat * dest;
 
-   FLUSH_VERTICES(ctx, _NEW_PROGRAM_CONSTANTS);
+   flush_vertices_for_program_constants(ctx, target);
 
    if (count <= 0) {
       _mesa_error(ctx, GL_INVALID_VALUE, "glProgramEnvParameters4fv(count)");
@@ -518,7 +541,7 @@ _mesa_GetProgramEnvParameterdvARB(GLenum target, GLuint index,
 
 
 void GLAPIENTRY
-_mesa_GetProgramEnvParameterfvARB(GLenum target, GLuint index,
+_mesa_GetProgramEnvParameterfvARB(GLenum target, GLuint index, 
                                   GLfloat *params)
 {
    GLfloat *param;
@@ -539,7 +562,7 @@ _mesa_ProgramLocalParameter4fARB(GLenum target, GLuint index,
    GET_CURRENT_CONTEXT(ctx);
    GLfloat *param;
 
-   FLUSH_VERTICES(ctx, _NEW_PROGRAM_CONSTANTS);
+   flush_vertices_for_program_constants(ctx, target);
 
    if (get_local_param_pointer(ctx, "glProgramLocalParameterARB",
 			       target, index, &param)) {
@@ -565,7 +588,7 @@ _mesa_ProgramLocalParameters4fvEXT(GLenum target, GLuint index, GLsizei count,
    GET_CURRENT_CONTEXT(ctx);
    GLfloat *dest;
 
-   FLUSH_VERTICES(ctx, _NEW_PROGRAM_CONSTANTS);
+   flush_vertices_for_program_constants(ctx, target);
 
    if (count <= 0) {
       _mesa_error(ctx, GL_INVALID_VALUE, "glProgramLocalParameters4fv(count)");
@@ -593,7 +616,7 @@ _mesa_ProgramLocalParameter4dARB(GLenum target, GLuint index,
                                  GLdouble x, GLdouble y,
                                  GLdouble z, GLdouble w)
 {
-   _mesa_ProgramLocalParameter4fARB(target, index, (GLfloat) x, (GLfloat) y,
+   _mesa_ProgramLocalParameter4fARB(target, index, (GLfloat) x, (GLfloat) y, 
                                     (GLfloat) z, (GLfloat) w);
 }
 

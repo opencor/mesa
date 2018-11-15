@@ -26,7 +26,6 @@
 #include <string.h>
 #include <assert.h>
 
-#include "main/core.h" /* for struct gl_context */
 #include "main/context.h"
 #include "main/debug_output.h"
 #include "main/formats.h"
@@ -54,9 +53,9 @@ glsl_compute_version_string(void *mem_ctx, bool is_es, unsigned version)
 
 
 static const unsigned known_desktop_glsl_versions[] =
-   { 110, 120, 130, 140, 150, 330, 400, 410, 420, 430, 440, 450 };
+   { 110, 120, 130, 140, 150, 330, 400, 410, 420, 430, 440, 450, 460 };
 static const unsigned known_desktop_gl_versions[] =
-   {  20,  21,  30,  31,  32,  33,  40,  41,  42,  43,  44,  45 };
+   {  20,  21,  30,  31,  32,  33,  40,  41,  42,  43,  44,  45, 46 };
 
 
 _mesa_glsl_parse_state::_mesa_glsl_parse_state(struct gl_context *_ctx,
@@ -300,13 +299,25 @@ _mesa_glsl_parse_state::_mesa_glsl_parse_state(struct gl_context *_ctx,
    this->fs_early_fragment_tests = false;
    this->fs_inner_coverage = false;
    this->fs_post_depth_coverage = false;
+   this->fs_pixel_interlock_ordered = false;
+   this->fs_pixel_interlock_unordered = false;
+   this->fs_sample_interlock_ordered = false;
+   this->fs_sample_interlock_unordered = false;
    this->fs_blend_support = 0;
    memset(this->atomic_counter_offsets, 0,
           sizeof(this->atomic_counter_offsets));
    this->allow_extension_directive_midshader =
       ctx->Const.AllowGLSLExtensionDirectiveMidShader;
+   this->allow_builtin_variable_redeclaration =
+      ctx->Const.AllowGLSLBuiltinVariableRedeclaration;
 
    this->cs_input_local_size_variable_specified = false;
+
+   /* ARB_bindless_texture */
+   this->bindless_sampler_specified = false;
+   this->bindless_image_specified = false;
+   this->bound_sampler_specified = false;
+   this->bound_image_specified = false;
 }
 
 /**
@@ -421,6 +432,8 @@ _mesa_glsl_parse_state::process_version_directive(YYLTYPE *locp, int version,
       this->language_version = version;
 
    this->compat_shader = compat_token_present ||
+                         (this->ctx->API == API_OPENGL_COMPAT &&
+                          this->language_version == 140) ||
                          (!this->es_shader && this->language_version < 140);
 
    bool supported = false;
@@ -607,6 +620,8 @@ static const _mesa_glsl_extension _mesa_glsl_supported_extensions[] = {
    EXT(ARB_ES3_1_compatibility),
    EXT(ARB_ES3_2_compatibility),
    EXT(ARB_arrays_of_arrays),
+   EXT(ARB_bindless_texture),
+   EXT(ARB_compatibility),
    EXT(ARB_compute_shader),
    EXT(ARB_compute_variable_group_size),
    EXT(ARB_conservative_depth),
@@ -619,6 +634,7 @@ static const _mesa_glsl_extension _mesa_glsl_supported_extensions[] = {
    EXT(ARB_explicit_uniform_location),
    EXT(ARB_fragment_coord_conventions),
    EXT(ARB_fragment_layer_viewport),
+   EXT(ARB_fragment_shader_interlock),
    EXT(ARB_gpu_shader5),
    EXT(ARB_gpu_shader_fp64),
    EXT(ARB_gpu_shader_int64),
@@ -661,6 +677,7 @@ static const _mesa_glsl_extension _mesa_glsl_supported_extensions[] = {
    /* OES extensions go here, sorted alphabetically.
     */
    EXT(OES_EGL_image_external),
+   EXT(OES_EGL_image_external_essl3),
    EXT(OES_geometry_point_size),
    EXT(OES_geometry_shader),
    EXT(OES_gpu_shader5),
@@ -696,6 +713,7 @@ static const _mesa_glsl_extension _mesa_glsl_supported_extensions[] = {
    EXT_AEP(EXT_primitive_bounding_box),
    EXT(EXT_separate_shader_objects),
    EXT(EXT_shader_framebuffer_fetch),
+   EXT(EXT_shader_framebuffer_fetch_non_coherent),
    EXT(EXT_shader_integer_mix),
    EXT_AEP(EXT_shader_io_blocks),
    EXT(EXT_shader_samples_identical),
@@ -1000,7 +1018,7 @@ _mesa_ast_process_interface_block(YYLTYPE *locp,
                            "an instance name are not allowed");
    }
 
-   uint64_t interface_type_mask;
+   ast_type_qualifier::bitset_t interface_type_mask;
    struct ast_type_qualifier temp_type_qualifier;
 
    /* Get a bitmask containing only the in/out/uniform/buffer
@@ -1019,7 +1037,7 @@ _mesa_ast_process_interface_block(YYLTYPE *locp,
     * production rule guarantees that only one bit will be set (and
     * it will be in/out/uniform).
     */
-   uint64_t block_interface_qualifier = q.flags.i;
+   ast_type_qualifier::bitset_t block_interface_qualifier = q.flags.i;
 
    block->default_layout.flags.i |= block_interface_qualifier;
 
@@ -1070,7 +1088,7 @@ _mesa_ast_process_interface_block(YYLTYPE *locp,
    }
 }
 
-void
+static void
 _mesa_ast_type_qualifier_print(const struct ast_type_qualifier *q)
 {
    if (q->is_subroutine_decl())
@@ -1663,24 +1681,12 @@ ast_struct_specifier::print(void) const
 }
 
 
-ast_struct_specifier::ast_struct_specifier(void *lin_ctx, const char *identifier,
+ast_struct_specifier::ast_struct_specifier(const char *identifier,
 					   ast_declarator_list *declarator_list)
+   : name(identifier), layout(NULL), declarations(), is_declaration(true),
+     type(NULL)
 {
-   if (identifier == NULL) {
-      static mtx_t mutex = _MTX_INITIALIZER_NP;
-      static unsigned anon_count = 1;
-      unsigned count;
-
-      mtx_lock(&mutex);
-      count = anon_count++;
-      mtx_unlock(&mutex);
-
-      identifier = linear_asprintf(lin_ctx, "#anon_struct_%04x", count);
-   }
-   name = identifier;
    this->declarations.push_degenerate_list_at_head(&declarator_list->link);
-   is_declaration = true;
-   layout = NULL;
 }
 
 void ast_subroutine_list::print(void) const
@@ -1720,6 +1726,10 @@ set_shader_inout_layout(struct gl_shader *shader,
       assert(!state->fs_early_fragment_tests);
       assert(!state->fs_inner_coverage);
       assert(!state->fs_post_depth_coverage);
+      assert(!state->fs_pixel_interlock_ordered);
+      assert(!state->fs_pixel_interlock_unordered);
+      assert(!state->fs_sample_interlock_ordered);
+      assert(!state->fs_sample_interlock_unordered);
    }
 
    for (unsigned i = 0; i < MAX_FEEDBACK_BUFFERS; i++) {
@@ -1841,6 +1851,10 @@ set_shader_inout_layout(struct gl_shader *shader,
       shader->EarlyFragmentTests = state->fs_early_fragment_tests;
       shader->InnerCoverage = state->fs_inner_coverage;
       shader->PostDepthCoverage = state->fs_post_depth_coverage;
+      shader->PixelInterlockOrdered = state->fs_pixel_interlock_ordered;
+      shader->PixelInterlockUnordered = state->fs_pixel_interlock_unordered;
+      shader->SampleInterlockOrdered = state->fs_sample_interlock_ordered;
+      shader->SampleInterlockUnordered = state->fs_sample_interlock_unordered;
       shader->BlendSupport = state->fs_blend_support;
       break;
 
@@ -1848,13 +1862,60 @@ set_shader_inout_layout(struct gl_shader *shader,
       /* Nothing to do. */
       break;
    }
+
+   shader->bindless_sampler = state->bindless_sampler_specified;
+   shader->bindless_image = state->bindless_image_specified;
+   shader->bound_sampler = state->bound_sampler_specified;
+   shader->bound_image = state->bound_image_specified;
+}
+
+/* src can be NULL if only the symbols found in the exec_list should be
+ * copied
+ */
+void
+_mesa_glsl_copy_symbols_from_table(struct exec_list *shader_ir,
+                                   struct glsl_symbol_table *src,
+                                   struct glsl_symbol_table *dest)
+{
+   foreach_in_list (ir_instruction, ir, shader_ir) {
+      switch (ir->ir_type) {
+      case ir_type_function:
+         dest->add_function((ir_function *) ir);
+         break;
+      case ir_type_variable: {
+         ir_variable *const var = (ir_variable *) ir;
+
+         if (var->data.mode != ir_var_temporary)
+            dest->add_variable(var);
+         break;
+      }
+      default:
+         break;
+      }
+   }
+
+   if (src != NULL) {
+      /* Explicitly copy the gl_PerVertex interface definitions because these
+       * are needed to check they are the same during the interstage link.
+       * They can’t necessarily be found via the exec_list because the members
+       * might not be referenced. The GL spec still requires that they match
+       * in that case.
+       */
+      const glsl_type *iface =
+         src->get_interface("gl_PerVertex", ir_var_shader_in);
+      if (iface)
+         dest->add_interface(iface->name, iface, ir_var_shader_in);
+
+      iface = src->get_interface("gl_PerVertex", ir_var_shader_out);
+      if (iface)
+         dest->add_interface(iface->name, iface, ir_var_shader_out);
+   }
 }
 
 extern "C" {
 
 static void
-assign_subroutine_indexes(struct gl_shader *sh,
-			  struct _mesa_glsl_parse_state *state)
+assign_subroutine_indexes(struct _mesa_glsl_parse_state *state)
 {
    int j, k;
    int index = 0;
@@ -1924,9 +1985,10 @@ do_late_parsing_checks(struct _mesa_glsl_parse_state *state)
 
 static void
 opt_shader_and_create_symbol_table(struct gl_context *ctx,
+                                   struct glsl_symbol_table *source_symbols,
                                    struct gl_shader *shader)
 {
-   assert(shader->CompileStatus != compile_failure &&
+   assert(shader->CompileStatus != COMPILE_FAILURE &&
           !shader->ir->is_empty());
 
    struct gl_shader_compiler_options *options =
@@ -1981,24 +2043,8 @@ opt_shader_and_create_symbol_table(struct gl_context *ctx,
     * We don't have to worry about types or interface-types here because those
     * are fly-weights that are looked up by glsl_type.
     */
-   foreach_in_list (ir_instruction, ir, shader->ir) {
-      switch (ir->ir_type) {
-      case ir_type_function:
-         shader->symbols->add_function((ir_function *) ir);
-         break;
-      case ir_type_variable: {
-         ir_variable *const var = (ir_variable *) ir;
-
-         if (var->data.mode != ir_var_temporary)
-            shader->symbols->add_variable(var);
-         break;
-      }
-      default:
-         break;
-      }
-   }
-
-   _mesa_glsl_initialize_derived_variables(ctx, shader);
+   _mesa_glsl_copy_symbols_from_table(shader->ir, source_symbols,
+                                      shader->symbols);
 }
 
 void
@@ -2019,7 +2065,7 @@ _mesa_glsl_compile_shader(struct gl_context *ctx, struct gl_shader *shader,
                _mesa_sha1_format(buf, shader->sha1);
                fprintf(stderr, "deferring compile of shader: %s\n", buf);
             }
-            shader->CompileStatus = compile_skipped;
+            shader->CompileStatus = COMPILE_SKIPPED;
 
             free((void *)shader->FallbackSource);
             shader->FallbackSource = NULL;
@@ -2031,12 +2077,14 @@ _mesa_glsl_compile_shader(struct gl_context *ctx, struct gl_shader *shader,
        * shader cache miss. In which case we can skip the compile if its
        * already be done by a previous fallback or the initial compile call.
        */
-      if (shader->CompileStatus == compile_success)
+      if (shader->CompileStatus == COMPILE_SUCCESS)
          return;
 
-      if (shader->CompileStatus == compiled_no_opts) {
-         opt_shader_and_create_symbol_table(ctx, shader);
-         shader->CompileStatus = compile_success;
+      if (shader->CompileStatus == COMPILED_NO_OPTS) {
+         opt_shader_and_create_symbol_table(ctx,
+                                            NULL, /* source_symbols */
+                                            shader);
+         shader->CompileStatus = COMPILE_SUCCESS;
          return;
       }
    }
@@ -2086,20 +2134,20 @@ _mesa_glsl_compile_shader(struct gl_context *ctx, struct gl_shader *shader,
       set_shader_inout_layout(shader, state);
 
    shader->symbols = new(shader->ir) glsl_symbol_table;
-   shader->CompileStatus = state->error ? compile_failure : compile_success;
+   shader->CompileStatus = state->error ? COMPILE_FAILURE : COMPILE_SUCCESS;
    shader->InfoLog = state->info_log;
    shader->Version = state->language_version;
    shader->IsES = state->es_shader;
 
    if (!state->error && !shader->ir->is_empty()) {
-      assign_subroutine_indexes(shader, state);
+      assign_subroutine_indexes(state);
       lower_subroutine(shader->ir, state);
 
       if (!ctx->Cache || force_recompile)
-         opt_shader_and_create_symbol_table(ctx, shader);
+         opt_shader_and_create_symbol_table(ctx, state->symbols, shader);
       else {
          reparent_ir(shader->ir, shader->ir);
-         shader->CompileStatus = compiled_no_opts;
+         shader->CompileStatus = COMPILED_NO_OPTS;
       }
    }
 
@@ -2166,7 +2214,6 @@ do_common_optimization(exec_list *ir, bool linked,
    OPT(do_if_simplification, ir);
    OPT(opt_flatten_nested_if_blocks, ir);
    OPT(opt_conditional_discard, ir);
-   OPT(do_copy_propagation, ir);
    OPT(do_copy_propagation_elements, ir);
 
    if (options->OptimizeForAOS && !linked)
@@ -2195,8 +2242,7 @@ do_common_optimization(exec_list *ir, bool linked,
        options->EmitNoCont, options->EmitNoLoops);
    OPT(do_vec_index_to_swizzle, ir);
    OPT(lower_vector_insert, ir, false);
-   OPT(do_swizzle_swizzle, ir);
-   OPT(do_noop_swizzle, ir);
+   OPT(optimize_swizzles, ir);
 
    OPT(optimize_split_arrays, ir, linked);
    OPT(optimize_redundant_jumps, ir);
@@ -2204,8 +2250,31 @@ do_common_optimization(exec_list *ir, bool linked,
    if (options->MaxUnrollIterations) {
       loop_state *ls = analyze_loop_variables(ir);
       if (ls->loop_found) {
-         OPT(set_loop_controls, ir, ls);
-         OPT(unroll_loops, ir, ls, options);
+         bool loop_progress = unroll_loops(ir, ls, options);
+         while (loop_progress) {
+            loop_progress = false;
+            loop_progress |= do_constant_propagation(ir);
+            loop_progress |= do_if_simplification(ir);
+
+            /* Some drivers only call do_common_optimization() once rather
+             * than in a loop. So we must call do_lower_jumps() after
+             * unrolling a loop because for drivers that use LLVM validation
+             * will fail if a jump is not the last instruction in the block.
+             * For example the following will fail LLVM validation:
+             *
+             *   (loop (
+             *      ...
+             *   break
+             *   (assign  (x) (var_ref v124)  (expression int + (var_ref v124)
+             *      (constant int (1)) ) )
+             *   ))
+             */
+            loop_progress |= do_lower_jumps(ir, true, true,
+                                            options->EmitNoMainReturn,
+                                            options->EmitNoCont,
+                                            options->EmitNoLoops);
+         }
+         progress |= loop_progress;
       }
       delete ls;
    }

@@ -1,5 +1,5 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  *
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /* Authors:  Keith Whitwell <keithw@vmware.com>
@@ -81,7 +81,6 @@ struct llvmpipe_context {
 
    struct pipe_viewport_state viewports[PIPE_MAX_VIEWPORTS];
    struct pipe_vertex_buffer vertex_buffer[PIPE_MAX_ATTRIBS];
-   struct pipe_index_buffer index_buffer;
 
    unsigned num_samplers[PIPE_SHADER_TYPES];
    unsigned num_sampler_views[PIPE_SHADER_TYPES];
@@ -101,10 +100,10 @@ struct llvmpipe_context {
 
    /** Mapped vertex buffers */
    ubyte *mapped_vbuffer[PIPE_MAX_ATTRIBS];
-
+   
    /** Vertex format */
    struct vertex_info vertex_info;
-
+   
    /** Which vertex shader output slot contains color */
    int8_t color_slot[2];
 
@@ -137,7 +136,6 @@ struct llvmpipe_context {
    struct blitter_context *blitter;
 
    unsigned tex_timestamp;
-   boolean no_rast;
 
    /** List of all fragment shader variants */
    struct lp_fs_variant_list_item fs_variants_list;
@@ -149,7 +147,7 @@ struct llvmpipe_context {
 
    /** Conditional query object and mode */
    struct pipe_query *render_cond_query;
-   uint render_cond_mode;
+   enum pipe_render_cond_flag render_cond_mode;
    boolean render_cond_cond;
 
    /** The LLVMContext to use for LLVM related work */

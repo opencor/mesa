@@ -32,6 +32,7 @@
 #include "swrast/swrast.h"
 #include "tnl/tnl.h"
 #include "util/bitscan.h"
+#include "main/framebuffer.h"
 
 static void
 nouveau_alpha_func(struct gl_context *ctx, GLenum func, GLfloat ref)
@@ -114,7 +115,7 @@ nouveau_read_buffer(struct gl_context *ctx, GLenum buffer)
 }
 
 static void
-nouveau_draw_buffers(struct gl_context *ctx, GLsizei n, const GLenum *buffers)
+nouveau_draw_buffer(struct gl_context *ctx)
 {
 	nouveau_validate_framebuffer(ctx);
 	context_dirty(ctx, FRAMEBUFFER);
@@ -297,7 +298,7 @@ nouveau_line_width(struct gl_context *ctx, GLfloat width)
 }
 
 static void
-nouveau_logic_opcode(struct gl_context *ctx, GLenum opcode)
+nouveau_logic_opcode(struct gl_context *ctx, UNUSED enum gl_logicop_mode opcode)
 {
 	context_dirty(ctx, LOGIC_OPCODE);
 }
@@ -451,9 +452,13 @@ nouveau_state_emit(struct gl_context *ctx)
 }
 
 static void
-nouveau_update_state(struct gl_context *ctx, GLbitfield new_state)
+nouveau_update_state(struct gl_context *ctx)
 {
+	GLbitfield new_state = ctx->NewState;
 	int i;
+
+	if (new_state & (_NEW_SCISSOR | _NEW_BUFFERS | _NEW_VIEWPORT))
+		_mesa_update_draw_buffer_bounds(ctx, ctx->DrawBuffer);
 
 	if (new_state & (_NEW_PROJECTION | _NEW_MODELVIEW))
 		context_dirty(ctx, PROJECTION);
@@ -493,7 +498,6 @@ nouveau_update_state(struct gl_context *ctx, GLbitfield new_state)
 
 	_swrast_InvalidateState(ctx, new_state);
 	_tnl_InvalidateState(ctx, new_state);
-	_vbo_InvalidateState(ctx, new_state);
 
 	nouveau_state_emit(ctx);
 }
@@ -515,7 +519,7 @@ nouveau_state_init(struct gl_context *ctx)
 	ctx->Driver.DepthFunc = nouveau_depth_func;
 	ctx->Driver.DepthMask = nouveau_depth_mask;
 	ctx->Driver.ReadBuffer = nouveau_read_buffer;
-	ctx->Driver.DrawBuffers = nouveau_draw_buffers;
+	ctx->Driver.DrawBuffer = nouveau_draw_buffer;
 	ctx->Driver.Enable = nouveau_enable;
 	ctx->Driver.Fogfv = nouveau_fog;
 	ctx->Driver.Lightfv = nouveau_light;

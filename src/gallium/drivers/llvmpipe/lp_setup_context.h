@@ -128,7 +128,7 @@ struct lp_setup_context
       SETUP_CLEARED,    /**< scene exists but has only clears */
       SETUP_ACTIVE      /**< scene exists and has at least one draw/query */
    } state;
-
+   
    struct {
       const struct lp_rast_state *stored; /**< what's in the scene */
       struct lp_rast_state current;  /**< currently set state */
@@ -215,10 +215,11 @@ lp_setup_alloc_triangle(struct lp_scene *scene,
                         unsigned *tri_size);
 
 boolean
-lp_setup_bin_triangle( struct lp_setup_context *setup,
-                       struct lp_rast_triangle *tri,
-                       const struct u_rect *bbox,
-                       int nr_planes,
-                       unsigned scissor_index );
+lp_setup_bin_triangle(struct lp_setup_context *setup,
+                      struct lp_rast_triangle *tri,
+                      const struct u_rect *bboxorig,
+                      const struct u_rect *bbox,
+                      int nr_planes,
+                      unsigned scissor_index);
 
 #endif

@@ -33,16 +33,21 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/src/gtest/include \
 	-I$(top_builddir)/src/intel \
 	-I$(top_srcdir)/src/intel \
+	-I$(top_srcdir)/include/drm-uapi \
 	-I$(top_srcdir)/src/mapi \
 	-I$(top_srcdir)/src/mesa \
 	-I$(top_srcdir)/src/gallium/auxiliary \
 	-I$(top_srcdir)/src/gallium/include \
 	$(VALGRIND_CFLAGS) \
+	$(LIBDRM_CFLAGS) \
 	$(DEFINES)
 
 AM_CFLAGS = \
 	$(VISIBILITY_CFLAGS) \
-	-Wno-override-init
+	$(WNO_OVERRIDE_INIT)
+
+AM_CXXFLAGS = \
+	$(VISIBILITY_CXXFLAGS)
 
 MKDIR_GEN = $(AM_V_at)$(MKDIR_P) $(@D)
 PYTHON_GEN = $(AM_V_GEN)$(PYTHON2) $(PYTHON_FLAGS)
@@ -57,11 +62,25 @@ check_PROGRAMS =
 TESTS =
 BUILT_SOURCES =
 CLEANFILES =
-EXTRA_DIST =
+EXTRA_DIST = \
+	blorp/meson.build \
+	common/meson.build \
+	compiler/meson.build \
+	dev/meson.build \
+	genxml/meson.build \
+	isl/meson.build \
+	tools/intel_sanitize_gpu.c \
+	tools/intel_sanitize_gpu.in \
+	tools/intel_dump_gpu.c \
+	tools/intel_dump_gpu.in \
+	tools/meson.build \
+	vulkan/meson.build \
+	meson.build
 
 include Makefile.blorp.am
 include Makefile.common.am
 include Makefile.compiler.am
+include Makefile.dev.am
 include Makefile.genxml.am
 include Makefile.isl.am
 include Makefile.tools.am

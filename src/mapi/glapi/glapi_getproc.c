@@ -34,7 +34,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "glapi/glapi_priv.h"
-#include "glapi/glapitable.h"
+#include "glapitable.h"
 
 
 #define FIRST_DYNAMIC_OFFSET (sizeof(struct _glapi_table) / sizeof(void *))
@@ -46,10 +46,10 @@
  */
 
 
-#if !defined(DISPATCH_FUNCTION_SIZE)
+#if !defined(DISPATCH_FUNCTION_SIZE) 
 # define NEED_FUNCTION_POINTER
 #endif
-#include "glapi/glprocs.h"
+#include "glprocs.h"
 
 
 /**
@@ -168,7 +168,7 @@ struct _glapi_function {
 
    /**
     * Pointer to the dispatch stub for the named function.
-    *
+    * 
     * \todo
     * The semantic of this field should be changed slightly.  Currently, it
     * is always expected to be non-\c NULL.  However, it would be better to
@@ -258,9 +258,9 @@ str_dup(const char *str)
  * calls \c _glapi_add_dispatch we'll put in the proper offset.  If that
  * never happens, and the user calls this function, he'll segfault.  That's
  * what you get when you try calling a GL function that doesn't really exist.
- *
+ * 
  * \param funcName  Name of the function to create an entry-point for.
- *
+ * 
  * \sa _glapi_add_entrypoint
  */
 
@@ -323,7 +323,7 @@ set_entry_info( struct _glapi_function * entry, const char * signature, unsigned
 
 /**
  * Fill-in the dispatch stub for the named function.
- *
+ * 
  * This function is intended to be called by a hardware driver.  When called,
  * a dispatch stub may be created for the function.  A pointer to this
  * dispatch function will be returned by glXGetProcAddress.
@@ -361,7 +361,7 @@ set_entry_info( struct _glapi_function * entry, const char * signature, unsigned
  * \todo
  * Determine if code should be added to reject function names that start with
  * 'glX'.
- *
+ * 
  * \bug
  * Add code to compare \c parameter_signature with the parameter signature of
  * a static function.  In order to do that, we need to find a way to \b get

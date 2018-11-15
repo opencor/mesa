@@ -1,5 +1,5 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  * Copyright 2008-2010 VMware, Inc.  All rights reserved.
@@ -11,11 +11,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /**
@@ -773,7 +773,7 @@ get_texel_quad_2d_no_border_single_tile(const struct sp_sampler_view *sp_sview,
    x %= TEX_TILE_SIZE;
 
    tile = sp_get_cached_tile_tex(sp_sview->cache, addr);
-
+      
    out[0] = &tile->data.color[y  ][x  ][0];
    out[1] = &tile->data.color[y  ][x+1][0];
    out[2] = &tile->data.color[y+1][x  ][0];
@@ -1013,7 +1013,7 @@ img_filter_2d_linear_repeat_POT(const struct sp_sampler_view *sp_sview,
    const int y0 = vflr & (ypot - 1);
 
    const float *tx[4];
-
+      
    addr.value = 0;
    addr.bits.level = args->level;
    addr.bits.z = sp_sview->base.u.tex.first_layer;
@@ -1031,8 +1031,8 @@ img_filter_2d_linear_repeat_POT(const struct sp_sampler_view *sp_sview,
 
    /* interpolate R, G, B, A */
    for (c = 0; c < TGSI_NUM_CHANNELS; c++) {
-      rgba[TGSI_NUM_CHANNELS*c] = lerp_2d(xw, yw,
-                                       tx[0][c], tx[1][c],
+      rgba[TGSI_NUM_CHANNELS*c] = lerp_2d(xw, yw, 
+                                       tx[0][c], tx[1][c], 
                                        tx[2][c], tx[3][c]);
    }
 
@@ -1099,17 +1099,17 @@ img_filter_2d_nearest_clamp_POT(const struct sp_sampler_view *sp_sview,
    addr.bits.z = sp_sview->base.u.tex.first_layer;
 
    x0 = util_ifloor(u);
-   if (x0 < 0)
+   if (x0 < 0) 
       x0 = 0;
    else if (x0 > (int) xpot - 1)
       x0 = xpot - 1;
 
    y0 = util_ifloor(v);
-   if (y0 < 0)
+   if (y0 < 0) 
       y0 = 0;
    else if (y0 > (int) ypot - 1)
       y0 = ypot - 1;
-
+   
    out = get_texel_2d_no_border(sp_sview, addr, x0, y0);
    for (c = 0; c < TGSI_NUM_CHANNELS; c++)
       rgba[TGSI_NUM_CHANNELS*c] = out[c];
@@ -1199,7 +1199,7 @@ img_filter_2d_nearest(const struct sp_sampler_view *sp_sview,
 
    assert(width > 0);
    assert(height > 0);
-
+ 
    addr.value = 0;
    addr.bits.level = args->level;
    addr.bits.z = sp_sview->base.u.tex.first_layer;
@@ -1235,7 +1235,7 @@ img_filter_2d_array_nearest(const struct sp_sampler_view *sp_sview,
 
    assert(width > 0);
    assert(height > 0);
-
+ 
    addr.value = 0;
    addr.bits.level = args->level;
 
@@ -1269,7 +1269,7 @@ img_filter_cube_nearest(const struct sp_sampler_view *sp_sview,
 
    assert(width > 0);
    assert(height > 0);
-
+ 
    addr.value = 0;
    addr.bits.level = args->level;
 
@@ -1315,7 +1315,7 @@ img_filter_cube_array_nearest(const struct sp_sampler_view *sp_sview,
 
    assert(width > 0);
    assert(height > 0);
-
+ 
    addr.value = 0;
    addr.bits.level = args->level;
 
@@ -1747,12 +1747,12 @@ img_filter_3d_linear(const struct sp_sampler_view *sp_sview,
    tx01 = get_texel_3d(sp_sview, sp_samp, addr, x1, y0, z0);
    tx02 = get_texel_3d(sp_sview, sp_samp, addr, x0, y1, z0);
    tx03 = get_texel_3d(sp_sview, sp_samp, addr, x1, y1, z0);
-
+      
    tx10 = get_texel_3d(sp_sview, sp_samp, addr, x0, y0, z1);
    tx11 = get_texel_3d(sp_sview, sp_samp, addr, x1, y0, z1);
    tx12 = get_texel_3d(sp_sview, sp_samp, addr, x0, y1, z1);
    tx13 = get_texel_3d(sp_sview, sp_samp, addr, x1, y1, z1);
-
+      
       /* interpolate R, G, B, A */
    for (c = 0; c < TGSI_NUM_CHANNELS; c++)
       rgba[TGSI_NUM_CHANNELS*c] =  lerp_3d(xw, yw, zw,
@@ -2211,7 +2211,7 @@ img_filter_2d_ewa(const struct sp_sampler_view *sp_sview,
    const float uy = dudy * scaling;
    const float vy = dvdy * scaling;
 
-   /* compute ellipse coefficients to bound the region:
+   /* compute ellipse coefficients to bound the region: 
     * A*x*x + B*x*y + C*y*y = F.
     */
    float A = vx*vx+vy*vy+1;
@@ -2294,7 +2294,7 @@ img_filter_2d_ewa(const struct sp_sampler_view *sp_sview,
                weight_buffer[buffer_next] = weight;
                s_buffer[buffer_next] = u / ((float) width);
                t_buffer[buffer_next] = v / ((float) height);
-
+            
                buffer_next++;
                if (buffer_next == TGSI_QUAD_SIZE) {
                   /* 4 texel coords are in the buffer -> read it now */
@@ -2423,7 +2423,7 @@ mip_filter_linear_aniso(const struct sp_sampler_view *sp_sview,
        filt_args->control == TGSI_SAMPLER_LOD_NONE ||
        /* XXX FIXME */
        filt_args->control == TGSI_SAMPLER_DERIVS_EXPLICIT) {
-      /* note: instead of working with Px and Py, we will use the
+      /* note: instead of working with Px and Py, we will use the 
        * squared length instead, to avoid sqrt.
        */
       const float Px2 = dudx * dudx + dvdx * dvdx;
@@ -2433,7 +2433,7 @@ mip_filter_linear_aniso(const struct sp_sampler_view *sp_sview,
       float Pmin2;
       float e;
       const float maxEccentricity = sp_samp->base.max_anisotropy * sp_samp->base.max_anisotropy;
-
+      
       if (Px2 < Py2) {
          Pmax2 = Py2;
          Pmin2 = Px2;
@@ -2442,7 +2442,7 @@ mip_filter_linear_aniso(const struct sp_sampler_view *sp_sview,
          Pmax2 = Px2;
          Pmin2 = Py2;
       }
-
+      
       /* if the eccentricity of the ellipse is too big, scale up the shorter
        * of the two vectors to limit the maximum amount of work per pixel
        */
@@ -2454,7 +2454,7 @@ mip_filter_linear_aniso(const struct sp_sampler_view *sp_sview,
             Pmin2 *= s; */
          Pmin2 = Pmax2 / maxEccentricity;
       }
-
+      
       /* note: we need to have Pmin=sqrt(Pmin2) here, but we can avoid
        * this since 0.5*log(x) = log(sqrt(x))
        */
@@ -2466,7 +2466,7 @@ mip_filter_linear_aniso(const struct sp_sampler_view *sp_sview,
              filt_args->control == TGSI_SAMPLER_LOD_ZERO);
       compute_lod(&sp_samp->base, filt_args->control, sp_samp->base.lod_bias, lod_in, lod);
    }
-
+   
    /* XXX: Take into account all lod values.
     */
    lambda = lod[0];
@@ -2926,13 +2926,13 @@ get_img_filter(const struct sp_sampler_view *sp_sview,
    switch (sp_sview->base.target) {
    case PIPE_BUFFER:
    case PIPE_TEXTURE_1D:
-      if (filter == PIPE_TEX_FILTER_NEAREST)
+      if (filter == PIPE_TEX_FILTER_NEAREST) 
          return img_filter_1d_nearest;
       else
          return img_filter_1d_linear;
       break;
    case PIPE_TEXTURE_1D_ARRAY:
-      if (filter == PIPE_TEX_FILTER_NEAREST)
+      if (filter == PIPE_TEX_FILTER_NEAREST) 
          return img_filter_1d_array_nearest;
       else
          return img_filter_1d_array_linear;
@@ -2943,7 +2943,7 @@ get_img_filter(const struct sp_sampler_view *sp_sview,
        */
       if (!gather && sp_sview->pot2d &&
           sampler->wrap_s == sampler->wrap_t &&
-          sampler->normalized_coords)
+          sampler->normalized_coords) 
       {
          switch (sampler->wrap_s) {
          case PIPE_TEX_WRAP_REPEAT:
@@ -2967,31 +2967,31 @@ get_img_filter(const struct sp_sampler_view *sp_sview,
       }
       /* Otherwise use default versions:
        */
-      if (filter == PIPE_TEX_FILTER_NEAREST)
+      if (filter == PIPE_TEX_FILTER_NEAREST) 
          return img_filter_2d_nearest;
       else
          return img_filter_2d_linear;
       break;
    case PIPE_TEXTURE_2D_ARRAY:
-      if (filter == PIPE_TEX_FILTER_NEAREST)
+      if (filter == PIPE_TEX_FILTER_NEAREST) 
          return img_filter_2d_array_nearest;
       else
          return img_filter_2d_array_linear;
       break;
    case PIPE_TEXTURE_CUBE:
-      if (filter == PIPE_TEX_FILTER_NEAREST)
+      if (filter == PIPE_TEX_FILTER_NEAREST) 
          return img_filter_cube_nearest;
       else
          return img_filter_cube_linear;
       break;
    case PIPE_TEXTURE_CUBE_ARRAY:
-      if (filter == PIPE_TEX_FILTER_NEAREST)
+      if (filter == PIPE_TEX_FILTER_NEAREST) 
          return img_filter_cube_array_nearest;
       else
          return img_filter_cube_array_linear;
       break;
    case PIPE_TEXTURE_3D:
-      if (filter == PIPE_TEX_FILTER_NEAREST)
+      if (filter == PIPE_TEX_FILTER_NEAREST) 
          return img_filter_3d_nearest;
       else
          return img_filter_3d_linear;

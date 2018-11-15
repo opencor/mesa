@@ -1058,6 +1058,22 @@
       memcpy(&data.u[0], &op[0]->value.d[0], sizeof(double));
       break;
 
+   case ir_unop_pack_sampler_2x32:
+      memcpy(&data.u64[0], &op[0]->value.u[0], sizeof(uint64_t));
+      break;
+
+   case ir_unop_pack_image_2x32:
+      memcpy(&data.u64[0], &op[0]->value.u[0], sizeof(uint64_t));
+      break;
+
+   case ir_unop_unpack_sampler_2x32:
+      memcpy(&data.u[0], &op[0]->value.u64[0], sizeof(uint64_t));
+      break;
+
+   case ir_unop_unpack_image_2x32:
+      memcpy(&data.u[0], &op[0]->value.u64[0], sizeof(uint64_t));
+      break;
+
    case ir_unop_pack_int_2x32:
       memcpy(&data.i64[0], &op[0]->value.i[0], sizeof(int64_t));
       break;
@@ -1186,7 +1202,7 @@
          for (unsigned j = 0; j < p; j++) {
             for (unsigned i = 0; i < n; i++) {
                for (unsigned k = 0; k < m; k++) {
-                  if (op[0]->type->base_type == GLSL_TYPE_DOUBLE)
+                  if (op[0]->type->is_double())
                      data.d[i+n*j] += op[0]->value.d[i+n*k]*op[1]->value.d[k+m*j];
                   else
                      data.f[i+n*j] += op[0]->value.f[i+n*k]*op[1]->value.f[k+m*j];
@@ -1278,60 +1294,6 @@
             break;
          case GLSL_TYPE_INT64:
             data.b[c] = op[0]->value.i64[c] < op[1]->value.i64[c];
-            break;
-         default:
-            unreachable("invalid type");
-         }
-      }
-      break;
-
-   case ir_binop_greater:
-      for (unsigned c = 0; c < op[0]->type->components(); c++) {
-         switch (op[0]->type->base_type) {
-         case GLSL_TYPE_UINT:
-            data.b[c] = op[0]->value.u[c] > op[1]->value.u[c];
-            break;
-         case GLSL_TYPE_INT:
-            data.b[c] = op[0]->value.i[c] > op[1]->value.i[c];
-            break;
-         case GLSL_TYPE_FLOAT:
-            data.b[c] = op[0]->value.f[c] > op[1]->value.f[c];
-            break;
-         case GLSL_TYPE_DOUBLE:
-            data.b[c] = op[0]->value.d[c] > op[1]->value.d[c];
-            break;
-         case GLSL_TYPE_UINT64:
-            data.b[c] = op[0]->value.u64[c] > op[1]->value.u64[c];
-            break;
-         case GLSL_TYPE_INT64:
-            data.b[c] = op[0]->value.i64[c] > op[1]->value.i64[c];
-            break;
-         default:
-            unreachable("invalid type");
-         }
-      }
-      break;
-
-   case ir_binop_lequal:
-      for (unsigned c = 0; c < op[0]->type->components(); c++) {
-         switch (op[0]->type->base_type) {
-         case GLSL_TYPE_UINT:
-            data.b[c] = op[0]->value.u[c] <= op[1]->value.u[c];
-            break;
-         case GLSL_TYPE_INT:
-            data.b[c] = op[0]->value.i[c] <= op[1]->value.i[c];
-            break;
-         case GLSL_TYPE_FLOAT:
-            data.b[c] = op[0]->value.f[c] <= op[1]->value.f[c];
-            break;
-         case GLSL_TYPE_DOUBLE:
-            data.b[c] = op[0]->value.d[c] <= op[1]->value.d[c];
-            break;
-         case GLSL_TYPE_UINT64:
-            data.b[c] = op[0]->value.u64[c] <= op[1]->value.u64[c];
-            break;
-         case GLSL_TYPE_INT64:
-            data.b[c] = op[0]->value.i64[c] <= op[1]->value.i64[c];
             break;
          default:
             unreachable("invalid type");
@@ -1759,12 +1721,9 @@
       break;
 
    case ir_triop_lrp: {
-      assert(op[0]->type->base_type == GLSL_TYPE_FLOAT ||
-             op[0]->type->base_type == GLSL_TYPE_DOUBLE);
-      assert(op[1]->type->base_type == GLSL_TYPE_FLOAT ||
-             op[1]->type->base_type == GLSL_TYPE_DOUBLE);
-      assert(op[2]->type->base_type == GLSL_TYPE_FLOAT ||
-             op[2]->type->base_type == GLSL_TYPE_DOUBLE);
+      assert(op[0]->type->is_float() || op[0]->type->is_double());
+      assert(op[1]->type->is_float() || op[1]->type->is_double());
+      assert(op[2]->type->is_float() || op[2]->type->is_double());
 
       unsigned c2_inc = op[2]->type->is_scalar() ? 0 : 1;
       for (unsigned c = 0, c2 = 0; c < components; c2 += c2_inc, c++) {

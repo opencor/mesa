@@ -29,7 +29,7 @@
 #include "util/u_math.h"
 #include "util/u_memory.h"
 #include "util/simple_list.h"
-#include "os/os_time.h"
+#include "util/os_time.h"
 #include "gallivm/lp_bld_arit.h"
 #include "gallivm/lp_bld_bitarit.h"
 #include "gallivm/lp_bld_const.h"
@@ -110,7 +110,7 @@ store_coef(struct gallivm_state *gallivm,
 
 
 
-static void
+static void 
 emit_constant_coef4(struct gallivm_state *gallivm,
                     struct lp_setup_args *args,
                     unsigned slot,
@@ -125,7 +125,7 @@ emit_constant_coef4(struct gallivm_state *gallivm,
  * Setup the fragment input attribute with the front-facing value.
  * \param frontface  is the triangle front facing?
  */
-static void
+static void 
 emit_facing_coef(struct gallivm_state *gallivm,
                  struct lp_setup_args *args,
                  unsigned slot )
@@ -258,7 +258,7 @@ lp_do_offset_tri(struct gallivm_state *gallivm,
 
    /* mult = MAX2(dzdx, dzdy) * pgon_offset_scale */
    max = LLVMBuildFCmp(b, LLVMRealUGT, dzdx, dzdy, "");
-   max_value = LLVMBuildSelect(b, max, dzdx, dzdy, "max");
+   max_value = LLVMBuildSelect(b, max, dzdx, dzdy, "max"); 
 
    mult = LLVMBuildFMul(b, max_value,
                         lp_build_const_float(gallivm, key->pgon_offset_scale), "");
@@ -392,7 +392,7 @@ load_attribute(struct gallivm_state *gallivm,
  * sometimes completely in case of tris covering a block fully,
  * which obviously wouldn't work)).
  */
-static void
+static void 
 emit_coef4( struct gallivm_state *gallivm,
             struct lp_setup_args *args,
             unsigned slot,
@@ -434,7 +434,7 @@ emit_coef4( struct gallivm_state *gallivm,
 }
 
 
-static void
+static void 
 emit_linear_coef( struct gallivm_state *gallivm,
                   struct lp_setup_args *args,
                   unsigned slot,
@@ -442,7 +442,7 @@ emit_linear_coef( struct gallivm_state *gallivm,
 {
    /* nothing to do anymore */
    emit_coef4(gallivm,
-              args, slot,
+              args, slot, 
               attribv[0],
               attribv[1],
               attribv[2]);
@@ -457,7 +457,7 @@ emit_linear_coef( struct gallivm_state *gallivm,
  * Later, when we compute the value at a particular fragment position we'll
  * divide the interpolated value by the interpolated W at that fragment.
  */
-static void
+static void 
 apply_perspective_corr( struct gallivm_state *gallivm,
                         struct lp_setup_args *args,
                         unsigned slot,
@@ -559,7 +559,7 @@ emit_apply_cyl_wrap(struct gallivm_state *gallivm,
 /**
  * Compute the inputs-> dadx, dady, a0 values.
  */
-static void
+static void 
 emit_tri_coef( struct gallivm_state *gallivm,
                const struct lp_setup_variant_key *key,
                struct lp_setup_args *args)
@@ -936,7 +936,7 @@ cull_setup_variants(struct llvmpipe_context *lp)
  * prior to drawing something when some fragment-related state has
  * changed.
  */
-void
+void 
 llvmpipe_update_setup(struct llvmpipe_context *lp)
 {
    struct lp_setup_variant_key *key = &lp->setup_variant.key;

@@ -47,6 +47,7 @@
 #include "main/macros.h"
 #include "program/prog_instruction.h"
 #include "brw_eu_defines.h"
+#include "brw_reg_type.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -202,43 +203,6 @@ brw_mask_for_swizzle(unsigned swz)
    return brw_apply_inv_swizzle_to_mask(swz, ~0);
 }
 
-enum PACKED brw_reg_type {
-   BRW_REGISTER_TYPE_UD = 0,
-   BRW_REGISTER_TYPE_D,
-   BRW_REGISTER_TYPE_UW,
-   BRW_REGISTER_TYPE_W,
-   BRW_REGISTER_TYPE_F,
-
-   /** Non-immediates only: @{ */
-   BRW_REGISTER_TYPE_UB,
-   BRW_REGISTER_TYPE_B,
-   /** @} */
-
-   /** Immediates only: @{ */
-   BRW_REGISTER_TYPE_UV, /* Gen6+ */
-   BRW_REGISTER_TYPE_V,
-   BRW_REGISTER_TYPE_VF,
-   /** @} */
-
-   BRW_REGISTER_TYPE_DF, /* Gen7+ (no immediates until Gen8+) */
-
-   /* Gen8+ */
-   BRW_REGISTER_TYPE_HF,
-   BRW_REGISTER_TYPE_UQ,
-   BRW_REGISTER_TYPE_Q,
-};
-
-unsigned brw_reg_type_to_hw_type(const struct gen_device_info *devinfo,
-                                 enum brw_reg_type type, enum brw_reg_file file);
-
-#define brw_element_size(devinfo, inst, operand)                             \
-   brw_hw_reg_type_to_size(devinfo,                                          \
-                           brw_inst_ ## operand ## _reg_type(devinfo, inst), \
-                           brw_inst_ ## operand ## _reg_file(devinfo, inst))
-unsigned brw_hw_reg_type_to_size(const struct gen_device_info *devinfo,
-                                 unsigned type, enum brw_reg_file file);
-
-const char *brw_reg_type_letters(unsigned brw_reg_type);
 uint32_t brw_swizzle_immediate(enum brw_reg_type type, uint32_t x, unsigned swz);
 
 #define REG_SIZE (8*4)
@@ -291,6 +255,56 @@ brw_regs_equal(const struct brw_reg *a, const struct brw_reg *b)
    return a->bits == b->bits && (df ? a->u64 == b->u64 : a->ud == b->ud);
 }
 
+static inline bool
+brw_regs_negative_equal(const struct brw_reg *a, const struct brw_reg *b)
+{
+   if (a->file == IMM) {
+      if (a->bits != b->bits)
+         return false;
+
+      switch ((enum brw_reg_type) a->type) {
+      case BRW_REGISTER_TYPE_UQ:
+      case BRW_REGISTER_TYPE_Q:
+         return a->d64 == -b->d64;
+      case BRW_REGISTER_TYPE_DF:
+         return a->df == -b->df;
+      case BRW_REGISTER_TYPE_UD:
+      case BRW_REGISTER_TYPE_D:
+         return a->d == -b->d;
+      case BRW_REGISTER_TYPE_F:
+         return a->f == -b->f;
+      case BRW_REGISTER_TYPE_VF:
+         /* It is tempting to treat 0 as a negation of 0 (and -0 as a negation
+          * of -0).  There are occasions where 0 or -0 is used and the exact
+          * bit pattern is desired.  At the very least, changing this to allow
+          * 0 as a negation of 0 causes some fp64 tests to fail on IVB.
+          */
+         return a->ud == (b->ud ^ 0x80808080);
+      case BRW_REGISTER_TYPE_UW:
+      case BRW_REGISTER_TYPE_W:
+      case BRW_REGISTER_TYPE_UV:
+      case BRW_REGISTER_TYPE_V:
+      case BRW_REGISTER_TYPE_HF:
+         /* FINISHME: Implement support for these types once there is
+          * something in the compiler that can generate them.  Until then,
+          * they cannot be tested.
+          */
+         return false;
+      case BRW_REGISTER_TYPE_UB:
+      case BRW_REGISTER_TYPE_B:
+      case BRW_REGISTER_TYPE_NF:
+      default:
+         unreachable("not reached");
+      }
+   } else {
+      struct brw_reg tmp = *a;
+
+      tmp.negate = !tmp.negate;
+
+      return brw_regs_equal(&tmp, b);
+   }
+}
+
 struct brw_indirect {
    unsigned addr_subnr:4;
    int addr_offset:10;
@@ -322,19 +336,6 @@ type_sz(unsigned type)
       return 1;
    default:
       unreachable("not reached");
-   }
-}
-
-static inline bool
-brw_reg_type_is_floating_point(enum brw_reg_type type)
-{
-   switch (type) {
-   case BRW_REGISTER_TYPE_F:
-   case BRW_REGISTER_TYPE_HF:
-   case BRW_REGISTER_TYPE_DF:
-      return true;
-   default:
-      return false;
    }
 }
 
@@ -373,6 +374,15 @@ brw_int_type(unsigned sz, bool is_signed)
    default:
       unreachable("Not reached.");
    }
+}
+
+static inline bool
+type_is_unsigned_int(enum brw_reg_type tp)
+{
+   return tp == BRW_REGISTER_TYPE_UB ||
+          tp == BRW_REGISTER_TYPE_UW ||
+          tp == BRW_REGISTER_TYPE_UD ||
+          tp == BRW_REGISTER_TYPE_UQ;
 }
 
 /**
@@ -639,10 +649,36 @@ brw_imm_df(double df)
 }
 
 static inline struct brw_reg
+brw_imm_u64(uint64_t u64)
+{
+   struct brw_reg imm = brw_imm_reg(BRW_REGISTER_TYPE_UQ);
+   imm.u64 = u64;
+   return imm;
+}
+
+static inline struct brw_reg
 brw_imm_f(float f)
 {
    struct brw_reg imm = brw_imm_reg(BRW_REGISTER_TYPE_F);
    imm.f = f;
+   return imm;
+}
+
+/** Construct int64_t immediate register */
+static inline struct brw_reg
+brw_imm_q(int64_t q)
+{
+   struct brw_reg imm = brw_imm_reg(BRW_REGISTER_TYPE_Q);
+   imm.d64 = q;
+   return imm;
+}
+
+/** Construct int64_t immediate register */
+static inline struct brw_reg
+brw_imm_uq(uint64_t uq)
+{
+   struct brw_reg imm = brw_imm_reg(BRW_REGISTER_TYPE_UQ);
+   imm.u64 = uq;
    return imm;
 }
 
@@ -678,7 +714,7 @@ static inline struct brw_reg
 brw_imm_w(int16_t w)
 {
    struct brw_reg imm = brw_imm_reg(BRW_REGISTER_TYPE_W);
-   imm.d = w | (w << 16);
+   imm.ud = (uint16_t)w | (uint32_t)(uint16_t)w << 16;
    return imm;
 }
 
@@ -805,6 +841,12 @@ brw_address_reg(unsigned subnr)
    return brw_uw1_reg(BRW_ARCHITECTURE_REGISTER_FILE, BRW_ARF_ADDRESS, subnr);
 }
 
+static inline struct brw_reg
+brw_tdr_reg(void)
+{
+   return brw_uw1_reg(BRW_ARCHITECTURE_REGISTER_FILE, BRW_ARF_TDR, 0);
+}
+
 /* If/else instructions break in align16 mode if writemask & swizzle
  * aren't xyzw.  This goes against the convention for other scalar
  * regs:
@@ -842,6 +884,12 @@ brw_notification_reg(void)
 }
 
 static inline struct brw_reg
+brw_cr0_reg(unsigned subnr)
+{
+   return brw_ud1_reg(BRW_ARCHITECTURE_REGISTER_FILE, BRW_ARF_CONTROL, subnr);
+}
+
+static inline struct brw_reg
 brw_sr0_reg(unsigned subnr)
 {
    return brw_ud1_reg(BRW_ARCHITECTURE_REGISTER_FILE, BRW_ARF_STATE, subnr);
@@ -859,6 +907,13 @@ brw_flag_reg(int reg, int subreg)
 {
    return brw_uw1_reg(BRW_ARCHITECTURE_REGISTER_FILE,
                       BRW_ARF_FLAG + reg, subreg);
+}
+
+static inline struct brw_reg
+brw_flag_subreg(unsigned subreg)
+{
+   return brw_uw1_reg(BRW_ARCHITECTURE_REGISTER_FILE,
+                      BRW_ARF_FLAG + subreg / 2, subreg % 2);
 }
 
 /**
@@ -943,6 +998,22 @@ spread(struct brw_reg reg, unsigned s)
    } else {
       return stride(reg, 0, 1, 0);
    }
+}
+
+/**
+ * Reinterpret each channel of register \p reg as a vector of values of the
+ * given smaller type and take the i-th subcomponent from each.
+ */
+static inline struct brw_reg
+subscript(struct brw_reg reg, enum brw_reg_type type, unsigned i)
+{
+   if (reg.file == IMM)
+      return reg;
+
+   unsigned scale = type_sz(reg.type) / type_sz(type);
+   assert(scale >= 1 && i < scale);
+
+   return suboffset(retype(spread(reg, scale), type), i);
 }
 
 static inline struct brw_reg

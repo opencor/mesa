@@ -32,10 +32,10 @@
 #include "svga_resource_buffer.h"
 
 /***********************************************************************
- * Constant buffers
+ * Constant buffers 
  */
 
-struct svga_constbuf
+struct svga_constbuf 
 {
    unsigned type;
    float (*data)[4];

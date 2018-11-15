@@ -194,7 +194,7 @@ extern char *mesa_profile;
      unsigned int a,d; \
      __asm__ volatile("rdtsc" : "=a" (a), "=d" (d)); \
      (val) = ((unsigned long)a) | (((unsigned long)d)<<32); \
-} while(0)
+} while(0) 
 
 /* Copied from i386 PIII version */
 #define  INIT_COUNTER()							\
@@ -216,7 +216,7 @@ extern char *mesa_profile;
    x = LONG_MAX;							\
    for ( cycle_i = 0 ; cycle_i < 10 ; cycle_i++ ) {			\
       unsigned long cycle_tmp1, cycle_tmp2;				\
-      rdtscll(cycle_tmp1);						\
+      rdtscll(cycle_tmp1);
 
 #define END_RACE(x)							\
       rdtscll(cycle_tmp2);						\
@@ -309,7 +309,7 @@ enum { NIL = 0, ONE = 1, NEG = -1, VAR = 2 };
 #elif defined(_MSC_VER)
 #  define ALIGN16(type, array)	type array __declspec(align(16)) /* GH: Does this work? */
 #elif defined(__xlC__)
-#  define ALIGN16(type, array)       type __align (16) array
+#  define ALIGN16(type, array)       type __align (16) array 
 #else
 #  warning "ALIGN16 will not 16-byte align!\n"
 #  define ALIGN16

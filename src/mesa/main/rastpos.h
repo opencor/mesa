@@ -38,7 +38,7 @@
 struct _glapi_table;
 struct gl_context;
 
-extern void
+extern void 
 _mesa_init_rastpos(struct gl_context *ctx);
 
 void

@@ -1,9 +1,9 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * Copyright (c) 2008 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -11,11 +11,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #ifndef PIPE_FORMAT_H
@@ -294,7 +294,7 @@ enum pipe_format {
    PIPE_FORMAT_L32_SINT                = 223,
    PIPE_FORMAT_L32A32_SINT             = 224,
 
-   PIPE_FORMAT_B10G10R10A2_UINT        = 225,
+   PIPE_FORMAT_B10G10R10A2_UINT        = 225, 
 
    PIPE_FORMAT_ETC1_RGB8               = 226,
 
@@ -390,6 +390,11 @@ enum pipe_format {
    PIPE_FORMAT_ASTC_12x12_SRGB         = 306,
 
    PIPE_FORMAT_P016                    = 307,
+
+   PIPE_FORMAT_R10G10B10X2_UNORM       = 308,
+   PIPE_FORMAT_A1B5G5R5_UNORM          = 309,
+   PIPE_FORMAT_X1B5G5R5_UNORM          = 310,
+   PIPE_FORMAT_A4B4G4R4_UNORM          = 311,
 
    PIPE_FORMAT_COUNT
 };

@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #ifndef PIPE_CONTEXT_H
@@ -53,7 +53,6 @@ struct pipe_grid_info;
 struct pipe_fence_handle;
 struct pipe_framebuffer_state;
 struct pipe_image_view;
-struct pipe_index_buffer;
 struct pipe_query;
 struct pipe_poly_stipple;
 struct pipe_rasterizer_state;
@@ -76,6 +75,7 @@ struct pipe_viewport_state;
 struct pipe_compute_state;
 union pipe_color_union;
 union pipe_query_result;
+struct u_log_context;
 struct u_upload_mgr;
 
 /**
@@ -279,8 +279,35 @@ struct pipe_context {
    void (*set_framebuffer_state)( struct pipe_context *,
                                   const struct pipe_framebuffer_state * );
 
+   /**
+    * Set the sample locations used during rasterization. When NULL or sized
+    * zero, the default locations are used.
+    *
+    * Note that get_sample_position() still returns the default locations.
+    *
+    * The samples are accessed with
+    * locations[(pixel_y*grid_w+pixel_x)*ms+i],
+    * where:
+    * ms      = the sample count
+    * grid_w  = the pixel grid width for the sample count
+    * grid_w  = the pixel grid height for the sample count
+    * pixel_x = the window x coordinate modulo grid_w
+    * pixel_y = the window y coordinate modulo grid_w
+    * i       = the sample index
+    * This gives a result with the x coordinate as the low 4 bits and the y
+    * coordinate as the high 4 bits. For each coordinate 0 is the left or top
+    * edge of the pixel's rectangle and 16 (not 15) is the right or bottom edge.
+    *
+    * Out of bounds accesses are return undefined values.
+    *
+    * The pixel grid is used to vary sample locations across pixels and its
+    * size can be queried with get_sample_pixel_grid().
+    */
+   void (*set_sample_locations)( struct pipe_context *,
+                                 size_t size, const uint8_t *locations );
+
    void (*set_polygon_stipple)( struct pipe_context *,
-				const struct pipe_poly_stipple * );
+                                const struct pipe_poly_stipple * );
 
    void (*set_scissor_states)( struct pipe_context *,
                                unsigned start_slot,
@@ -332,6 +359,22 @@ struct pipe_context {
                               const struct pipe_shader_buffer *buffers);
 
    /**
+    * Bind an array of hw atomic buffers for use by all shaders.
+    * And buffers that were previously bound to the specified range
+    * will be unbound.
+    *
+    * \param start_slot first buffer slot to bind.
+    * \param count      number of consecutive buffers to bind.
+    * \param buffers    array of pointers to the buffers to bind, it
+    *                   should contain at least \a count elements
+    *                   unless it's NULL, in which case no buffers will
+    *                   be bound.
+    */
+   void (*set_hw_atomic_buffers)(struct pipe_context *,
+                                 unsigned start_slot, unsigned count,
+                                 const struct pipe_shader_buffer *buffers);
+
+   /**
     * Bind an array of images that will be used by a shader.
     * Any images that were previously bound to the specified range
     * will be unbound.
@@ -353,9 +396,6 @@ struct pipe_context {
                                unsigned start_slot,
                                unsigned num_buffers,
                                const struct pipe_vertex_buffer * );
-
-   void (*set_index_buffer)( struct pipe_context *pipe,
-                             const struct pipe_index_buffer * );
 
    /*@}*/
 
@@ -472,7 +512,23 @@ struct pipe_context {
                         int clear_value_size);
 
    /**
-    * Flush draw commands
+    * If a depth buffer is rendered with different sample location state than
+    * what is current at the time of reading, the values may differ because
+    * depth buffer compression can depend the sample locations.
+    *
+    * This function is a hint to decompress the current depth buffer to avoid
+    * such problems.
+    */
+   void (*evaluate_depth_buffer)(struct pipe_context *pipe);
+
+   /**
+    * Flush draw commands.
+    *
+    * This guarantees that the new fence (if any) will finish in finite time,
+    * unless PIPE_FLUSH_DEFERRED is used.
+    *
+    * Subsequent operations on other contexts of the same screen are guaranteed
+    * to execute after the flushed commands, unless PIPE_FLUSH_ASYNC is used.
     *
     * NOTE: use screen->fence_reference() (or equivalent) to transfer
     * new fence ref to **fence, to ensure that previous fence is unref'd
@@ -486,17 +542,19 @@ struct pipe_context {
                  unsigned flags);
 
    /**
-    * Create a fence from a native sync fd.
+    * Create a fence from a fd.
     *
     * This is used for importing a foreign/external fence fd.
     *
     * \param fence  if not NULL, an old fence to unref and transfer a
     *    new fence reference to
-    * \param fd     native fence fd
+    * \param fd     fd representing the fence object
+    * \param type   indicates which fence types backs fd
     */
    void (*create_fence_fd)(struct pipe_context *pipe,
                            struct pipe_fence_handle **fence,
-                           int fd);
+                           int fd,
+                           enum pipe_fd_type type);
 
    /**
     * Insert commands to have GPU wait for fence to be signaled.
@@ -505,12 +563,28 @@ struct pipe_context {
                              struct pipe_fence_handle *fence);
 
    /**
+    * Insert commands to have the GPU signal a fence.
+    */
+   void (*fence_server_signal)(struct pipe_context *pipe,
+                               struct pipe_fence_handle *fence);
+
+   /**
     * Create a view on a texture to be used by a shader stage.
     */
    struct pipe_sampler_view * (*create_sampler_view)(struct pipe_context *ctx,
                                                      struct pipe_resource *texture,
                                                      const struct pipe_sampler_view *templat);
 
+   /**
+    * Destroy a view on a texture.
+    *
+    * \param ctx the current context
+    * \param view the view to be destroyed
+    *
+    * \note The current context may not be the context in which the view was
+    *       created (view->context). However, the caller must guarantee that
+    *       the context which created the view is still alive.
+    */
    void (*sampler_view_destroy)(struct pipe_context *ctx,
                                 struct pipe_sampler_view *view);
 
@@ -683,7 +757,7 @@ struct pipe_context {
    /*@}*/
 
    /**
-    * Get sample position for an individual sample point.
+    * Get the default sample position for an individual sample point.
     *
     * \param sample_count - total number of samples
     * \param sample_index - sample to get the position values for
@@ -753,6 +827,19 @@ struct pipe_context {
                             unsigned flags);
 
    /**
+    * Set the log context to which the driver should write internal debug logs
+    * (internal states, command streams).
+    *
+    * The caller must ensure that the log context is destroyed and reset to
+    * NULL before the pipe context is destroyed, and that log context functions
+    * are only called from the driver thread.
+    *
+    * \param ctx pipe context
+    * \param log logging context
+    */
+   void (*set_log_context)(struct pipe_context *ctx, struct u_log_context *log);
+
+   /**
     * Emit string marker in cmdstream
     */
    void (*emit_string_marker)(struct pipe_context *ctx,
@@ -770,6 +857,76 @@ struct pipe_context {
                               unsigned last_level,
                               unsigned first_layer,
                               unsigned last_layer);
+
+   /**
+    * Create a 64-bit texture handle.
+    *
+    * \param ctx        pipe context
+    * \param view       pipe sampler view object
+    * \param state      pipe sampler state template
+    * \return           a 64-bit texture handle if success, 0 otherwise
+    */
+   uint64_t (*create_texture_handle)(struct pipe_context *ctx,
+                                     struct pipe_sampler_view *view,
+                                     const struct pipe_sampler_state *state);
+
+   /**
+    * Delete a texture handle.
+    *
+    * \param ctx        pipe context
+    * \param handle     64-bit texture handle
+    */
+   void (*delete_texture_handle)(struct pipe_context *ctx, uint64_t handle);
+
+   /**
+    * Make a texture handle resident.
+    *
+    * \param ctx        pipe context
+    * \param handle     64-bit texture handle
+    * \param resident   TRUE for resident, FALSE otherwise
+    */
+   void (*make_texture_handle_resident)(struct pipe_context *ctx,
+                                        uint64_t handle, bool resident);
+
+   /**
+    * Create a 64-bit image handle.
+    *
+    * \param ctx        pipe context
+    * \param image      pipe image view template
+    * \return           a 64-bit image handle if success, 0 otherwise
+    */
+   uint64_t (*create_image_handle)(struct pipe_context *ctx,
+                                   const struct pipe_image_view *image);
+
+   /**
+    * Delete an image handle.
+    *
+    * \param ctx        pipe context
+    * \param handle     64-bit image handle
+    */
+   void (*delete_image_handle)(struct pipe_context *ctx, uint64_t handle);
+
+   /**
+    * Make an image handle resident.
+    *
+    * \param ctx        pipe context
+    * \param handle     64-bit image handle
+    * \param access     GL_READ_ONLY, GL_WRITE_ONLY or GL_READ_WRITE
+    * \param resident   TRUE for resident, FALSE otherwise
+    */
+   void (*make_image_handle_resident)(struct pipe_context *ctx, uint64_t handle,
+                                      unsigned access, bool resident);
+
+   /**
+    * Call the given function from the driver thread.
+    *
+    * This is set by threaded contexts for use by debugging wrappers.
+    *
+    * \param asap if true, run the callback immediately if there are no pending
+    *             commands to be processed by the driver thread
+    */
+   void (*callback)(struct pipe_context *ctx, void (*fn)(void *), void *data,
+                    bool asap);
 };
 
 

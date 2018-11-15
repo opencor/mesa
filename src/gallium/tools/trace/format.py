@@ -95,7 +95,7 @@ class AnsiFormatter(Formatter):
 
 
 class WindowsConsoleFormatter(Formatter):
-    '''Formatter for the Windows Console. See
+    '''Formatter for the Windows Console. See 
     http://code.activestate.com/recipes/496901/ for more information.
     '''
 

@@ -19,11 +19,11 @@
 * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 * IN THE SOFTWARE.
-*
+* 
 * @file LoadTile.h
-*
+* 
 * @brief Functionality for Load
-*
+* 
 ******************************************************************************/
 #include "common/os.h"
 #include "common/formats.h"
@@ -174,7 +174,7 @@ template<SWR_TILE_MODE TTileMode>
 static INLINE void InitLoadTileColorTable(PFN_LOAD_TILES (&table)[NUM_SWR_FORMATS])
 {
     memset(table, 0, sizeof(table));
-
+   
     table[R32G32B32A32_FLOAT]              = LoadMacroTile<TilingTraits<TTileMode, 128>, R32G32B32A32_FLOAT, R32G32B32A32_FLOAT>::Load;
     table[R32G32B32A32_SINT]               = LoadMacroTile<TilingTraits<TTileMode, 128>, R32G32B32A32_SINT, R32G32B32A32_FLOAT>::Load;
     table[R32G32B32A32_UINT]               = LoadMacroTile<TilingTraits<TTileMode, 128>, R32G32B32A32_UINT, R32G32B32A32_FLOAT>::Load;

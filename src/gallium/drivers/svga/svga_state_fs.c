@@ -25,6 +25,7 @@
 
 #include "util/u_inlines.h"
 #include "pipe/p_defines.h"
+#include "util/u_format.h"
 #include "util/u_math.h"
 #include "util/u_memory.h"
 #include "util/u_bitmask.h"
@@ -113,6 +114,10 @@ get_compiled_dummy_shader(struct svga_context *svga,
 
    FREE((void *) fs->base.tokens);
    fs->base.tokens = dummy;
+
+   tgsi_scan_shader(fs->base.tokens, &fs->base.info);
+   fs->generic_inputs = svga_get_generic_inputs_mask(&fs->base.info);
+   svga_remap_generics(fs->generic_inputs, fs->generic_remap_table);
 
    variant = translate_fragment_program(svga, fs, key);
    return variant;
@@ -222,19 +227,19 @@ make_fs_key(const struct svga_context *svga,
     * requires that the incoming fragment color be white.  This change
     * achieves that by creating a variant of the current fragment
     * shader that overrides all output colors with 1,1,1,1
-    *
+    *   
     * This will work for most shaders, including those containing
     * TEXKIL and/or depth-write.  However, it will break on the
     * combination of xor-logicop plus alphatest.
     *
     * Ultimately, we could implement alphatest in the shader using
     * texkil prior to overriding the outgoing fragment color.
-    *
+    *   
     * SVGA_NEW_BLEND
     */
-   if (svga->curr.blend->need_white_fragments) {
-      key->fs.white_fragments = 1;
-   }
+   key->fs.white_fragments = svga->curr.blend->need_white_fragments;
+
+   key->fs.alpha_to_one = svga->curr.blend->alpha_to_one;
 
 #ifdef DEBUG
    /*
@@ -349,9 +354,10 @@ make_fs_key(const struct svga_context *svga,
       }
    }
 
-   /* SVGA_NEW_FRAME_BUFFER */
-   if (fs->base.info.properties[TGSI_PROPERTY_FS_COLOR0_WRITES_ALL_CBUFS]) {
-      /* Replicate color0 output to N colorbuffers */
+   /* SVGA_NEW_FRAME_BUFFER | SVGA_NEW_BLEND */
+   if (fs->base.info.properties[TGSI_PROPERTY_FS_COLOR0_WRITES_ALL_CBUFS] ||
+       svga->curr.blend->need_white_fragments) {
+      /* Replicate color0 output (or white) to N colorbuffers */
       key->fs.write_color0_to_n_cbufs = svga->curr.framebuffer.nr_cbufs;
    }
 
@@ -377,18 +383,17 @@ svga_reemit_fs_bindings(struct svga_context *svga)
       ret =  svga->swc->resource_rebind(svga->swc, NULL,
                                         svga->state.hw_draw.fs->gb_shader,
                                         SVGA_RELOC_READ);
-      goto out;
+   }
+   else {
+      if (svga_have_vgpu10(svga))
+         ret = SVGA3D_vgpu10_SetShader(svga->swc, SVGA3D_SHADERTYPE_PS,
+                                       svga->state.hw_draw.fs->gb_shader,
+                                       svga->state.hw_draw.fs->id);
+      else
+         ret = SVGA3D_SetGBShader(svga->swc, SVGA3D_SHADERTYPE_PS,
+                                  svga->state.hw_draw.fs->gb_shader);
    }
 
-   if (svga_have_vgpu10(svga))
-      ret = SVGA3D_vgpu10_SetShader(svga->swc, SVGA3D_SHADERTYPE_PS,
-                                    svga->state.hw_draw.fs->gb_shader,
-                                    svga->state.hw_draw.fs->id);
-   else
-      ret = SVGA3D_SetGBShader(svga->swc, SVGA3D_SHADERTYPE_PS,
-                               svga->state.hw_draw.fs->gb_shader);
-
- out:
    if (ret != PIPE_OK)
       return ret;
 
@@ -467,7 +472,7 @@ done:
    return ret;
 }
 
-struct svga_tracked_state svga_hw_fs =
+struct svga_tracked_state svga_hw_fs = 
 {
    "fragment shader (hwtnl)",
    (SVGA_NEW_FS |

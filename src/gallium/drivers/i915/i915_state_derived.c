@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
@@ -216,6 +216,23 @@ void i915_update_derived(struct i915_context *i915)
    if (I915_DBG_ON(DBG_ATOMS))
       i915_dump_dirty(i915, __FUNCTION__);
 
+   if (!i915->fs) {
+      i915->dirty &= ~(I915_NEW_FS_CONSTANTS | I915_NEW_FS);
+      i915->hardware_dirty &= ~(I915_HW_PROGRAM | I915_HW_CONSTANTS);
+   }
+
+   if (!i915->vs)
+      i915->dirty &= ~I915_NEW_VS;
+
+   if (!i915->blend)
+      i915->dirty &= ~I915_NEW_BLEND;
+
+   if (!i915->rasterizer)
+      i915->dirty &= ~I915_NEW_RASTERIZER;
+
+   if (!i915->depth_stencil)
+      i915->dirty &= ~I915_NEW_DEPTH_STENCIL;
+   
    for (i = 0; atoms[i]; i++)
       if (atoms[i]->dirty & i915->dirty)
          atoms[i]->update(i915);

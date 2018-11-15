@@ -3,7 +3,7 @@ Import('*')
 env = drienv.Clone()
 
 if env['suncc']:
-    print 'warning: not building dri-vmwgfx'
+    print('warning: not building dri-vmwgfx')
     Return()
 
 env.Append(CPPPATH = [
@@ -13,13 +13,6 @@ env.Append(CPPPATH = [
     '#/src/mesa/drivers/dri/common',
     '#/src/gallium/state_trackers/dri',
 ])
-
-if env['build'] == 'release':
-    env.Append(CPPDEFINES = ['GALLIUM_RBUG'])
-    env.Prepend(LIBS = [rbug])
-else:
-    env.Append(CPPDEFINES = ['GALLIUM_TRACE', 'GALLIUM_RBUG'])
-    env.Prepend(LIBS = [trace, rbug])
 
 if env['llvm']:
     env.Append(CPPDEFINES = 'GALLIUM_LLVMPIPE')
@@ -45,6 +38,7 @@ env.Prepend(LIBS = [
     mesa,
     glsl,
     nir,
+    spirv,
     gallium,
     megadrivers_stub,
     dri_common,

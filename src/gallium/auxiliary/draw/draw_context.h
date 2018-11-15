@@ -1,6 +1,6 @@
 
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  *
@@ -11,11 +11,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /**
@@ -51,7 +51,7 @@ struct tgsi_image;
 struct tgsi_buffer;
 
 /*
- * structure to contain driver internal information
+ * structure to contain driver internal information 
  * for stream out support. mapping stores the pointer
  * to the buffer contents, and internal offset stores
  * an internal counter to how much of the stream
@@ -261,7 +261,7 @@ draw_set_mapped_so_targets(struct draw_context *draw,
 
 
 /***********************************************************************
- * draw_pt.c
+ * draw_pt.c 
  */
 
 void draw_vbo(struct draw_context *draw,
@@ -269,10 +269,10 @@ void draw_vbo(struct draw_context *draw,
 
 
 /*******************************************************************************
- * Driver backend interface
+ * Driver backend interface 
  */
 struct vbuf_render;
-void draw_set_render( struct draw_context *draw,
+void draw_set_render( struct draw_context *draw, 
 		      struct vbuf_render *render );
 
 void draw_set_driver_clipping( struct draw_context *draw,
@@ -281,7 +281,7 @@ void draw_set_driver_clipping( struct draw_context *draw,
                                boolean guard_band_xy,
                                boolean bypass_clip_points);
 
-void draw_set_force_passthrough( struct draw_context *draw,
+void draw_set_force_passthrough( struct draw_context *draw, 
                                  boolean enable );
 
 
@@ -292,7 +292,7 @@ void draw_collect_pipeline_statistics(struct draw_context *draw,
                                       boolean enable);
 
 /*******************************************************************************
- * Draw pipeline
+ * Draw pipeline 
  */
 boolean draw_need_pipeline(const struct draw_context *draw,
                            const struct pipe_rasterizer_state *rasterizer,

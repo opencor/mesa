@@ -45,8 +45,7 @@ brw_vec4_generate_assembly(const struct brw_compiler *compiler,
                            void *mem_ctx,
                            const nir_shader *nir,
                            struct brw_vue_prog_data *prog_data,
-                           const struct cfg_t *cfg,
-                           unsigned *out_assembly_size);
+                           const struct cfg_t *cfg);
 
 #ifdef __cplusplus
 } /* extern "C" */
@@ -72,7 +71,6 @@ public:
 		void *mem_ctx,
                 bool no_spills,
                 int shader_time_index);
-   virtual ~vec4_visitor();
 
    dst_reg dst_null_f()
    {
@@ -160,6 +158,7 @@ public:
    void opt_set_dependency_control();
    void opt_schedule_instructions();
    void convert_to_hw_regs();
+   void fixup_3src_null_dest();
 
    bool is_supported_64bit_region(vec4_instruction *inst, unsigned arg);
    bool lower_simd_width();
@@ -332,8 +331,6 @@ public:
 
    virtual void emit_nir_code();
    virtual void nir_setup_uniforms();
-   virtual void nir_setup_system_value_intrinsic(nir_intrinsic_instr *instr);
-   virtual void nir_setup_system_values();
    virtual void nir_emit_impl(nir_function_impl *impl);
    virtual void nir_emit_cf_list(exec_list *list);
    virtual void nir_emit_if(nir_if *if_stmt);
@@ -359,16 +356,11 @@ public:
                        unsigned num_components = 4);
    src_reg get_indirect_offset(nir_intrinsic_instr *instr);
 
-   virtual dst_reg *make_reg_for_system_value(int location) = 0;
-
    dst_reg *nir_locals;
    dst_reg *nir_ssa_values;
-   dst_reg *nir_system_values;
 
 protected:
    void emit_vertex();
-   void lower_attributes_to_hw_regs(const int *attribute_map,
-                                    bool interleaved);
    void setup_payload_interference(struct ra_graph *g, int first_payload_node,
                                    int reg_node_count);
    virtual void setup_payload() = 0;

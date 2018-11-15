@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2008 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #ifndef TGSI_INFO_H
@@ -76,21 +76,20 @@ struct tgsi_opcode_info
    unsigned is_tex:1;
    unsigned is_store:1;
    unsigned is_branch:1;
-   int pre_dedent:2;
-   int post_indent:2;
-   enum tgsi_output_mode output_mode:3;
-   const char *mnemonic;
-   uint opcode;
+   unsigned pre_dedent:1;
+   unsigned post_indent:1;
+   enum tgsi_output_mode output_mode:4;
+   enum tgsi_opcode opcode:10;
 };
 
 const struct tgsi_opcode_info *
-tgsi_get_opcode_info( uint opcode );
+tgsi_get_opcode_info(enum tgsi_opcode opcode);
 
 const char *
-tgsi_get_opcode_name( uint opcode );
+tgsi_get_opcode_name(enum tgsi_opcode opcode);
 
 const char *
-tgsi_get_processor_name( uint processor );
+tgsi_get_processor_name(enum pipe_shader_type processor);
 
 enum tgsi_opcode_type {
    TGSI_TYPE_UNTYPED, /* for MOV */
@@ -112,10 +111,10 @@ static inline bool tgsi_type_is_64bit(enum tgsi_opcode_type type)
 }
 
 enum tgsi_opcode_type
-tgsi_opcode_infer_src_type( uint opcode );
+tgsi_opcode_infer_src_type(enum tgsi_opcode opcode, uint src_idx);
 
 enum tgsi_opcode_type
-tgsi_opcode_infer_dst_type( uint opcode );
+tgsi_opcode_infer_dst_type(enum tgsi_opcode opcode, uint dst_idx);
 
 #if defined __cplusplus
 }

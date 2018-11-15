@@ -49,7 +49,7 @@ struct sp_setup_info {
    } attrib[PIPE_MAX_SHADER_OUTPUTS];
 };
 
-void
+void 
 sp_setup_tri(struct setup_context *setup,
              const float (*v0)[4],
              const float (*v1)[4],

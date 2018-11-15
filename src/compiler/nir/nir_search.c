@@ -27,6 +27,7 @@
 
 #include <inttypes.h>
 #include "nir_search.h"
+#include "util/half_float.h"
 
 struct match_state {
    bool inexact_match;
@@ -40,7 +41,7 @@ match_expression(const nir_search_expression *expr, nir_alu_instr *instr,
                  unsigned num_components, const uint8_t *swizzle,
                  struct match_state *state);
 
-static const uint8_t identity_swizzle[] = { 0, 1, 2, 3 };
+static const uint8_t identity_swizzle[NIR_MAX_VEC_COMPONENTS] = { 0, 1, 2, 3 };
 
 /**
  * Check if a source produces a value of the given type.
@@ -96,7 +97,7 @@ match_value(const nir_search_value *value, nir_alu_instr *instr, unsigned src,
             unsigned num_components, const uint8_t *swizzle,
             struct match_state *state)
 {
-   uint8_t new_swizzle[4];
+   uint8_t new_swizzle[NIR_MAX_VEC_COMPONENTS];
 
    /* Searching only works on SSA values because, if it's not SSA, we can't
     * know if the value changed between one instance of that value in the
@@ -166,7 +167,7 @@ match_value(const nir_search_value *value, nir_alu_instr *instr, unsigned src,
          state->variables[var->variable].abs = false;
          state->variables[var->variable].negate = false;
 
-         for (unsigned i = 0; i < 4; ++i) {
+         for (unsigned i = 0; i < NIR_MAX_VEC_COMPONENTS; ++i) {
             if (i < num_components)
                state->variables[var->variable].swizzle[i] = new_swizzle[i];
             else
@@ -194,6 +195,9 @@ match_value(const nir_search_value *value, nir_alu_instr *instr, unsigned src,
          for (unsigned i = 0; i < num_components; ++i) {
             double val;
             switch (load->def.bit_size) {
+            case 16:
+               val = _mesa_half_to_float(load->value.u16[new_swizzle[i]]);
+               break;
             case 32:
                val = load->value.f32[new_swizzle[i]];
                break;
@@ -213,6 +217,22 @@ match_value(const nir_search_value *value, nir_alu_instr *instr, unsigned src,
       case nir_type_uint:
       case nir_type_bool32:
          switch (load->def.bit_size) {
+         case 8:
+            for (unsigned i = 0; i < num_components; ++i) {
+               if (load->value.u8[new_swizzle[i]] !=
+                   (uint8_t)const_val->data.u)
+                  return false;
+            }
+            return true;
+
+         case 16:
+            for (unsigned i = 0; i < num_components; ++i) {
+               if (load->value.u16[new_swizzle[i]] !=
+                   (uint16_t)const_val->data.u)
+                  return false;
+            }
+            return true;
+
          case 32:
             for (unsigned i = 0; i < num_components; ++i) {
                if (load->value.u32[new_swizzle[i]] !=
@@ -505,6 +525,9 @@ construct_value(const nir_search_value *value,
       case nir_type_float:
          load->def.name = ralloc_asprintf(load, "%f", c->data.d);
          switch (bitsize->dest_size) {
+         case 16:
+            load->value.u16[0] = _mesa_float_to_half(c->data.d);
+            break;
          case 32:
             load->value.f32[0] = c->data.d;
             break;
@@ -519,6 +542,12 @@ construct_value(const nir_search_value *value,
       case nir_type_int:
          load->def.name = ralloc_asprintf(load, "%" PRIi64, c->data.i);
          switch (bitsize->dest_size) {
+         case 8:
+            load->value.i8[0] = c->data.i;
+            break;
+         case 16:
+            load->value.i16[0] = c->data.i;
+            break;
          case 32:
             load->value.i32[0] = c->data.i;
             break;
@@ -533,6 +562,12 @@ construct_value(const nir_search_value *value,
       case nir_type_uint:
          load->def.name = ralloc_asprintf(load, "%" PRIu64, c->data.u);
          switch (bitsize->dest_size) {
+         case 8:
+            load->value.u8[0] = c->data.u;
+            break;
+         case 16:
+            load->value.u16[0] = c->data.u;
+            break;
          case 32:
             load->value.u32[0] = c->data.u;
             break;
@@ -571,7 +606,7 @@ nir_alu_instr *
 nir_replace_instr(nir_alu_instr *instr, const nir_search_expression *search,
                   const nir_search_value *replace, void *mem_ctx)
 {
-   uint8_t swizzle[4] = { 0, 0, 0, 0 };
+   uint8_t swizzle[NIR_MAX_VEC_COMPONENTS] = { 0 };
 
    for (unsigned i = 0; i < instr->dest.dest.ssa.num_components; ++i)
       swizzle[i] = i;

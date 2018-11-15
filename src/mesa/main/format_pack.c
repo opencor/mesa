@@ -38,6 +38,8 @@
 
 #include <stdint.h>
 
+#include "config.h"
+#include "errors.h"
 #include "format_pack.h"
 #include "format_utils.h"
 #include "macros.h"
@@ -56,19 +58,19 @@
 static inline void
 pack_ubyte_a8b8g8r8_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 8);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
@@ -84,16 +86,16 @@ pack_ubyte_a8b8g8r8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_x8b8g8r8_unorm(const GLubyte src[4], void *dst)
 {
-
-
+      
+               
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 8);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
@@ -108,19 +110,19 @@ pack_ubyte_x8b8g8r8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r8g8b8a8_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 8);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
@@ -136,20 +138,20 @@ pack_ubyte_r8g8b8a8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r8g8b8x8_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 8);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(r, 0, 8);
          d |= PACK(g, 8, 8);
@@ -160,19 +162,19 @@ pack_ubyte_r8g8b8x8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b8g8r8a8_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 8);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
@@ -188,20 +190,20 @@ pack_ubyte_b8g8r8a8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b8g8r8x8_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 8);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(b, 0, 8);
          d |= PACK(g, 8, 8);
@@ -212,19 +214,19 @@ pack_ubyte_b8g8r8x8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a8r8g8b8_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 8);
@@ -240,16 +242,16 @@ pack_ubyte_a8r8g8b8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_x8r8g8b8_unorm(const GLubyte src[4], void *dst)
 {
-
-
+      
+               
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 8);
@@ -264,11 +266,11 @@ pack_ubyte_x8r8g8b8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l16a16_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t l =
             _mesa_unorm_to_unorm(src[0], 8, 16);
-
+      
 
       uint16_t a =
             _mesa_unorm_to_unorm(src[3], 8, 16);
@@ -282,11 +284,11 @@ pack_ubyte_l16a16_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a16l16_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t a =
             _mesa_unorm_to_unorm(src[3], 8, 16);
-
+      
 
       uint16_t l =
             _mesa_unorm_to_unorm(src[0], 8, 16);
@@ -300,15 +302,15 @@ pack_ubyte_a16l16_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b5g6r5_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 5);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 6);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 5);
@@ -323,15 +325,15 @@ pack_ubyte_b5g6r5_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r5g6b5_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 5);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 6);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 5);
@@ -346,19 +348,19 @@ pack_ubyte_r5g6b5_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b4g4r4a4_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 4);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 4);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 4);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 4);
@@ -374,20 +376,20 @@ pack_ubyte_b4g4r4a4_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b4g4r4x4_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 4);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 4);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 4);
-
-
+      
+         
       uint16_t d = 0;
          d |= PACK(b, 0, 4);
          d |= PACK(g, 4, 4);
@@ -398,19 +400,19 @@ pack_ubyte_b4g4r4x4_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a4r4g4b4_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 4);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 4);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 4);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 4);
@@ -426,19 +428,19 @@ pack_ubyte_a4r4g4b4_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a1b5g5r5_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 1);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 5);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 5);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 5);
@@ -452,21 +454,45 @@ pack_ubyte_a1b5g5r5_unorm(const GLubyte src[4], void *dst)
 }
 
 static inline void
-pack_ubyte_b5g5r5a1_unorm(const GLubyte src[4], void *dst)
+pack_ubyte_x1b5g5r5_unorm(const GLubyte src[4], void *dst)
 {
-
+      
+               
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 5);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 5);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 5);
 
+      uint16_t d = 0;
+                     d |= PACK(b, 1, 5);
+         d |= PACK(g, 6, 5);
+         d |= PACK(r, 11, 5);
+      (*(uint16_t *)dst) = d;
+}
+
+static inline void
+pack_ubyte_b5g5r5a1_unorm(const GLubyte src[4], void *dst)
+{
+      
+
+      uint8_t b =
+            _mesa_unorm_to_unorm(src[2], 8, 5);
+      
+
+      uint8_t g =
+            _mesa_unorm_to_unorm(src[1], 8, 5);
+      
+
+      uint8_t r =
+            _mesa_unorm_to_unorm(src[0], 8, 5);
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 1);
@@ -482,20 +508,20 @@ pack_ubyte_b5g5r5a1_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b5g5r5x1_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 5);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 5);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 5);
-
-
+      
+         
       uint16_t d = 0;
          d |= PACK(b, 0, 5);
          d |= PACK(g, 5, 5);
@@ -506,19 +532,19 @@ pack_ubyte_b5g5r5x1_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a1r5g5b5_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 1);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 5);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 5);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 5);
@@ -534,11 +560,11 @@ pack_ubyte_a1r5g5b5_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l8a8_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t l =
             _mesa_unorm_to_unorm(src[0], 8, 8);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
@@ -552,11 +578,11 @@ pack_ubyte_l8a8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a8l8_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
-
+      
 
       uint8_t l =
             _mesa_unorm_to_unorm(src[0], 8, 8);
@@ -570,11 +596,11 @@ pack_ubyte_a8l8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r8g8_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
@@ -588,11 +614,11 @@ pack_ubyte_r8g8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_g8r8_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
@@ -606,11 +632,11 @@ pack_ubyte_g8r8_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l4a4_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t l =
             _mesa_unorm_to_unorm(src[0], 8, 4);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 4);
@@ -624,15 +650,15 @@ pack_ubyte_l4a4_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b2g3r3_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 2);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 3);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 3);
@@ -647,11 +673,11 @@ pack_ubyte_b2g3r3_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r16g16_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_unorm_to_unorm(src[0], 8, 16);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_unorm(src[1], 8, 16);
@@ -665,11 +691,11 @@ pack_ubyte_r16g16_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_g16r16_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t g =
             _mesa_unorm_to_unorm(src[1], 8, 16);
-
+      
 
       uint16_t r =
             _mesa_unorm_to_unorm(src[0], 8, 16);
@@ -683,19 +709,19 @@ pack_ubyte_g16r16_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b10g10r10a2_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t b =
             _mesa_unorm_to_unorm(src[2], 8, 10);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_unorm(src[1], 8, 10);
-
+      
 
       uint16_t r =
             _mesa_unorm_to_unorm(src[0], 8, 10);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 2);
@@ -711,20 +737,20 @@ pack_ubyte_b10g10r10a2_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b10g10r10x2_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t b =
             _mesa_unorm_to_unorm(src[2], 8, 10);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_unorm(src[1], 8, 10);
-
+      
 
       uint16_t r =
             _mesa_unorm_to_unorm(src[0], 8, 10);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(b, 0, 10);
          d |= PACK(g, 10, 10);
@@ -735,19 +761,19 @@ pack_ubyte_b10g10r10x2_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r10g10b10a2_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_unorm_to_unorm(src[0], 8, 10);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_unorm(src[1], 8, 10);
-
+      
 
       uint16_t b =
             _mesa_unorm_to_unorm(src[2], 8, 10);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 2);
@@ -763,20 +789,20 @@ pack_ubyte_r10g10b10a2_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r10g10b10x2_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_unorm_to_unorm(src[0], 8, 10);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_unorm(src[1], 8, 10);
-
+      
 
       uint16_t b =
             _mesa_unorm_to_unorm(src[2], 8, 10);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(r, 0, 10);
          d |= PACK(g, 10, 10);
@@ -787,15 +813,15 @@ pack_ubyte_r10g10b10x2_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r3g3b2_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 3);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 3);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 2);
@@ -810,19 +836,19 @@ pack_ubyte_r3g3b2_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a4b4g4r4_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 4);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 4);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 4);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 4);
@@ -838,19 +864,19 @@ pack_ubyte_a4b4g4r4_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r4g4b4a4_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 4);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 4);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 4);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 4);
@@ -866,19 +892,19 @@ pack_ubyte_r4g4b4a4_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r5g5b5a1_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 5);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 5);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 5);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 1);
@@ -894,19 +920,19 @@ pack_ubyte_r5g5b5a1_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a2b10g10r10_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 2);
-
+      
 
       uint16_t b =
             _mesa_unorm_to_unorm(src[2], 8, 10);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_unorm(src[1], 8, 10);
-
+      
 
       uint16_t r =
             _mesa_unorm_to_unorm(src[0], 8, 10);
@@ -922,19 +948,19 @@ pack_ubyte_a2b10g10r10_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a2r10g10b10_unorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 2);
-
+      
 
       uint16_t r =
             _mesa_unorm_to_unorm(src[0], 8, 10);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_unorm(src[1], 8, 10);
-
+      
 
       uint16_t b =
             _mesa_unorm_to_unorm(src[2], 8, 10);
@@ -950,7 +976,7 @@ pack_ubyte_a2r10g10b10_unorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a_unorm8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
@@ -962,7 +988,7 @@ pack_ubyte_a_unorm8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a_unorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t a =
             _mesa_unorm_to_unorm(src[3], 8, 16);
@@ -974,7 +1000,7 @@ pack_ubyte_a_unorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_unorm8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t l =
             _mesa_unorm_to_unorm(src[0], 8, 8);
@@ -986,7 +1012,7 @@ pack_ubyte_l_unorm8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_unorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t l =
             _mesa_unorm_to_unorm(src[0], 8, 16);
@@ -998,7 +1024,7 @@ pack_ubyte_l_unorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_unorm8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t i =
             _mesa_unorm_to_unorm(src[0], 8, 8);
@@ -1010,7 +1036,7 @@ pack_ubyte_i_unorm8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_unorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t i =
             _mesa_unorm_to_unorm(src[0], 8, 16);
@@ -1022,7 +1048,7 @@ pack_ubyte_i_unorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_unorm8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
@@ -1034,7 +1060,7 @@ pack_ubyte_r_unorm8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_unorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_unorm_to_unorm(src[0], 8, 16);
@@ -1046,15 +1072,15 @@ pack_ubyte_r_unorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_bgr_unorm8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 8);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
@@ -1068,15 +1094,15 @@ pack_ubyte_bgr_unorm8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgb_unorm8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_unorm_to_unorm(src[0], 8, 8);
-
+      
 
       uint8_t g =
             _mesa_unorm_to_unorm(src[1], 8, 8);
-
+      
 
       uint8_t b =
             _mesa_unorm_to_unorm(src[2], 8, 8);
@@ -1090,19 +1116,19 @@ pack_ubyte_rgb_unorm8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgba_unorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_unorm_to_unorm(src[0], 8, 16);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_unorm(src[1], 8, 16);
-
+      
 
       uint16_t b =
             _mesa_unorm_to_unorm(src[2], 8, 16);
-
+      
 
       uint16_t a =
             _mesa_unorm_to_unorm(src[3], 8, 16);
@@ -1117,20 +1143,20 @@ pack_ubyte_rgba_unorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgbx_unorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_unorm_to_unorm(src[0], 8, 16);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_unorm(src[1], 8, 16);
-
+      
 
       uint16_t b =
             _mesa_unorm_to_unorm(src[2], 8, 16);
-
-
+      
+         
       uint16_t *d = (uint16_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -1140,19 +1166,19 @@ pack_ubyte_rgbx_unorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a8b8g8r8_snorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t a =
          _mesa_unorm_to_snorm(src[3], 8, 8);
-
+      
 
       int8_t b =
          _mesa_unorm_to_snorm(src[2], 8, 8);
-
+      
 
       int8_t g =
          _mesa_unorm_to_snorm(src[1], 8, 8);
-
+      
 
       int8_t r =
          _mesa_unorm_to_snorm(src[0], 8, 8);
@@ -1168,16 +1194,16 @@ pack_ubyte_a8b8g8r8_snorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_x8b8g8r8_snorm(const GLubyte src[4], void *dst)
 {
-
-
+      
+               
 
       int8_t b =
          _mesa_unorm_to_snorm(src[2], 8, 8);
-
+      
 
       int8_t g =
          _mesa_unorm_to_snorm(src[1], 8, 8);
-
+      
 
       int8_t r =
          _mesa_unorm_to_snorm(src[0], 8, 8);
@@ -1192,19 +1218,19 @@ pack_ubyte_x8b8g8r8_snorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r8g8b8a8_snorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_unorm_to_snorm(src[0], 8, 8);
-
+      
 
       int8_t g =
          _mesa_unorm_to_snorm(src[1], 8, 8);
-
+      
 
       int8_t b =
          _mesa_unorm_to_snorm(src[2], 8, 8);
-
+      
 
       int8_t a =
          _mesa_unorm_to_snorm(src[3], 8, 8);
@@ -1220,20 +1246,20 @@ pack_ubyte_r8g8b8a8_snorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r8g8b8x8_snorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_unorm_to_snorm(src[0], 8, 8);
-
+      
 
       int8_t g =
          _mesa_unorm_to_snorm(src[1], 8, 8);
-
+      
 
       int8_t b =
          _mesa_unorm_to_snorm(src[2], 8, 8);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(r, 0, 8);
          d |= PACK(g, 8, 8);
@@ -1244,11 +1270,11 @@ pack_ubyte_r8g8b8x8_snorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r16g16_snorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_unorm_to_snorm(src[0], 8, 16);
-
+      
 
       int16_t g =
          _mesa_unorm_to_snorm(src[1], 8, 16);
@@ -1262,11 +1288,11 @@ pack_ubyte_r16g16_snorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_g16r16_snorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t g =
          _mesa_unorm_to_snorm(src[1], 8, 16);
-
+      
 
       int16_t r =
          _mesa_unorm_to_snorm(src[0], 8, 16);
@@ -1280,11 +1306,11 @@ pack_ubyte_g16r16_snorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r8g8_snorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_unorm_to_snorm(src[0], 8, 8);
-
+      
 
       int8_t g =
          _mesa_unorm_to_snorm(src[1], 8, 8);
@@ -1298,11 +1324,11 @@ pack_ubyte_r8g8_snorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_g8r8_snorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t g =
          _mesa_unorm_to_snorm(src[1], 8, 8);
-
+      
 
       int8_t r =
          _mesa_unorm_to_snorm(src[0], 8, 8);
@@ -1316,11 +1342,11 @@ pack_ubyte_g8r8_snorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l8a8_snorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t l =
          _mesa_unorm_to_snorm(src[0], 8, 8);
-
+      
 
       int8_t a =
          _mesa_unorm_to_snorm(src[3], 8, 8);
@@ -1334,11 +1360,11 @@ pack_ubyte_l8a8_snorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a8l8_snorm(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t a =
          _mesa_unorm_to_snorm(src[3], 8, 8);
-
+      
 
       int8_t l =
          _mesa_unorm_to_snorm(src[0], 8, 8);
@@ -1352,7 +1378,7 @@ pack_ubyte_a8l8_snorm(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a_snorm8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t a =
          _mesa_unorm_to_snorm(src[3], 8, 8);
@@ -1364,7 +1390,7 @@ pack_ubyte_a_snorm8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a_snorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t a =
          _mesa_unorm_to_snorm(src[3], 8, 16);
@@ -1376,7 +1402,7 @@ pack_ubyte_a_snorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_snorm8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t l =
          _mesa_unorm_to_snorm(src[0], 8, 8);
@@ -1388,7 +1414,7 @@ pack_ubyte_l_snorm8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_snorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t l =
          _mesa_unorm_to_snorm(src[0], 8, 16);
@@ -1400,7 +1426,7 @@ pack_ubyte_l_snorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_snorm8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t i =
          _mesa_unorm_to_snorm(src[0], 8, 8);
@@ -1412,7 +1438,7 @@ pack_ubyte_i_snorm8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_snorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t i =
          _mesa_unorm_to_snorm(src[0], 8, 16);
@@ -1424,7 +1450,7 @@ pack_ubyte_i_snorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_snorm8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_unorm_to_snorm(src[0], 8, 8);
@@ -1436,7 +1462,7 @@ pack_ubyte_r_snorm8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_snorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_unorm_to_snorm(src[0], 8, 16);
@@ -1448,11 +1474,11 @@ pack_ubyte_r_snorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_la_snorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t l =
          _mesa_unorm_to_snorm(src[0], 8, 16);
-
+      
 
       int16_t a =
          _mesa_unorm_to_snorm(src[3], 8, 16);
@@ -1465,15 +1491,15 @@ pack_ubyte_la_snorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgb_snorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_unorm_to_snorm(src[0], 8, 16);
-
+      
 
       int16_t g =
          _mesa_unorm_to_snorm(src[1], 8, 16);
-
+      
 
       int16_t b =
          _mesa_unorm_to_snorm(src[2], 8, 16);
@@ -1487,19 +1513,19 @@ pack_ubyte_rgb_snorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgba_snorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_unorm_to_snorm(src[0], 8, 16);
-
+      
 
       int16_t g =
          _mesa_unorm_to_snorm(src[1], 8, 16);
-
+      
 
       int16_t b =
          _mesa_unorm_to_snorm(src[2], 8, 16);
-
+      
 
       int16_t a =
          _mesa_unorm_to_snorm(src[3], 8, 16);
@@ -1514,20 +1540,20 @@ pack_ubyte_rgba_snorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgbx_snorm16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_unorm_to_snorm(src[0], 8, 16);
-
+      
 
       int16_t g =
          _mesa_unorm_to_snorm(src[1], 8, 16);
-
+      
 
       int16_t b =
          _mesa_unorm_to_snorm(src[2], 8, 16);
-
-
+      
+         
       int16_t *d = (int16_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -1537,24 +1563,24 @@ pack_ubyte_rgbx_snorm16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a8b8g8r8_srgb(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_to_srgb_8unorm(src[0]);
 
       uint32_t d = 0;
@@ -1568,22 +1594,22 @@ pack_ubyte_a8b8g8r8_srgb(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b8g8r8a8_srgb(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_to_srgb_8unorm(src[0]);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
@@ -1599,24 +1625,24 @@ pack_ubyte_b8g8r8a8_srgb(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a8r8g8b8_srgb(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_to_srgb_8unorm(src[0]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_to_srgb_8unorm(src[2]);
 
       uint32_t d = 0;
@@ -1630,23 +1656,23 @@ pack_ubyte_a8r8g8b8_srgb(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b8g8r8x8_srgb(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_to_srgb_8unorm(src[0]);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(b, 0, 8);
          d |= PACK(g, 8, 8);
@@ -1657,21 +1683,21 @@ pack_ubyte_b8g8r8x8_srgb(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_x8r8g8b8_srgb(const GLubyte src[4], void *dst)
 {
-
-
+      
+               
 
       uint8_t r =
-
+            
             util_format_linear_to_srgb_8unorm(src[0]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_to_srgb_8unorm(src[2]);
 
       uint32_t d = 0;
@@ -1684,22 +1710,22 @@ pack_ubyte_x8r8g8b8_srgb(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r8g8b8a8_srgb(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_to_srgb_8unorm(src[0]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
@@ -1715,23 +1741,23 @@ pack_ubyte_r8g8b8a8_srgb(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r8g8b8x8_srgb(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_to_srgb_8unorm(src[0]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_to_srgb_8unorm(src[2]);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(r, 0, 8);
          d |= PACK(g, 8, 8);
@@ -1742,21 +1768,21 @@ pack_ubyte_r8g8b8x8_srgb(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_x8b8g8r8_srgb(const GLubyte src[4], void *dst)
 {
-
-
+      
+               
 
       uint8_t b =
-
+            
             util_format_linear_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_to_srgb_8unorm(src[0]);
 
       uint32_t d = 0;
@@ -1769,11 +1795,11 @@ pack_ubyte_x8b8g8r8_srgb(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l8a8_srgb(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t l =
             _mesa_unorm_to_unorm(src[0], 8, 8);
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
@@ -1787,11 +1813,11 @@ pack_ubyte_l8a8_srgb(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a8l8_srgb(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_unorm_to_unorm(src[3], 8, 8);
-
+      
 
       uint8_t l =
             _mesa_unorm_to_unorm(src[0], 8, 8);
@@ -1805,7 +1831,7 @@ pack_ubyte_a8l8_srgb(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_srgb8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t l =
             _mesa_unorm_to_unorm(src[0], 8, 8);
@@ -1817,20 +1843,20 @@ pack_ubyte_l_srgb8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_bgr_srgb8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_to_srgb_8unorm(src[0]);
 
       uint8_t *d = (uint8_t *)dst;
@@ -1838,11 +1864,11 @@ pack_ubyte_bgr_srgb8(const GLubyte src[4], void *dst)
          d[1] = g;
          d[2] = r;
 }
-
+            
 static inline void
 pack_ubyte_a_float16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t a =
             _mesa_unorm_to_half(src[3], 8);
@@ -1854,7 +1880,7 @@ pack_ubyte_a_float16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a_float32(const GLubyte src[4], void *dst)
 {
-
+      
 
       float a =
             _mesa_unorm_to_float(src[3], 8);
@@ -1866,7 +1892,7 @@ pack_ubyte_a_float32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_float16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t l =
             _mesa_unorm_to_half(src[0], 8);
@@ -1878,7 +1904,7 @@ pack_ubyte_l_float16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_float32(const GLubyte src[4], void *dst)
 {
-
+      
 
       float l =
             _mesa_unorm_to_float(src[0], 8);
@@ -1890,11 +1916,11 @@ pack_ubyte_l_float32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_la_float16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t l =
             _mesa_unorm_to_half(src[0], 8);
-
+      
 
       uint16_t a =
             _mesa_unorm_to_half(src[3], 8);
@@ -1907,11 +1933,11 @@ pack_ubyte_la_float16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_la_float32(const GLubyte src[4], void *dst)
 {
-
+      
 
       float l =
             _mesa_unorm_to_float(src[0], 8);
-
+      
 
       float a =
             _mesa_unorm_to_float(src[3], 8);
@@ -1924,7 +1950,7 @@ pack_ubyte_la_float32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_float16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t i =
             _mesa_unorm_to_half(src[0], 8);
@@ -1936,7 +1962,7 @@ pack_ubyte_i_float16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_float32(const GLubyte src[4], void *dst)
 {
-
+      
 
       float i =
             _mesa_unorm_to_float(src[0], 8);
@@ -1948,7 +1974,7 @@ pack_ubyte_i_float32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_float16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_unorm_to_half(src[0], 8);
@@ -1960,7 +1986,7 @@ pack_ubyte_r_float16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_float32(const GLubyte src[4], void *dst)
 {
-
+      
 
       float r =
             _mesa_unorm_to_float(src[0], 8);
@@ -1972,11 +1998,11 @@ pack_ubyte_r_float32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rg_float16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_unorm_to_half(src[0], 8);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_half(src[1], 8);
@@ -1989,11 +2015,11 @@ pack_ubyte_rg_float16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rg_float32(const GLubyte src[4], void *dst)
 {
-
+      
 
       float r =
             _mesa_unorm_to_float(src[0], 8);
-
+      
 
       float g =
             _mesa_unorm_to_float(src[1], 8);
@@ -2006,15 +2032,15 @@ pack_ubyte_rg_float32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgb_float16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_unorm_to_half(src[0], 8);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_half(src[1], 8);
-
+      
 
       uint16_t b =
             _mesa_unorm_to_half(src[2], 8);
@@ -2028,15 +2054,15 @@ pack_ubyte_rgb_float16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgb_float32(const GLubyte src[4], void *dst)
 {
-
+      
 
       float r =
             _mesa_unorm_to_float(src[0], 8);
-
+      
 
       float g =
             _mesa_unorm_to_float(src[1], 8);
-
+      
 
       float b =
             _mesa_unorm_to_float(src[2], 8);
@@ -2050,19 +2076,19 @@ pack_ubyte_rgb_float32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgba_float16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_unorm_to_half(src[0], 8);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_half(src[1], 8);
-
+      
 
       uint16_t b =
             _mesa_unorm_to_half(src[2], 8);
-
+      
 
       uint16_t a =
             _mesa_unorm_to_half(src[3], 8);
@@ -2077,19 +2103,19 @@ pack_ubyte_rgba_float16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgba_float32(const GLubyte src[4], void *dst)
 {
-
+      
 
       float r =
             _mesa_unorm_to_float(src[0], 8);
-
+      
 
       float g =
             _mesa_unorm_to_float(src[1], 8);
-
+      
 
       float b =
             _mesa_unorm_to_float(src[2], 8);
-
+      
 
       float a =
             _mesa_unorm_to_float(src[3], 8);
@@ -2104,20 +2130,20 @@ pack_ubyte_rgba_float32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgbx_float16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_unorm_to_half(src[0], 8);
-
+      
 
       uint16_t g =
             _mesa_unorm_to_half(src[1], 8);
-
+      
 
       uint16_t b =
             _mesa_unorm_to_half(src[2], 8);
-
-
+      
+         
       uint16_t *d = (uint16_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -2127,20 +2153,20 @@ pack_ubyte_rgbx_float16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgbx_float32(const GLubyte src[4], void *dst)
 {
-
+      
 
       float r =
             _mesa_unorm_to_float(src[0], 8);
-
+      
 
       float g =
             _mesa_unorm_to_float(src[1], 8);
-
+      
 
       float b =
             _mesa_unorm_to_float(src[2], 8);
-
-
+      
+         
       float *d = (float *)dst;
          d[0] = r;
          d[1] = g;
@@ -2150,19 +2176,19 @@ pack_ubyte_rgbx_float32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a8b8g8r8_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 8);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 8);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 8);
@@ -2178,19 +2204,19 @@ pack_ubyte_a8b8g8r8_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a8r8g8b8_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 8);
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 8);
@@ -2206,19 +2232,19 @@ pack_ubyte_a8r8g8b8_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r8g8b8a8_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 8);
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 8);
@@ -2234,19 +2260,19 @@ pack_ubyte_r8g8b8a8_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b8g8r8a8_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 8);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 8);
@@ -2262,19 +2288,19 @@ pack_ubyte_b8g8r8a8_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b10g10r10a2_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t b =
               _mesa_unsigned_to_unsigned(src[2], 10);
-
+      
 
       uint16_t g =
               _mesa_unsigned_to_unsigned(src[1], 10);
-
+      
 
       uint16_t r =
               _mesa_unsigned_to_unsigned(src[0], 10);
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 2);
@@ -2290,19 +2316,19 @@ pack_ubyte_b10g10r10a2_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r10g10b10a2_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
               _mesa_unsigned_to_unsigned(src[0], 10);
-
+      
 
       uint16_t g =
               _mesa_unsigned_to_unsigned(src[1], 10);
-
+      
 
       uint16_t b =
               _mesa_unsigned_to_unsigned(src[2], 10);
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 2);
@@ -2318,19 +2344,19 @@ pack_ubyte_r10g10b10a2_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a2b10g10r10_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 2);
-
+      
 
       uint16_t b =
               _mesa_unsigned_to_unsigned(src[2], 10);
-
+      
 
       uint16_t g =
               _mesa_unsigned_to_unsigned(src[1], 10);
-
+      
 
       uint16_t r =
               _mesa_unsigned_to_unsigned(src[0], 10);
@@ -2346,19 +2372,19 @@ pack_ubyte_a2b10g10r10_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a2r10g10b10_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 2);
-
+      
 
       uint16_t r =
               _mesa_unsigned_to_unsigned(src[0], 10);
-
+      
 
       uint16_t g =
               _mesa_unsigned_to_unsigned(src[1], 10);
-
+      
 
       uint16_t b =
               _mesa_unsigned_to_unsigned(src[2], 10);
@@ -2374,15 +2400,15 @@ pack_ubyte_a2r10g10b10_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b5g6r5_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 5);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 6);
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 5);
@@ -2397,15 +2423,15 @@ pack_ubyte_b5g6r5_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r5g6b5_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 5);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 6);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 5);
@@ -2420,15 +2446,15 @@ pack_ubyte_r5g6b5_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b2g3r3_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 2);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 3);
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 3);
@@ -2443,15 +2469,15 @@ pack_ubyte_b2g3r3_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r3g3b2_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 3);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 3);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 2);
@@ -2466,19 +2492,19 @@ pack_ubyte_r3g3b2_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a4b4g4r4_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 4);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 4);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 4);
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 4);
@@ -2494,19 +2520,19 @@ pack_ubyte_a4b4g4r4_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r4g4b4a4_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 4);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 4);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 4);
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 4);
@@ -2522,19 +2548,19 @@ pack_ubyte_r4g4b4a4_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b4g4r4a4_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 4);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 4);
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 4);
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 4);
@@ -2550,19 +2576,19 @@ pack_ubyte_b4g4r4a4_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a4r4g4b4_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 4);
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 4);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 4);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 4);
@@ -2578,19 +2604,19 @@ pack_ubyte_a4r4g4b4_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a1b5g5r5_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 1);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 5);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 5);
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 5);
@@ -2606,19 +2632,19 @@ pack_ubyte_a1b5g5r5_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_b5g5r5a1_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 5);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 5);
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 5);
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 1);
@@ -2634,19 +2660,19 @@ pack_ubyte_b5g5r5a1_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a1r5g5b5_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 1);
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 5);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 5);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 5);
@@ -2662,19 +2688,19 @@ pack_ubyte_a1r5g5b5_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r5g5b5a1_uint(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 5);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 5);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 5);
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 1);
@@ -2690,7 +2716,7 @@ pack_ubyte_r5g5b5a1_uint(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a_uint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 8);
@@ -2702,7 +2728,7 @@ pack_ubyte_a_uint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a_uint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t a =
               _mesa_unsigned_to_unsigned(src[3], 16);
@@ -2714,7 +2740,7 @@ pack_ubyte_a_uint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a_uint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint32_t a =
               _mesa_unsigned_to_unsigned(src[3], 32);
@@ -2726,7 +2752,7 @@ pack_ubyte_a_uint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a_sint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t a =
               _mesa_unsigned_to_signed(src[3], 8);
@@ -2738,7 +2764,7 @@ pack_ubyte_a_sint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a_sint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t a =
               _mesa_unsigned_to_signed(src[3], 16);
@@ -2750,7 +2776,7 @@ pack_ubyte_a_sint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_a_sint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       int32_t a =
               _mesa_unsigned_to_signed(src[3], 32);
@@ -2762,7 +2788,7 @@ pack_ubyte_a_sint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_uint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t i =
               _mesa_unsigned_to_unsigned(src[0], 8);
@@ -2774,7 +2800,7 @@ pack_ubyte_i_uint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_uint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t i =
               _mesa_unsigned_to_unsigned(src[0], 16);
@@ -2786,7 +2812,7 @@ pack_ubyte_i_uint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_uint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint32_t i =
               _mesa_unsigned_to_unsigned(src[0], 32);
@@ -2798,7 +2824,7 @@ pack_ubyte_i_uint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_sint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t i =
               _mesa_unsigned_to_signed(src[0], 8);
@@ -2810,7 +2836,7 @@ pack_ubyte_i_sint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_sint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t i =
               _mesa_unsigned_to_signed(src[0], 16);
@@ -2822,7 +2848,7 @@ pack_ubyte_i_sint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_i_sint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       int32_t i =
               _mesa_unsigned_to_signed(src[0], 32);
@@ -2834,7 +2860,7 @@ pack_ubyte_i_sint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_uint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t l =
               _mesa_unsigned_to_unsigned(src[0], 8);
@@ -2846,7 +2872,7 @@ pack_ubyte_l_uint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_uint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t l =
               _mesa_unsigned_to_unsigned(src[0], 16);
@@ -2858,7 +2884,7 @@ pack_ubyte_l_uint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_uint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint32_t l =
               _mesa_unsigned_to_unsigned(src[0], 32);
@@ -2870,7 +2896,7 @@ pack_ubyte_l_uint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_sint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t l =
               _mesa_unsigned_to_signed(src[0], 8);
@@ -2882,7 +2908,7 @@ pack_ubyte_l_sint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_sint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t l =
               _mesa_unsigned_to_signed(src[0], 16);
@@ -2894,7 +2920,7 @@ pack_ubyte_l_sint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_l_sint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       int32_t l =
               _mesa_unsigned_to_signed(src[0], 32);
@@ -2906,11 +2932,11 @@ pack_ubyte_l_sint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_la_uint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t l =
               _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 8);
@@ -2923,11 +2949,11 @@ pack_ubyte_la_uint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_la_uint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t l =
               _mesa_unsigned_to_unsigned(src[0], 16);
-
+      
 
       uint16_t a =
               _mesa_unsigned_to_unsigned(src[3], 16);
@@ -2940,11 +2966,11 @@ pack_ubyte_la_uint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_la_uint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint32_t l =
               _mesa_unsigned_to_unsigned(src[0], 32);
-
+      
 
       uint32_t a =
               _mesa_unsigned_to_unsigned(src[3], 32);
@@ -2957,11 +2983,11 @@ pack_ubyte_la_uint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_la_sint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t l =
               _mesa_unsigned_to_signed(src[0], 8);
-
+      
 
       int8_t a =
               _mesa_unsigned_to_signed(src[3], 8);
@@ -2974,11 +3000,11 @@ pack_ubyte_la_sint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_la_sint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t l =
               _mesa_unsigned_to_signed(src[0], 16);
-
+      
 
       int16_t a =
               _mesa_unsigned_to_signed(src[3], 16);
@@ -2991,11 +3017,11 @@ pack_ubyte_la_sint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_la_sint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       int32_t l =
               _mesa_unsigned_to_signed(src[0], 32);
-
+      
 
       int32_t a =
               _mesa_unsigned_to_signed(src[3], 32);
@@ -3008,7 +3034,7 @@ pack_ubyte_la_sint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_uint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 8);
@@ -3020,7 +3046,7 @@ pack_ubyte_r_uint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_uint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
               _mesa_unsigned_to_unsigned(src[0], 16);
@@ -3032,7 +3058,7 @@ pack_ubyte_r_uint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_uint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint32_t r =
               _mesa_unsigned_to_unsigned(src[0], 32);
@@ -3044,7 +3070,7 @@ pack_ubyte_r_uint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_sint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t r =
               _mesa_unsigned_to_signed(src[0], 8);
@@ -3056,7 +3082,7 @@ pack_ubyte_r_sint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_sint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t r =
               _mesa_unsigned_to_signed(src[0], 16);
@@ -3068,7 +3094,7 @@ pack_ubyte_r_sint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_r_sint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       int32_t r =
               _mesa_unsigned_to_signed(src[0], 32);
@@ -3080,11 +3106,11 @@ pack_ubyte_r_sint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rg_uint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 8);
@@ -3097,11 +3123,11 @@ pack_ubyte_rg_uint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rg_uint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
               _mesa_unsigned_to_unsigned(src[0], 16);
-
+      
 
       uint16_t g =
               _mesa_unsigned_to_unsigned(src[1], 16);
@@ -3114,11 +3140,11 @@ pack_ubyte_rg_uint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rg_uint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint32_t r =
               _mesa_unsigned_to_unsigned(src[0], 32);
-
+      
 
       uint32_t g =
               _mesa_unsigned_to_unsigned(src[1], 32);
@@ -3131,11 +3157,11 @@ pack_ubyte_rg_uint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rg_sint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t r =
               _mesa_unsigned_to_signed(src[0], 8);
-
+      
 
       int8_t g =
               _mesa_unsigned_to_signed(src[1], 8);
@@ -3148,11 +3174,11 @@ pack_ubyte_rg_sint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rg_sint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t r =
               _mesa_unsigned_to_signed(src[0], 16);
-
+      
 
       int16_t g =
               _mesa_unsigned_to_signed(src[1], 16);
@@ -3165,11 +3191,11 @@ pack_ubyte_rg_sint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rg_sint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       int32_t r =
               _mesa_unsigned_to_signed(src[0], 32);
-
+      
 
       int32_t g =
               _mesa_unsigned_to_signed(src[1], 32);
@@ -3182,15 +3208,15 @@ pack_ubyte_rg_sint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgb_uint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 8);
@@ -3204,15 +3230,15 @@ pack_ubyte_rgb_uint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgb_uint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
               _mesa_unsigned_to_unsigned(src[0], 16);
-
+      
 
       uint16_t g =
               _mesa_unsigned_to_unsigned(src[1], 16);
-
+      
 
       uint16_t b =
               _mesa_unsigned_to_unsigned(src[2], 16);
@@ -3226,15 +3252,15 @@ pack_ubyte_rgb_uint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgb_uint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint32_t r =
               _mesa_unsigned_to_unsigned(src[0], 32);
-
+      
 
       uint32_t g =
               _mesa_unsigned_to_unsigned(src[1], 32);
-
+      
 
       uint32_t b =
               _mesa_unsigned_to_unsigned(src[2], 32);
@@ -3248,15 +3274,15 @@ pack_ubyte_rgb_uint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgb_sint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t r =
               _mesa_unsigned_to_signed(src[0], 8);
-
+      
 
       int8_t g =
               _mesa_unsigned_to_signed(src[1], 8);
-
+      
 
       int8_t b =
               _mesa_unsigned_to_signed(src[2], 8);
@@ -3270,15 +3296,15 @@ pack_ubyte_rgb_sint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgb_sint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t r =
               _mesa_unsigned_to_signed(src[0], 16);
-
+      
 
       int16_t g =
               _mesa_unsigned_to_signed(src[1], 16);
-
+      
 
       int16_t b =
               _mesa_unsigned_to_signed(src[2], 16);
@@ -3292,15 +3318,15 @@ pack_ubyte_rgb_sint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgb_sint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       int32_t r =
               _mesa_unsigned_to_signed(src[0], 32);
-
+      
 
       int32_t g =
               _mesa_unsigned_to_signed(src[1], 32);
-
+      
 
       int32_t b =
               _mesa_unsigned_to_signed(src[2], 32);
@@ -3314,19 +3340,19 @@ pack_ubyte_rgb_sint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgba_uint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 8);
-
+      
 
       uint8_t a =
               _mesa_unsigned_to_unsigned(src[3], 8);
@@ -3341,19 +3367,19 @@ pack_ubyte_rgba_uint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgba_uint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
               _mesa_unsigned_to_unsigned(src[0], 16);
-
+      
 
       uint16_t g =
               _mesa_unsigned_to_unsigned(src[1], 16);
-
+      
 
       uint16_t b =
               _mesa_unsigned_to_unsigned(src[2], 16);
-
+      
 
       uint16_t a =
               _mesa_unsigned_to_unsigned(src[3], 16);
@@ -3368,19 +3394,19 @@ pack_ubyte_rgba_uint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgba_uint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint32_t r =
               _mesa_unsigned_to_unsigned(src[0], 32);
-
+      
 
       uint32_t g =
               _mesa_unsigned_to_unsigned(src[1], 32);
-
+      
 
       uint32_t b =
               _mesa_unsigned_to_unsigned(src[2], 32);
-
+      
 
       uint32_t a =
               _mesa_unsigned_to_unsigned(src[3], 32);
@@ -3395,19 +3421,19 @@ pack_ubyte_rgba_uint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgba_sint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t r =
               _mesa_unsigned_to_signed(src[0], 8);
-
+      
 
       int8_t g =
               _mesa_unsigned_to_signed(src[1], 8);
-
+      
 
       int8_t b =
               _mesa_unsigned_to_signed(src[2], 8);
-
+      
 
       int8_t a =
               _mesa_unsigned_to_signed(src[3], 8);
@@ -3422,19 +3448,19 @@ pack_ubyte_rgba_sint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgba_sint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t r =
               _mesa_unsigned_to_signed(src[0], 16);
-
+      
 
       int16_t g =
               _mesa_unsigned_to_signed(src[1], 16);
-
+      
 
       int16_t b =
               _mesa_unsigned_to_signed(src[2], 16);
-
+      
 
       int16_t a =
               _mesa_unsigned_to_signed(src[3], 16);
@@ -3449,19 +3475,19 @@ pack_ubyte_rgba_sint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgba_sint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       int32_t r =
               _mesa_unsigned_to_signed(src[0], 32);
-
+      
 
       int32_t g =
               _mesa_unsigned_to_signed(src[1], 32);
-
+      
 
       int32_t b =
               _mesa_unsigned_to_signed(src[2], 32);
-
+      
 
       int32_t a =
               _mesa_unsigned_to_signed(src[3], 32);
@@ -3476,20 +3502,20 @@ pack_ubyte_rgba_sint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgbx_uint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint8_t r =
               _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
               _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t b =
               _mesa_unsigned_to_unsigned(src[2], 8);
-
-
+      
+         
       uint8_t *d = (uint8_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -3499,20 +3525,20 @@ pack_ubyte_rgbx_uint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgbx_uint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint16_t r =
               _mesa_unsigned_to_unsigned(src[0], 16);
-
+      
 
       uint16_t g =
               _mesa_unsigned_to_unsigned(src[1], 16);
-
+      
 
       uint16_t b =
               _mesa_unsigned_to_unsigned(src[2], 16);
-
-
+      
+         
       uint16_t *d = (uint16_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -3522,20 +3548,20 @@ pack_ubyte_rgbx_uint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgbx_uint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       uint32_t r =
               _mesa_unsigned_to_unsigned(src[0], 32);
-
+      
 
       uint32_t g =
               _mesa_unsigned_to_unsigned(src[1], 32);
-
+      
 
       uint32_t b =
               _mesa_unsigned_to_unsigned(src[2], 32);
-
-
+      
+         
       uint32_t *d = (uint32_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -3545,20 +3571,20 @@ pack_ubyte_rgbx_uint32(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgbx_sint8(const GLubyte src[4], void *dst)
 {
-
+      
 
       int8_t r =
               _mesa_unsigned_to_signed(src[0], 8);
-
+      
 
       int8_t g =
               _mesa_unsigned_to_signed(src[1], 8);
-
+      
 
       int8_t b =
               _mesa_unsigned_to_signed(src[2], 8);
-
-
+      
+         
       int8_t *d = (int8_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -3568,20 +3594,20 @@ pack_ubyte_rgbx_sint8(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgbx_sint16(const GLubyte src[4], void *dst)
 {
-
+      
 
       int16_t r =
               _mesa_unsigned_to_signed(src[0], 16);
-
+      
 
       int16_t g =
               _mesa_unsigned_to_signed(src[1], 16);
-
+      
 
       int16_t b =
               _mesa_unsigned_to_signed(src[2], 16);
-
-
+      
+         
       int16_t *d = (int16_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -3591,26 +3617,26 @@ pack_ubyte_rgbx_sint16(const GLubyte src[4], void *dst)
 static inline void
 pack_ubyte_rgbx_sint32(const GLubyte src[4], void *dst)
 {
-
+      
 
       int32_t r =
               _mesa_unsigned_to_signed(src[0], 32);
-
+      
 
       int32_t g =
               _mesa_unsigned_to_signed(src[1], 32);
-
+      
 
       int32_t b =
               _mesa_unsigned_to_signed(src[2], 32);
-
-
+      
+         
       int32_t *d = (int32_t *)dst;
          d[0] = r;
          d[1] = g;
          d[2] = b;
             }
-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
 static inline void
 pack_ubyte_r9g9b9e5_float(const GLubyte src[4], void *dst)
 {
@@ -3635,23 +3661,23 @@ pack_ubyte_r11g11b10_float(const GLubyte src[4], void *dst)
 
 /* uint packing functions */
 
-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
 static inline void
 pack_uint_a8b8g8r8_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 8);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 8);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 8);
@@ -3667,19 +3693,19 @@ pack_uint_a8b8g8r8_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a8r8g8b8_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 8);
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 8);
@@ -3695,19 +3721,19 @@ pack_uint_a8r8g8b8_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r8g8b8a8_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 8);
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 8);
@@ -3723,19 +3749,19 @@ pack_uint_r8g8b8a8_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_b8g8r8a8_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 8);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 8);
@@ -3751,19 +3777,19 @@ pack_uint_b8g8r8a8_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_b10g10r10a2_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint16_t b =
          _mesa_unsigned_to_unsigned(src[2], 10);
-
+      
 
       uint16_t g =
          _mesa_unsigned_to_unsigned(src[1], 10);
-
+      
 
       uint16_t r =
          _mesa_unsigned_to_unsigned(src[0], 10);
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 2);
@@ -3779,19 +3805,19 @@ pack_uint_b10g10r10a2_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r10g10b10a2_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint16_t r =
          _mesa_unsigned_to_unsigned(src[0], 10);
-
+      
 
       uint16_t g =
          _mesa_unsigned_to_unsigned(src[1], 10);
-
+      
 
       uint16_t b =
          _mesa_unsigned_to_unsigned(src[2], 10);
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 2);
@@ -3807,19 +3833,19 @@ pack_uint_r10g10b10a2_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a2b10g10r10_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 2);
-
+      
 
       uint16_t b =
          _mesa_unsigned_to_unsigned(src[2], 10);
-
+      
 
       uint16_t g =
          _mesa_unsigned_to_unsigned(src[1], 10);
-
+      
 
       uint16_t r =
          _mesa_unsigned_to_unsigned(src[0], 10);
@@ -3835,19 +3861,19 @@ pack_uint_a2b10g10r10_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a2r10g10b10_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 2);
-
+      
 
       uint16_t r =
          _mesa_unsigned_to_unsigned(src[0], 10);
-
+      
 
       uint16_t g =
          _mesa_unsigned_to_unsigned(src[1], 10);
-
+      
 
       uint16_t b =
          _mesa_unsigned_to_unsigned(src[2], 10);
@@ -3863,15 +3889,15 @@ pack_uint_a2r10g10b10_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_b5g6r5_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 5);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 6);
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 5);
@@ -3886,15 +3912,15 @@ pack_uint_b5g6r5_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r5g6b5_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 5);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 6);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 5);
@@ -3909,15 +3935,15 @@ pack_uint_r5g6b5_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_b2g3r3_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 2);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 3);
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 3);
@@ -3932,15 +3958,15 @@ pack_uint_b2g3r3_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r3g3b2_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 3);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 3);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 2);
@@ -3955,19 +3981,19 @@ pack_uint_r3g3b2_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a4b4g4r4_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 4);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 4);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 4);
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 4);
@@ -3983,19 +4009,19 @@ pack_uint_a4b4g4r4_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r4g4b4a4_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 4);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 4);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 4);
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 4);
@@ -4011,19 +4037,19 @@ pack_uint_r4g4b4a4_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_b4g4r4a4_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 4);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 4);
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 4);
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 4);
@@ -4039,19 +4065,19 @@ pack_uint_b4g4r4a4_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a4r4g4b4_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 4);
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 4);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 4);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 4);
@@ -4067,19 +4093,19 @@ pack_uint_a4r4g4b4_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a1b5g5r5_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 1);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 5);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 5);
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 5);
@@ -4095,19 +4121,19 @@ pack_uint_a1b5g5r5_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_b5g5r5a1_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 5);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 5);
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 5);
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 1);
@@ -4123,19 +4149,19 @@ pack_uint_b5g5r5a1_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a1r5g5b5_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 1);
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 5);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 5);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 5);
@@ -4151,19 +4177,19 @@ pack_uint_a1r5g5b5_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r5g5b5a1_uint(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 5);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 5);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 5);
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 1);
@@ -4179,7 +4205,7 @@ pack_uint_r5g5b5a1_uint(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a_uint8(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 8);
@@ -4191,7 +4217,7 @@ pack_uint_a_uint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a_uint16(const GLuint src[4], void *dst)
 {
-
+      
 
       uint16_t a =
          _mesa_unsigned_to_unsigned(src[3], 16);
@@ -4203,7 +4229,7 @@ pack_uint_a_uint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a_uint32(const GLuint src[4], void *dst)
 {
-
+      
 
       uint32_t a =
          _mesa_unsigned_to_unsigned(src[3], 32);
@@ -4215,7 +4241,7 @@ pack_uint_a_uint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a_sint8(const GLuint src[4], void *dst)
 {
-
+      
 
       int8_t a =
          _mesa_signed_to_signed(src[3], 8);
@@ -4227,7 +4253,7 @@ pack_uint_a_sint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a_sint16(const GLuint src[4], void *dst)
 {
-
+      
 
       int16_t a =
          _mesa_signed_to_signed(src[3], 16);
@@ -4239,7 +4265,7 @@ pack_uint_a_sint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_a_sint32(const GLuint src[4], void *dst)
 {
-
+      
 
       int32_t a =
          _mesa_signed_to_signed(src[3], 32);
@@ -4251,7 +4277,7 @@ pack_uint_a_sint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_i_uint8(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t i =
          _mesa_unsigned_to_unsigned(src[0], 8);
@@ -4263,7 +4289,7 @@ pack_uint_i_uint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_i_uint16(const GLuint src[4], void *dst)
 {
-
+      
 
       uint16_t i =
          _mesa_unsigned_to_unsigned(src[0], 16);
@@ -4275,7 +4301,7 @@ pack_uint_i_uint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_i_uint32(const GLuint src[4], void *dst)
 {
-
+      
 
       uint32_t i =
          _mesa_unsigned_to_unsigned(src[0], 32);
@@ -4287,7 +4313,7 @@ pack_uint_i_uint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_i_sint8(const GLuint src[4], void *dst)
 {
-
+      
 
       int8_t i =
          _mesa_signed_to_signed(src[0], 8);
@@ -4299,7 +4325,7 @@ pack_uint_i_sint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_i_sint16(const GLuint src[4], void *dst)
 {
-
+      
 
       int16_t i =
          _mesa_signed_to_signed(src[0], 16);
@@ -4311,7 +4337,7 @@ pack_uint_i_sint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_i_sint32(const GLuint src[4], void *dst)
 {
-
+      
 
       int32_t i =
          _mesa_signed_to_signed(src[0], 32);
@@ -4323,7 +4349,7 @@ pack_uint_i_sint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_l_uint8(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t l =
          _mesa_unsigned_to_unsigned(src[0], 8);
@@ -4335,7 +4361,7 @@ pack_uint_l_uint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_l_uint16(const GLuint src[4], void *dst)
 {
-
+      
 
       uint16_t l =
          _mesa_unsigned_to_unsigned(src[0], 16);
@@ -4347,7 +4373,7 @@ pack_uint_l_uint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_l_uint32(const GLuint src[4], void *dst)
 {
-
+      
 
       uint32_t l =
          _mesa_unsigned_to_unsigned(src[0], 32);
@@ -4359,7 +4385,7 @@ pack_uint_l_uint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_l_sint8(const GLuint src[4], void *dst)
 {
-
+      
 
       int8_t l =
          _mesa_signed_to_signed(src[0], 8);
@@ -4371,7 +4397,7 @@ pack_uint_l_sint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_l_sint16(const GLuint src[4], void *dst)
 {
-
+      
 
       int16_t l =
          _mesa_signed_to_signed(src[0], 16);
@@ -4383,7 +4409,7 @@ pack_uint_l_sint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_l_sint32(const GLuint src[4], void *dst)
 {
-
+      
 
       int32_t l =
          _mesa_signed_to_signed(src[0], 32);
@@ -4395,11 +4421,11 @@ pack_uint_l_sint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_la_uint8(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t l =
          _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 8);
@@ -4412,11 +4438,11 @@ pack_uint_la_uint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_la_uint16(const GLuint src[4], void *dst)
 {
-
+      
 
       uint16_t l =
          _mesa_unsigned_to_unsigned(src[0], 16);
-
+      
 
       uint16_t a =
          _mesa_unsigned_to_unsigned(src[3], 16);
@@ -4429,11 +4455,11 @@ pack_uint_la_uint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_la_uint32(const GLuint src[4], void *dst)
 {
-
+      
 
       uint32_t l =
          _mesa_unsigned_to_unsigned(src[0], 32);
-
+      
 
       uint32_t a =
          _mesa_unsigned_to_unsigned(src[3], 32);
@@ -4446,11 +4472,11 @@ pack_uint_la_uint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_la_sint8(const GLuint src[4], void *dst)
 {
-
+      
 
       int8_t l =
          _mesa_signed_to_signed(src[0], 8);
-
+      
 
       int8_t a =
          _mesa_signed_to_signed(src[3], 8);
@@ -4463,11 +4489,11 @@ pack_uint_la_sint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_la_sint16(const GLuint src[4], void *dst)
 {
-
+      
 
       int16_t l =
          _mesa_signed_to_signed(src[0], 16);
-
+      
 
       int16_t a =
          _mesa_signed_to_signed(src[3], 16);
@@ -4480,11 +4506,11 @@ pack_uint_la_sint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_la_sint32(const GLuint src[4], void *dst)
 {
-
+      
 
       int32_t l =
          _mesa_signed_to_signed(src[0], 32);
-
+      
 
       int32_t a =
          _mesa_signed_to_signed(src[3], 32);
@@ -4497,7 +4523,7 @@ pack_uint_la_sint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r_uint8(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 8);
@@ -4509,7 +4535,7 @@ pack_uint_r_uint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r_uint16(const GLuint src[4], void *dst)
 {
-
+      
 
       uint16_t r =
          _mesa_unsigned_to_unsigned(src[0], 16);
@@ -4521,7 +4547,7 @@ pack_uint_r_uint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r_uint32(const GLuint src[4], void *dst)
 {
-
+      
 
       uint32_t r =
          _mesa_unsigned_to_unsigned(src[0], 32);
@@ -4533,7 +4559,7 @@ pack_uint_r_uint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r_sint8(const GLuint src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_signed_to_signed(src[0], 8);
@@ -4545,7 +4571,7 @@ pack_uint_r_sint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r_sint16(const GLuint src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_signed_to_signed(src[0], 16);
@@ -4557,7 +4583,7 @@ pack_uint_r_sint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_r_sint32(const GLuint src[4], void *dst)
 {
-
+      
 
       int32_t r =
          _mesa_signed_to_signed(src[0], 32);
@@ -4569,11 +4595,11 @@ pack_uint_r_sint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rg_uint8(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 8);
@@ -4586,11 +4612,11 @@ pack_uint_rg_uint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rg_uint16(const GLuint src[4], void *dst)
 {
-
+      
 
       uint16_t r =
          _mesa_unsigned_to_unsigned(src[0], 16);
-
+      
 
       uint16_t g =
          _mesa_unsigned_to_unsigned(src[1], 16);
@@ -4603,11 +4629,11 @@ pack_uint_rg_uint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rg_uint32(const GLuint src[4], void *dst)
 {
-
+      
 
       uint32_t r =
          _mesa_unsigned_to_unsigned(src[0], 32);
-
+      
 
       uint32_t g =
          _mesa_unsigned_to_unsigned(src[1], 32);
@@ -4620,11 +4646,11 @@ pack_uint_rg_uint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rg_sint8(const GLuint src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_signed_to_signed(src[0], 8);
-
+      
 
       int8_t g =
          _mesa_signed_to_signed(src[1], 8);
@@ -4637,11 +4663,11 @@ pack_uint_rg_sint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rg_sint16(const GLuint src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_signed_to_signed(src[0], 16);
-
+      
 
       int16_t g =
          _mesa_signed_to_signed(src[1], 16);
@@ -4654,11 +4680,11 @@ pack_uint_rg_sint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rg_sint32(const GLuint src[4], void *dst)
 {
-
+      
 
       int32_t r =
          _mesa_signed_to_signed(src[0], 32);
-
+      
 
       int32_t g =
          _mesa_signed_to_signed(src[1], 32);
@@ -4671,15 +4697,15 @@ pack_uint_rg_sint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgb_uint8(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 8);
@@ -4693,15 +4719,15 @@ pack_uint_rgb_uint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgb_uint16(const GLuint src[4], void *dst)
 {
-
+      
 
       uint16_t r =
          _mesa_unsigned_to_unsigned(src[0], 16);
-
+      
 
       uint16_t g =
          _mesa_unsigned_to_unsigned(src[1], 16);
-
+      
 
       uint16_t b =
          _mesa_unsigned_to_unsigned(src[2], 16);
@@ -4715,15 +4741,15 @@ pack_uint_rgb_uint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgb_uint32(const GLuint src[4], void *dst)
 {
-
+      
 
       uint32_t r =
          _mesa_unsigned_to_unsigned(src[0], 32);
-
+      
 
       uint32_t g =
          _mesa_unsigned_to_unsigned(src[1], 32);
-
+      
 
       uint32_t b =
          _mesa_unsigned_to_unsigned(src[2], 32);
@@ -4737,15 +4763,15 @@ pack_uint_rgb_uint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgb_sint8(const GLuint src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_signed_to_signed(src[0], 8);
-
+      
 
       int8_t g =
          _mesa_signed_to_signed(src[1], 8);
-
+      
 
       int8_t b =
          _mesa_signed_to_signed(src[2], 8);
@@ -4759,15 +4785,15 @@ pack_uint_rgb_sint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgb_sint16(const GLuint src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_signed_to_signed(src[0], 16);
-
+      
 
       int16_t g =
          _mesa_signed_to_signed(src[1], 16);
-
+      
 
       int16_t b =
          _mesa_signed_to_signed(src[2], 16);
@@ -4781,15 +4807,15 @@ pack_uint_rgb_sint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgb_sint32(const GLuint src[4], void *dst)
 {
-
+      
 
       int32_t r =
          _mesa_signed_to_signed(src[0], 32);
-
+      
 
       int32_t g =
          _mesa_signed_to_signed(src[1], 32);
-
+      
 
       int32_t b =
          _mesa_signed_to_signed(src[2], 32);
@@ -4803,19 +4829,19 @@ pack_uint_rgb_sint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgba_uint8(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 8);
-
+      
 
       uint8_t a =
          _mesa_unsigned_to_unsigned(src[3], 8);
@@ -4830,19 +4856,19 @@ pack_uint_rgba_uint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgba_uint16(const GLuint src[4], void *dst)
 {
-
+      
 
       uint16_t r =
          _mesa_unsigned_to_unsigned(src[0], 16);
-
+      
 
       uint16_t g =
          _mesa_unsigned_to_unsigned(src[1], 16);
-
+      
 
       uint16_t b =
          _mesa_unsigned_to_unsigned(src[2], 16);
-
+      
 
       uint16_t a =
          _mesa_unsigned_to_unsigned(src[3], 16);
@@ -4857,19 +4883,19 @@ pack_uint_rgba_uint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgba_uint32(const GLuint src[4], void *dst)
 {
-
+      
 
       uint32_t r =
          _mesa_unsigned_to_unsigned(src[0], 32);
-
+      
 
       uint32_t g =
          _mesa_unsigned_to_unsigned(src[1], 32);
-
+      
 
       uint32_t b =
          _mesa_unsigned_to_unsigned(src[2], 32);
-
+      
 
       uint32_t a =
          _mesa_unsigned_to_unsigned(src[3], 32);
@@ -4884,19 +4910,19 @@ pack_uint_rgba_uint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgba_sint8(const GLuint src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_signed_to_signed(src[0], 8);
-
+      
 
       int8_t g =
          _mesa_signed_to_signed(src[1], 8);
-
+      
 
       int8_t b =
          _mesa_signed_to_signed(src[2], 8);
-
+      
 
       int8_t a =
          _mesa_signed_to_signed(src[3], 8);
@@ -4911,19 +4937,19 @@ pack_uint_rgba_sint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgba_sint16(const GLuint src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_signed_to_signed(src[0], 16);
-
+      
 
       int16_t g =
          _mesa_signed_to_signed(src[1], 16);
-
+      
 
       int16_t b =
          _mesa_signed_to_signed(src[2], 16);
-
+      
 
       int16_t a =
          _mesa_signed_to_signed(src[3], 16);
@@ -4938,19 +4964,19 @@ pack_uint_rgba_sint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgba_sint32(const GLuint src[4], void *dst)
 {
-
+      
 
       int32_t r =
          _mesa_signed_to_signed(src[0], 32);
-
+      
 
       int32_t g =
          _mesa_signed_to_signed(src[1], 32);
-
+      
 
       int32_t b =
          _mesa_signed_to_signed(src[2], 32);
-
+      
 
       int32_t a =
          _mesa_signed_to_signed(src[3], 32);
@@ -4965,20 +4991,20 @@ pack_uint_rgba_sint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgbx_uint8(const GLuint src[4], void *dst)
 {
-
+      
 
       uint8_t r =
          _mesa_unsigned_to_unsigned(src[0], 8);
-
+      
 
       uint8_t g =
          _mesa_unsigned_to_unsigned(src[1], 8);
-
+      
 
       uint8_t b =
          _mesa_unsigned_to_unsigned(src[2], 8);
-
-
+      
+         
       uint8_t *d = (uint8_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -4988,20 +5014,20 @@ pack_uint_rgbx_uint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgbx_uint16(const GLuint src[4], void *dst)
 {
-
+      
 
       uint16_t r =
          _mesa_unsigned_to_unsigned(src[0], 16);
-
+      
 
       uint16_t g =
          _mesa_unsigned_to_unsigned(src[1], 16);
-
+      
 
       uint16_t b =
          _mesa_unsigned_to_unsigned(src[2], 16);
-
-
+      
+         
       uint16_t *d = (uint16_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -5011,20 +5037,20 @@ pack_uint_rgbx_uint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgbx_uint32(const GLuint src[4], void *dst)
 {
-
+      
 
       uint32_t r =
          _mesa_unsigned_to_unsigned(src[0], 32);
-
+      
 
       uint32_t g =
          _mesa_unsigned_to_unsigned(src[1], 32);
-
+      
 
       uint32_t b =
          _mesa_unsigned_to_unsigned(src[2], 32);
-
-
+      
+         
       uint32_t *d = (uint32_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -5034,20 +5060,20 @@ pack_uint_rgbx_uint32(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgbx_sint8(const GLuint src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_signed_to_signed(src[0], 8);
-
+      
 
       int8_t g =
          _mesa_signed_to_signed(src[1], 8);
-
+      
 
       int8_t b =
          _mesa_signed_to_signed(src[2], 8);
-
-
+      
+         
       int8_t *d = (int8_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -5057,20 +5083,20 @@ pack_uint_rgbx_sint8(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgbx_sint16(const GLuint src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_signed_to_signed(src[0], 16);
-
+      
 
       int16_t g =
          _mesa_signed_to_signed(src[1], 16);
-
+      
 
       int16_t b =
          _mesa_signed_to_signed(src[2], 16);
-
-
+      
+         
       int16_t *d = (int16_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -5080,45 +5106,45 @@ pack_uint_rgbx_sint16(const GLuint src[4], void *dst)
 static inline void
 pack_uint_rgbx_sint32(const GLuint src[4], void *dst)
 {
-
+      
 
       int32_t r =
          _mesa_signed_to_signed(src[0], 32);
-
+      
 
       int32_t g =
          _mesa_signed_to_signed(src[1], 32);
-
+      
 
       int32_t b =
          _mesa_signed_to_signed(src[2], 32);
-
-
+      
+         
       int32_t *d = (int32_t *)dst;
          d[0] = r;
          d[1] = g;
          d[2] = b;
             }
-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
 /* float packing functions */
 
 
 static inline void
 pack_float_a8b8g8r8_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 8);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
@@ -5134,16 +5160,16 @@ pack_float_a8b8g8r8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_x8b8g8r8_unorm(const GLfloat src[4], void *dst)
 {
-
-
+      
+               
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 8);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
@@ -5158,19 +5184,19 @@ pack_float_x8b8g8r8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r8g8b8a8_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 8);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
@@ -5186,20 +5212,20 @@ pack_float_r8g8b8a8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r8g8b8x8_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 8);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(r, 0, 8);
          d |= PACK(g, 8, 8);
@@ -5210,19 +5236,19 @@ pack_float_r8g8b8x8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_b8g8r8a8_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 8);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
@@ -5238,20 +5264,20 @@ pack_float_b8g8r8a8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_b8g8r8x8_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 8);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(b, 0, 8);
          d |= PACK(g, 8, 8);
@@ -5262,19 +5288,19 @@ pack_float_b8g8r8x8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a8r8g8b8_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 8);
@@ -5290,16 +5316,16 @@ pack_float_a8r8g8b8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_x8r8g8b8_unorm(const GLfloat src[4], void *dst)
 {
-
-
+      
+               
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 8);
@@ -5314,11 +5340,11 @@ pack_float_x8r8g8b8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l16a16_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t l =
             _mesa_float_to_unorm(src[0], 16);
-
+      
 
       uint16_t a =
             _mesa_float_to_unorm(src[3], 16);
@@ -5332,11 +5358,11 @@ pack_float_l16a16_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a16l16_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t a =
             _mesa_float_to_unorm(src[3], 16);
-
+      
 
       uint16_t l =
             _mesa_float_to_unorm(src[0], 16);
@@ -5350,15 +5376,15 @@ pack_float_a16l16_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_b5g6r5_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 5);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 6);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 5);
@@ -5373,15 +5399,15 @@ pack_float_b5g6r5_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r5g6b5_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 5);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 6);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 5);
@@ -5396,19 +5422,19 @@ pack_float_r5g6b5_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_b4g4r4a4_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 4);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 4);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 4);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 4);
@@ -5424,20 +5450,20 @@ pack_float_b4g4r4a4_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_b4g4r4x4_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 4);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 4);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 4);
-
-
+      
+         
       uint16_t d = 0;
          d |= PACK(b, 0, 4);
          d |= PACK(g, 4, 4);
@@ -5448,19 +5474,19 @@ pack_float_b4g4r4x4_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a4r4g4b4_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 4);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 4);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 4);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 4);
@@ -5476,19 +5502,19 @@ pack_float_a4r4g4b4_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a1b5g5r5_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 1);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 5);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 5);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 5);
@@ -5502,21 +5528,45 @@ pack_float_a1b5g5r5_unorm(const GLfloat src[4], void *dst)
 }
 
 static inline void
-pack_float_b5g5r5a1_unorm(const GLfloat src[4], void *dst)
+pack_float_x1b5g5r5_unorm(const GLfloat src[4], void *dst)
 {
-
+      
+               
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 5);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 5);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 5);
 
+      uint16_t d = 0;
+                     d |= PACK(b, 1, 5);
+         d |= PACK(g, 6, 5);
+         d |= PACK(r, 11, 5);
+      (*(uint16_t *)dst) = d;
+}
+
+static inline void
+pack_float_b5g5r5a1_unorm(const GLfloat src[4], void *dst)
+{
+      
+
+      uint8_t b =
+            _mesa_float_to_unorm(src[2], 5);
+      
+
+      uint8_t g =
+            _mesa_float_to_unorm(src[1], 5);
+      
+
+      uint8_t r =
+            _mesa_float_to_unorm(src[0], 5);
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 1);
@@ -5532,20 +5582,20 @@ pack_float_b5g5r5a1_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_b5g5r5x1_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 5);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 5);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 5);
-
-
+      
+         
       uint16_t d = 0;
          d |= PACK(b, 0, 5);
          d |= PACK(g, 5, 5);
@@ -5556,19 +5606,19 @@ pack_float_b5g5r5x1_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a1r5g5b5_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 1);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 5);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 5);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 5);
@@ -5584,11 +5634,11 @@ pack_float_a1r5g5b5_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l8a8_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t l =
             _mesa_float_to_unorm(src[0], 8);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
@@ -5602,11 +5652,11 @@ pack_float_l8a8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a8l8_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
-
+      
 
       uint8_t l =
             _mesa_float_to_unorm(src[0], 8);
@@ -5620,11 +5670,11 @@ pack_float_a8l8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r8g8_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
@@ -5638,11 +5688,11 @@ pack_float_r8g8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_g8r8_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
@@ -5656,11 +5706,11 @@ pack_float_g8r8_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l4a4_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t l =
             _mesa_float_to_unorm(src[0], 4);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 4);
@@ -5674,15 +5724,15 @@ pack_float_l4a4_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_b2g3r3_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 2);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 3);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 3);
@@ -5697,11 +5747,11 @@ pack_float_b2g3r3_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r16g16_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_float_to_unorm(src[0], 16);
-
+      
 
       uint16_t g =
             _mesa_float_to_unorm(src[1], 16);
@@ -5715,11 +5765,11 @@ pack_float_r16g16_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_g16r16_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t g =
             _mesa_float_to_unorm(src[1], 16);
-
+      
 
       uint16_t r =
             _mesa_float_to_unorm(src[0], 16);
@@ -5733,19 +5783,19 @@ pack_float_g16r16_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_b10g10r10a2_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t b =
             _mesa_float_to_unorm(src[2], 10);
-
+      
 
       uint16_t g =
             _mesa_float_to_unorm(src[1], 10);
-
+      
 
       uint16_t r =
             _mesa_float_to_unorm(src[0], 10);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 2);
@@ -5761,20 +5811,20 @@ pack_float_b10g10r10a2_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_b10g10r10x2_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t b =
             _mesa_float_to_unorm(src[2], 10);
-
+      
 
       uint16_t g =
             _mesa_float_to_unorm(src[1], 10);
-
+      
 
       uint16_t r =
             _mesa_float_to_unorm(src[0], 10);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(b, 0, 10);
          d |= PACK(g, 10, 10);
@@ -5785,19 +5835,19 @@ pack_float_b10g10r10x2_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r10g10b10a2_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_float_to_unorm(src[0], 10);
-
+      
 
       uint16_t g =
             _mesa_float_to_unorm(src[1], 10);
-
+      
 
       uint16_t b =
             _mesa_float_to_unorm(src[2], 10);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 2);
@@ -5813,20 +5863,20 @@ pack_float_r10g10b10a2_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r10g10b10x2_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_float_to_unorm(src[0], 10);
-
+      
 
       uint16_t g =
             _mesa_float_to_unorm(src[1], 10);
-
+      
 
       uint16_t b =
             _mesa_float_to_unorm(src[2], 10);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(r, 0, 10);
          d |= PACK(g, 10, 10);
@@ -5837,15 +5887,15 @@ pack_float_r10g10b10x2_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r3g3b2_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 3);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 3);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 2);
@@ -5860,19 +5910,19 @@ pack_float_r3g3b2_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a4b4g4r4_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 4);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 4);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 4);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 4);
@@ -5888,19 +5938,19 @@ pack_float_a4b4g4r4_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r4g4b4a4_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 4);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 4);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 4);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 4);
@@ -5916,19 +5966,19 @@ pack_float_r4g4b4a4_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r5g5b5a1_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 5);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 5);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 5);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 1);
@@ -5944,19 +5994,19 @@ pack_float_r5g5b5a1_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a2b10g10r10_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 2);
-
+      
 
       uint16_t b =
             _mesa_float_to_unorm(src[2], 10);
-
+      
 
       uint16_t g =
             _mesa_float_to_unorm(src[1], 10);
-
+      
 
       uint16_t r =
             _mesa_float_to_unorm(src[0], 10);
@@ -5972,19 +6022,19 @@ pack_float_a2b10g10r10_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a2r10g10b10_unorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 2);
-
+      
 
       uint16_t r =
             _mesa_float_to_unorm(src[0], 10);
-
+      
 
       uint16_t g =
             _mesa_float_to_unorm(src[1], 10);
-
+      
 
       uint16_t b =
             _mesa_float_to_unorm(src[2], 10);
@@ -6000,7 +6050,7 @@ pack_float_a2r10g10b10_unorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a_unorm8(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
@@ -6012,7 +6062,7 @@ pack_float_a_unorm8(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a_unorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t a =
             _mesa_float_to_unorm(src[3], 16);
@@ -6024,7 +6074,7 @@ pack_float_a_unorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l_unorm8(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t l =
             _mesa_float_to_unorm(src[0], 8);
@@ -6036,7 +6086,7 @@ pack_float_l_unorm8(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l_unorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t l =
             _mesa_float_to_unorm(src[0], 16);
@@ -6048,7 +6098,7 @@ pack_float_l_unorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_i_unorm8(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t i =
             _mesa_float_to_unorm(src[0], 8);
@@ -6060,7 +6110,7 @@ pack_float_i_unorm8(const GLfloat src[4], void *dst)
 static inline void
 pack_float_i_unorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t i =
             _mesa_float_to_unorm(src[0], 16);
@@ -6072,7 +6122,7 @@ pack_float_i_unorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r_unorm8(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
@@ -6084,7 +6134,7 @@ pack_float_r_unorm8(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r_unorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_float_to_unorm(src[0], 16);
@@ -6096,15 +6146,15 @@ pack_float_r_unorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_bgr_unorm8(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 8);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
@@ -6118,15 +6168,15 @@ pack_float_bgr_unorm8(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgb_unorm8(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t r =
             _mesa_float_to_unorm(src[0], 8);
-
+      
 
       uint8_t g =
             _mesa_float_to_unorm(src[1], 8);
-
+      
 
       uint8_t b =
             _mesa_float_to_unorm(src[2], 8);
@@ -6140,19 +6190,19 @@ pack_float_rgb_unorm8(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgba_unorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_float_to_unorm(src[0], 16);
-
+      
 
       uint16_t g =
             _mesa_float_to_unorm(src[1], 16);
-
+      
 
       uint16_t b =
             _mesa_float_to_unorm(src[2], 16);
-
+      
 
       uint16_t a =
             _mesa_float_to_unorm(src[3], 16);
@@ -6167,20 +6217,20 @@ pack_float_rgba_unorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgbx_unorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_float_to_unorm(src[0], 16);
-
+      
 
       uint16_t g =
             _mesa_float_to_unorm(src[1], 16);
-
+      
 
       uint16_t b =
             _mesa_float_to_unorm(src[2], 16);
-
-
+      
+         
       uint16_t *d = (uint16_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -6190,19 +6240,19 @@ pack_float_rgbx_unorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a8b8g8r8_snorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       int8_t a =
          _mesa_float_to_snorm(src[3], 8);
-
+      
 
       int8_t b =
          _mesa_float_to_snorm(src[2], 8);
-
+      
 
       int8_t g =
          _mesa_float_to_snorm(src[1], 8);
-
+      
 
       int8_t r =
          _mesa_float_to_snorm(src[0], 8);
@@ -6218,16 +6268,16 @@ pack_float_a8b8g8r8_snorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_x8b8g8r8_snorm(const GLfloat src[4], void *dst)
 {
-
-
+      
+               
 
       int8_t b =
          _mesa_float_to_snorm(src[2], 8);
-
+      
 
       int8_t g =
          _mesa_float_to_snorm(src[1], 8);
-
+      
 
       int8_t r =
          _mesa_float_to_snorm(src[0], 8);
@@ -6242,19 +6292,19 @@ pack_float_x8b8g8r8_snorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r8g8b8a8_snorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_float_to_snorm(src[0], 8);
-
+      
 
       int8_t g =
          _mesa_float_to_snorm(src[1], 8);
-
+      
 
       int8_t b =
          _mesa_float_to_snorm(src[2], 8);
-
+      
 
       int8_t a =
          _mesa_float_to_snorm(src[3], 8);
@@ -6270,20 +6320,20 @@ pack_float_r8g8b8a8_snorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r8g8b8x8_snorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_float_to_snorm(src[0], 8);
-
+      
 
       int8_t g =
          _mesa_float_to_snorm(src[1], 8);
-
+      
 
       int8_t b =
          _mesa_float_to_snorm(src[2], 8);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(r, 0, 8);
          d |= PACK(g, 8, 8);
@@ -6294,11 +6344,11 @@ pack_float_r8g8b8x8_snorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r16g16_snorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_float_to_snorm(src[0], 16);
-
+      
 
       int16_t g =
          _mesa_float_to_snorm(src[1], 16);
@@ -6312,11 +6362,11 @@ pack_float_r16g16_snorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_g16r16_snorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       int16_t g =
          _mesa_float_to_snorm(src[1], 16);
-
+      
 
       int16_t r =
          _mesa_float_to_snorm(src[0], 16);
@@ -6330,11 +6380,11 @@ pack_float_g16r16_snorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r8g8_snorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_float_to_snorm(src[0], 8);
-
+      
 
       int8_t g =
          _mesa_float_to_snorm(src[1], 8);
@@ -6348,11 +6398,11 @@ pack_float_r8g8_snorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_g8r8_snorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       int8_t g =
          _mesa_float_to_snorm(src[1], 8);
-
+      
 
       int8_t r =
          _mesa_float_to_snorm(src[0], 8);
@@ -6366,11 +6416,11 @@ pack_float_g8r8_snorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l8a8_snorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       int8_t l =
          _mesa_float_to_snorm(src[0], 8);
-
+      
 
       int8_t a =
          _mesa_float_to_snorm(src[3], 8);
@@ -6384,11 +6434,11 @@ pack_float_l8a8_snorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a8l8_snorm(const GLfloat src[4], void *dst)
 {
-
+      
 
       int8_t a =
          _mesa_float_to_snorm(src[3], 8);
-
+      
 
       int8_t l =
          _mesa_float_to_snorm(src[0], 8);
@@ -6402,7 +6452,7 @@ pack_float_a8l8_snorm(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a_snorm8(const GLfloat src[4], void *dst)
 {
-
+      
 
       int8_t a =
          _mesa_float_to_snorm(src[3], 8);
@@ -6414,7 +6464,7 @@ pack_float_a_snorm8(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a_snorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       int16_t a =
          _mesa_float_to_snorm(src[3], 16);
@@ -6426,7 +6476,7 @@ pack_float_a_snorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l_snorm8(const GLfloat src[4], void *dst)
 {
-
+      
 
       int8_t l =
          _mesa_float_to_snorm(src[0], 8);
@@ -6438,7 +6488,7 @@ pack_float_l_snorm8(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l_snorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       int16_t l =
          _mesa_float_to_snorm(src[0], 16);
@@ -6450,7 +6500,7 @@ pack_float_l_snorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_i_snorm8(const GLfloat src[4], void *dst)
 {
-
+      
 
       int8_t i =
          _mesa_float_to_snorm(src[0], 8);
@@ -6462,7 +6512,7 @@ pack_float_i_snorm8(const GLfloat src[4], void *dst)
 static inline void
 pack_float_i_snorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       int16_t i =
          _mesa_float_to_snorm(src[0], 16);
@@ -6474,7 +6524,7 @@ pack_float_i_snorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r_snorm8(const GLfloat src[4], void *dst)
 {
-
+      
 
       int8_t r =
          _mesa_float_to_snorm(src[0], 8);
@@ -6486,7 +6536,7 @@ pack_float_r_snorm8(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r_snorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_float_to_snorm(src[0], 16);
@@ -6498,11 +6548,11 @@ pack_float_r_snorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_la_snorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       int16_t l =
          _mesa_float_to_snorm(src[0], 16);
-
+      
 
       int16_t a =
          _mesa_float_to_snorm(src[3], 16);
@@ -6515,15 +6565,15 @@ pack_float_la_snorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgb_snorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_float_to_snorm(src[0], 16);
-
+      
 
       int16_t g =
          _mesa_float_to_snorm(src[1], 16);
-
+      
 
       int16_t b =
          _mesa_float_to_snorm(src[2], 16);
@@ -6537,19 +6587,19 @@ pack_float_rgb_snorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgba_snorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_float_to_snorm(src[0], 16);
-
+      
 
       int16_t g =
          _mesa_float_to_snorm(src[1], 16);
-
+      
 
       int16_t b =
          _mesa_float_to_snorm(src[2], 16);
-
+      
 
       int16_t a =
          _mesa_float_to_snorm(src[3], 16);
@@ -6564,20 +6614,20 @@ pack_float_rgba_snorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgbx_snorm16(const GLfloat src[4], void *dst)
 {
-
+      
 
       int16_t r =
          _mesa_float_to_snorm(src[0], 16);
-
+      
 
       int16_t g =
          _mesa_float_to_snorm(src[1], 16);
-
+      
 
       int16_t b =
          _mesa_float_to_snorm(src[2], 16);
-
-
+      
+         
       int16_t *d = (int16_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -6587,24 +6637,24 @@ pack_float_rgbx_snorm16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a8b8g8r8_srgb(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[0]);
 
       uint32_t d = 0;
@@ -6618,22 +6668,22 @@ pack_float_a8b8g8r8_srgb(const GLfloat src[4], void *dst)
 static inline void
 pack_float_b8g8r8a8_srgb(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[0]);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
@@ -6649,24 +6699,24 @@ pack_float_b8g8r8a8_srgb(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a8r8g8b8_srgb(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[0]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[2]);
 
       uint32_t d = 0;
@@ -6680,23 +6730,23 @@ pack_float_a8r8g8b8_srgb(const GLfloat src[4], void *dst)
 static inline void
 pack_float_b8g8r8x8_srgb(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[0]);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(b, 0, 8);
          d |= PACK(g, 8, 8);
@@ -6707,21 +6757,21 @@ pack_float_b8g8r8x8_srgb(const GLfloat src[4], void *dst)
 static inline void
 pack_float_x8r8g8b8_srgb(const GLfloat src[4], void *dst)
 {
-
-
+      
+               
 
       uint8_t r =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[0]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[2]);
 
       uint32_t d = 0;
@@ -6734,22 +6784,22 @@ pack_float_x8r8g8b8_srgb(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r8g8b8a8_srgb(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[0]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
@@ -6765,23 +6815,23 @@ pack_float_r8g8b8a8_srgb(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r8g8b8x8_srgb(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[0]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[2]);
-
-
+      
+         
       uint32_t d = 0;
          d |= PACK(r, 0, 8);
          d |= PACK(g, 8, 8);
@@ -6792,21 +6842,21 @@ pack_float_r8g8b8x8_srgb(const GLfloat src[4], void *dst)
 static inline void
 pack_float_x8b8g8r8_srgb(const GLfloat src[4], void *dst)
 {
-
-
+      
+               
 
       uint8_t b =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[0]);
 
       uint32_t d = 0;
@@ -6819,11 +6869,11 @@ pack_float_x8b8g8r8_srgb(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l8a8_srgb(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t l =
             _mesa_float_to_unorm(src[0], 8);
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
@@ -6837,11 +6887,11 @@ pack_float_l8a8_srgb(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a8l8_srgb(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t a =
             _mesa_float_to_unorm(src[3], 8);
-
+      
 
       uint8_t l =
             _mesa_float_to_unorm(src[0], 8);
@@ -6855,7 +6905,7 @@ pack_float_a8l8_srgb(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l_srgb8(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t l =
             _mesa_float_to_unorm(src[0], 8);
@@ -6867,20 +6917,20 @@ pack_float_l_srgb8(const GLfloat src[4], void *dst)
 static inline void
 pack_float_bgr_srgb8(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint8_t b =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[2]);
-
+      
 
       uint8_t g =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[1]);
-
+      
 
       uint8_t r =
-
+            
             util_format_linear_float_to_srgb_8unorm(src[0]);
 
       uint8_t *d = (uint8_t *)dst;
@@ -6888,11 +6938,11 @@ pack_float_bgr_srgb8(const GLfloat src[4], void *dst)
          d[1] = g;
          d[2] = r;
 }
-
+            
 static inline void
 pack_float_a_float16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t a =
             _mesa_float_to_half(src[3]);
@@ -6904,7 +6954,7 @@ pack_float_a_float16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_a_float32(const GLfloat src[4], void *dst)
 {
-
+      
 
       float a =
             src[3];
@@ -6916,7 +6966,7 @@ pack_float_a_float32(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l_float16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t l =
             _mesa_float_to_half(src[0]);
@@ -6928,7 +6978,7 @@ pack_float_l_float16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_l_float32(const GLfloat src[4], void *dst)
 {
-
+      
 
       float l =
             src[0];
@@ -6940,11 +6990,11 @@ pack_float_l_float32(const GLfloat src[4], void *dst)
 static inline void
 pack_float_la_float16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t l =
             _mesa_float_to_half(src[0]);
-
+      
 
       uint16_t a =
             _mesa_float_to_half(src[3]);
@@ -6957,11 +7007,11 @@ pack_float_la_float16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_la_float32(const GLfloat src[4], void *dst)
 {
-
+      
 
       float l =
             src[0];
-
+      
 
       float a =
             src[3];
@@ -6974,7 +7024,7 @@ pack_float_la_float32(const GLfloat src[4], void *dst)
 static inline void
 pack_float_i_float16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t i =
             _mesa_float_to_half(src[0]);
@@ -6986,7 +7036,7 @@ pack_float_i_float16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_i_float32(const GLfloat src[4], void *dst)
 {
-
+      
 
       float i =
             src[0];
@@ -6998,7 +7048,7 @@ pack_float_i_float32(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r_float16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_float_to_half(src[0]);
@@ -7010,7 +7060,7 @@ pack_float_r_float16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_r_float32(const GLfloat src[4], void *dst)
 {
-
+      
 
       float r =
             src[0];
@@ -7022,11 +7072,11 @@ pack_float_r_float32(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rg_float16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_float_to_half(src[0]);
-
+      
 
       uint16_t g =
             _mesa_float_to_half(src[1]);
@@ -7039,11 +7089,11 @@ pack_float_rg_float16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rg_float32(const GLfloat src[4], void *dst)
 {
-
+      
 
       float r =
             src[0];
-
+      
 
       float g =
             src[1];
@@ -7056,15 +7106,15 @@ pack_float_rg_float32(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgb_float16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_float_to_half(src[0]);
-
+      
 
       uint16_t g =
             _mesa_float_to_half(src[1]);
-
+      
 
       uint16_t b =
             _mesa_float_to_half(src[2]);
@@ -7078,15 +7128,15 @@ pack_float_rgb_float16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgb_float32(const GLfloat src[4], void *dst)
 {
-
+      
 
       float r =
             src[0];
-
+      
 
       float g =
             src[1];
-
+      
 
       float b =
             src[2];
@@ -7100,19 +7150,19 @@ pack_float_rgb_float32(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgba_float16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_float_to_half(src[0]);
-
+      
 
       uint16_t g =
             _mesa_float_to_half(src[1]);
-
+      
 
       uint16_t b =
             _mesa_float_to_half(src[2]);
-
+      
 
       uint16_t a =
             _mesa_float_to_half(src[3]);
@@ -7127,19 +7177,19 @@ pack_float_rgba_float16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgba_float32(const GLfloat src[4], void *dst)
 {
-
+      
 
       float r =
             src[0];
-
+      
 
       float g =
             src[1];
-
+      
 
       float b =
             src[2];
-
+      
 
       float a =
             src[3];
@@ -7154,20 +7204,20 @@ pack_float_rgba_float32(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgbx_float16(const GLfloat src[4], void *dst)
 {
-
+      
 
       uint16_t r =
             _mesa_float_to_half(src[0]);
-
+      
 
       uint16_t g =
             _mesa_float_to_half(src[1]);
-
+      
 
       uint16_t b =
             _mesa_float_to_half(src[2]);
-
-
+      
+         
       uint16_t *d = (uint16_t *)dst;
          d[0] = r;
          d[1] = g;
@@ -7177,26 +7227,26 @@ pack_float_rgbx_float16(const GLfloat src[4], void *dst)
 static inline void
 pack_float_rgbx_float32(const GLfloat src[4], void *dst)
 {
-
+      
 
       float r =
             src[0];
-
+      
 
       float g =
             src[1];
-
+      
 
       float b =
             src[2];
-
-
+      
+         
       float *d = (float *)dst;
          d[0] = r;
          d[1] = g;
          d[2] = b;
             }
-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
 static inline void
 pack_float_r9g9b9e5_float(const GLfloat src[4], void *dst)
 {
@@ -7266,6 +7316,9 @@ _mesa_get_pack_ubyte_rgba_function(mesa_format format)
 
    case MESA_FORMAT_A1B5G5R5_UNORM:
       return pack_ubyte_a1b5g5r5_unorm;
+
+   case MESA_FORMAT_X1B5G5R5_UNORM:
+      return pack_ubyte_x1b5g5r5_unorm;
 
    case MESA_FORMAT_B5G5R5A1_UNORM:
       return pack_ubyte_b5g5r5a1_unorm;
@@ -7810,6 +7863,9 @@ _mesa_get_pack_float_rgba_function(mesa_format format)
    case MESA_FORMAT_A1B5G5R5_UNORM:
       return pack_float_a1b5g5r5_unorm;
 
+   case MESA_FORMAT_X1B5G5R5_UNORM:
+      return pack_float_x1b5g5r5_unorm;
+
    case MESA_FORMAT_B5G5R5A1_UNORM:
       return pack_float_b5g5r5a1_unorm;
 
@@ -8195,6 +8251,13 @@ _mesa_pack_ubyte_rgba_row(mesa_format format, GLuint n,
    case MESA_FORMAT_A1B5G5R5_UNORM:
       for (i = 0; i < n; ++i) {
          pack_ubyte_a1b5g5r5_unorm(src[i], d);
+         d += 2;
+      }
+      break;
+
+   case MESA_FORMAT_X1B5G5R5_UNORM:
+      for (i = 0; i < n; ++i) {
+         pack_ubyte_x1b5g5r5_unorm(src[i], d);
          d += 2;
       }
       break;
@@ -9341,7 +9404,7 @@ _mesa_pack_uint_rgba_row(mesa_format format, GLuint n,
    GLubyte *d = dst;
 
    switch (format) {
-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
    case MESA_FORMAT_A8B8G8R8_UINT:
       for (i = 0; i < n; ++i) {
          pack_uint_a8b8g8r8_uint(src[i], d);
@@ -9984,6 +10047,13 @@ _mesa_pack_float_rgba_row(mesa_format format, GLuint n,
    case MESA_FORMAT_A1B5G5R5_UNORM:
       for (i = 0; i < n; ++i) {
          pack_float_a1b5g5r5_unorm(src[i], d);
+         d += 2;
+      }
+      break;
+
+   case MESA_FORMAT_X1B5G5R5_UNORM:
+      for (i = 0; i < n; ++i) {
+         pack_float_x1b5g5r5_unorm(src[i], d);
          d += 2;
       }
       break;

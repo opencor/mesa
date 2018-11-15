@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include "util/u_math.h"
@@ -194,6 +194,7 @@ void llvmpipe_update_derived( struct llvmpipe_context *llvmpipe )
    /* This needs LP_NEW_RASTERIZER because of draw_prepare_shader_outputs(). */
    if (llvmpipe->dirty & (LP_NEW_RASTERIZER |
                           LP_NEW_FS |
+                          LP_NEW_GS |
                           LP_NEW_VS))
       compute_vertex_info(llvmpipe);
 
@@ -206,13 +207,27 @@ void llvmpipe_update_derived( struct llvmpipe_context *llvmpipe )
                           LP_NEW_SAMPLER |
                           LP_NEW_SAMPLER_VIEW |
                           LP_NEW_OCCLUSION_QUERY))
-      llvmpipe_update_fs( llvmpipe );
+      llvmpipe_update_fs(llvmpipe);
 
-   if (llvmpipe->dirty & (LP_NEW_RASTERIZER)) {
+   if (llvmpipe->dirty & (LP_NEW_FS |
+                          LP_NEW_FRAMEBUFFER |
+                          LP_NEW_RASTERIZER |
+                          LP_NEW_DEPTH_STENCIL_ALPHA)) {
+
+      /*
+       * Rasterization is disabled if there is no pixel shader and
+       * both depth and stencil testing are disabled:
+       * http://msdn.microsoft.com/en-us/library/windows/desktop/bb205125
+       * FIXME: set rasterizer_discard in state tracker instead.
+       */
+      boolean null_fs = !llvmpipe->fs ||
+                        llvmpipe->fs->info.base.num_instructions <= 1;
       boolean discard =
          (llvmpipe->sample_mask & 1) == 0 ||
-         (llvmpipe->rasterizer ? llvmpipe->rasterizer->rasterizer_discard : FALSE);
-
+         (llvmpipe->rasterizer ? llvmpipe->rasterizer->rasterizer_discard : FALSE) ||
+         (null_fs &&
+          !llvmpipe->depth_stencil->depth.enabled &&
+          !llvmpipe->depth_stencil->stencil[0].enabled);
       lp_setup_set_rasterizer_discard(llvmpipe->setup, discard);
    }
 
@@ -229,7 +244,7 @@ void llvmpipe_update_derived( struct llvmpipe_context *llvmpipe )
       lp_setup_set_scissors(llvmpipe->setup, llvmpipe->scissors);
 
    if (llvmpipe->dirty & LP_NEW_DEPTH_STENCIL_ALPHA) {
-      lp_setup_set_alpha_ref_value(llvmpipe->setup,
+      lp_setup_set_alpha_ref_value(llvmpipe->setup, 
                                    llvmpipe->depth_stencil->alpha.ref_value);
       lp_setup_set_stencil_ref_values(llvmpipe->setup,
                                       llvmpipe->stencil_ref.ref_value);

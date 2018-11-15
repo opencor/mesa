@@ -47,7 +47,7 @@ static struct vertex obj1_vertices[4] =
    }
 };
 
-static struct vertex obj2_vertices[4] =
+static struct vertex obj2_vertices[4] = 
 {
    {
       { -0.2,  -0.2, z1, 1.0 },
@@ -94,7 +94,7 @@ set_vertices(struct vertex *vertices, unsigned bytes)
 
    vbuf.stride = sizeof(struct vertex);
    vbuf.buffer_offset = 0;
-   vbuf.buffer = pipe_buffer_create_with_data(info.ctx,
+   vbuf.buffer.resource = pipe_buffer_create_with_data(info.ctx,
                                               PIPE_BIND_VERTEX_BUFFER,
                                               PIPE_USAGE_DEFAULT,
                                               bytes,
@@ -215,7 +215,7 @@ resize(int w, int h)
 
 
 static void
-init(void)
+init(void)   
 {
    if (!graw_util_create_window(&info, width, height, 1, TRUE))
       exit(1);

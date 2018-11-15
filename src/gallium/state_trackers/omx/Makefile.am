@@ -23,12 +23,31 @@
 include Makefile.sources
 include $(top_srcdir)/src/gallium/Automake.inc
 
+if HAVE_ST_OMX_BELLAGIO
+SUBDIRS = bellagio
+
 AM_CFLAGS = \
 	$(GALLIUM_CFLAGS) \
 	$(VISIBILITY_CFLAGS) \
 	$(VL_CFLAGS) \
-	$(OMX_CFLAGS)
+	$(XCB_DRI3_CFLAGS) \
+	$(OMX_BELLAGIO_CFLAGS)
+else
+SUBDIRS = tizonia
 
-noinst_LTLIBRARIES = libomxtracker.la
+AM_CFLAGS = \
+	$(GALLIUM_CFLAGS) \
+	$(LIBDRM_CFLAGS) \
+	$(VISIBILITY_CFLAGS) \
+	$(VL_CFLAGS) \
+	$(XCB_DRI3_CFLAGS) \
+	$(OMX_TIZONIA_CFLAGS) \
+	$(OMX_TIZILHEADERS_CFLAGS) \
+	$(OMX_TIZPLATFORM_CFLAGS)
+endif
 
-libomxtracker_la_SOURCES = $(C_SOURCES)
+noinst_LTLIBRARIES = libomxtracker_common.la
+
+libomxtracker_common_la_SOURCES = $(C_SOURCES)
+
+EXTRA_DIST = meson.build

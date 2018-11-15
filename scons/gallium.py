@@ -77,7 +77,7 @@ def install_shared_library(env, sources, version = ()):
                 version = version[:-1]
                 target_name = '.'.join((str(source),) + version)
                 action = SCons.Action.Action(symlink, "  Symlinking $TARGET ...")
-                last = env.Command(os.path.join(target_dir, target_name), last, action)
+                last = env.Command(os.path.join(target_dir, target_name), last, action) 
                 targets += last
     return targets
 
@@ -134,7 +134,9 @@ def check_cc(env, cc, expr, cpp_opt = '-E'):
     source.write('#if !(%s)\n#error\n#endif\n' % expr)
     source.close()
 
-    pipe = SCons.Action._subproc(env, [env['CC'], cpp_opt, source.name],
+    # sys.stderr.write('%r %s %s\n' % (env['CC'], cpp_opt, source.name));
+
+    pipe = SCons.Action._subproc(env, env.Split(env['CC']) + [cpp_opt, source.name],
                                  stdin = 'devnull',
                                  stderr = 'devnull',
                                  stdout = 'devnull')
@@ -145,6 +147,30 @@ def check_cc(env, cc, expr, cpp_opt = '-E'):
     sys.stdout.write(' %s\n' % ['no', 'yes'][int(bool(result))])
     return result
 
+def check_header(env, header):
+    '''Check if the header exist'''
+
+    conf = SCons.Script.Configure(env)
+    have_header = False
+
+    if conf.CheckHeader(header):
+        have_header = True
+
+    env = conf.Finish()
+    return have_header
+
+def check_functions(env, functions):
+    '''Check if all of the functions exist'''
+
+    conf = SCons.Script.Configure(env)
+    have_functions = True
+
+    for function in functions:
+        if not conf.CheckFunc(function):
+            have_functions = False
+
+    env = conf.Finish()
+    return have_functions
 
 def check_prog(env, prog):
     """Check whether this program exists."""
@@ -169,15 +195,15 @@ def generate(env):
     env.Tool(env['toolchain'])
 
     # Allow override compiler and specify additional flags from environment
-    if os.environ.has_key('CC'):
+    if 'CC' in os.environ:
         env['CC'] = os.environ['CC']
-    if os.environ.has_key('CFLAGS'):
+    if 'CFLAGS' in os.environ:
         env['CCFLAGS'] += SCons.Util.CLVar(os.environ['CFLAGS'])
-    if os.environ.has_key('CXX'):
+    if 'CXX' in os.environ:
         env['CXX'] = os.environ['CXX']
-    if os.environ.has_key('CXXFLAGS'):
+    if 'CXXFLAGS' in os.environ:
         env['CXXFLAGS'] += SCons.Util.CLVar(os.environ['CXXFLAGS'])
-    if os.environ.has_key('LDFLAGS'):
+    if 'LDFLAGS' in os.environ:
         env['LINKFLAGS'] += SCons.Util.CLVar(os.environ['LDFLAGS'])
 
     # Detect gcc/clang not by executable name, but through pre-defined macros
@@ -233,16 +259,16 @@ def generate(env):
     # Backwards compatability with the debug= profile= options
     if env['build'] == 'debug':
         if not env['debug']:
-            print 'scons: warning: debug option is deprecated and will be removed eventually; use instead'
-            print
-            print ' scons build=release'
-            print
+            print('scons: warning: debug option is deprecated and will be removed eventually; use instead')
+            print('')
+            print(' scons build=release')
+            print('')
             env['build'] = 'release'
         if env['profile']:
-            print 'scons: warning: profile option is deprecated and will be removed eventually; use instead'
-            print
-            print ' scons build=profile'
-            print
+            print('scons: warning: profile option is deprecated and will be removed eventually; use instead')
+            print('')
+            print(' scons build=profile')
+            print('')
             env['build'] = 'profile'
     if False:
         # Enforce SConscripts to use the new build variable
@@ -276,7 +302,7 @@ def generate(env):
     env['build_dir'] = build_dir
     env.SConsignFile(os.path.join(build_dir, '.sconsign'))
     if 'SCONS_CACHE_DIR' in os.environ:
-        print 'scons: Using build cache in %s.' % (os.environ['SCONS_CACHE_DIR'],)
+        print('scons: Using build cache in %s.' % (os.environ['SCONS_CACHE_DIR'],))
         env.CacheDir(os.environ['SCONS_CACHE_DIR'])
     env['CONFIGUREDIR'] = os.path.join(build_dir, 'conf')
     env['CONFIGURELOG'] = os.path.join(os.path.abspath(build_dir), 'config.log')
@@ -325,8 +351,17 @@ def generate(env):
                 'GLX_INDIRECT_RENDERING',
             ]
 
-        if env['platform'] in ('linux', 'darwin'):
+        if check_header(env, 'xlocale.h'):
             cppdefines += ['HAVE_XLOCALE_H']
+
+        if check_header(env, 'endian.h'):
+            cppdefines += ['HAVE_ENDIAN_H']
+
+        if check_functions(env, ['strtod_l', 'strtof_l']):
+            cppdefines += ['HAVE_STRTOD_L']
+
+        if check_functions(env, ['timespec_get']):
+            cppdefines += ['HAVE_TIMESPEC_GET']
 
     if platform == 'windows':
         cppdefines += [
@@ -357,10 +392,6 @@ def generate(env):
         cppdefines += ['PIPE_SUBSYSTEM_WINDOWS_USER']
     if env['embedded']:
         cppdefines += ['PIPE_SUBSYSTEM_EMBEDDED']
-    if env['texture_float']:
-        print 'warning: Floating-point textures enabled.'
-        print 'warning: Please consult docs/patents.txt with your lawyer before building Mesa.'
-        cppdefines += ['TEXTURE_FLOAT_ENABLED']
     env.Append(CPPDEFINES = cppdefines)
 
     # C compiler options
@@ -499,7 +530,7 @@ def generate(env):
         else:
             env.Append(CCFLAGS = ['/MT'])
             env.Append(SHCCFLAGS = ['/LD'])
-
+    
     # Static code analysis
     if env['analyze']:
         if env['msvc']:
@@ -637,7 +668,7 @@ def generate(env):
 
     if env['llvm']:
         env.Tool('llvm')
-
+    
     # Custom builders and methods
     env.Tool('custom')
     env.AddMethod(install_program, 'InstallProgram')

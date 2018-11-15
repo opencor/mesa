@@ -64,6 +64,7 @@
 #include "ir_optimization.h"
 #include "ir_rvalue_visitor.h"
 #include "util/hash_table.h"
+#include "main/mtypes.h"
 
 static const glsl_type *
 process_array_type(const glsl_type *type, unsigned idx)
@@ -115,6 +116,7 @@ public:
    void run(exec_list *instructions);
 
    virtual ir_visitor_status visit_leave(ir_assignment *);
+   virtual ir_visitor_status visit_leave(ir_expression *);
    virtual void handle_rvalue(ir_rvalue **rvalue);
 };
 
@@ -238,6 +240,23 @@ flatten_named_interface_blocks_declarations::visit_leave(ir_assignment *ir)
    return rvalue_visit(ir);
 }
 
+ir_visitor_status
+flatten_named_interface_blocks_declarations::visit_leave(ir_expression *ir)
+{
+   ir_visitor_status status = rvalue_visit(ir);
+
+   if (ir->operation == ir_unop_interpolate_at_centroid ||
+       ir->operation == ir_binop_interpolate_at_offset ||
+       ir->operation == ir_binop_interpolate_at_sample) {
+      const ir_rvalue *val = ir->operands[0];
+
+      /* This disables varying packing for this input. */
+      val->variable_referenced()->data.must_be_shader_input = 1;
+   }
+
+   return status;
+}
+
 void
 flatten_named_interface_blocks_declarations::handle_rvalue(ir_rvalue **rvalue)
 {
@@ -267,7 +286,8 @@ flatten_named_interface_blocks_declarations::handle_rvalue(ir_rvalue **rvalue)
          ralloc_asprintf(mem_ctx, "%s %s.%s.%s",
                          var->data.mode == ir_var_shader_in ? "in" : "out",
                          var->get_interface_type()->name,
-                         var->name, ir->field);
+                         var->name,
+                         ir->record->type->fields.structure[ir->field_idx].name);
 
       /* Find the variable in the set of flattened interface blocks */
       hash_entry *entry = _mesa_hash_table_search(interface_namespace,

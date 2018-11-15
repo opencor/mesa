@@ -82,6 +82,15 @@
  * access is treated as a single element use/def, and indirect access
  * is treated as use or def of all array elements.  (Only the first
  * def is tracked, in case of multiple indirect writes, etc.)
+ *
+ * TODO arrays that fit in one of the pre-defined class sizes should
+ * not need to be pre-colored, but instead could be given a normal
+ * vreg name.  (Ignoring this for now since it is a good way to work
+ * out the kinks with arbitrary sized arrays.)
+ *
+ * TODO might be easier for debugging to split this into two passes,
+ * the first assigning vreg names in a way that we could ir3_print()
+ * the result.
  */
 
 static const unsigned class_sizes[] = {
@@ -95,60 +104,47 @@ static const unsigned half_class_sizes[] = {
 	1, 2, 3, 4,
 };
 #define half_class_count  ARRAY_SIZE(half_class_sizes)
-#define total_class_count (class_count + half_class_count)
+
+/* seems to just be used for compute shaders?  Seems like vec1 and vec3
+ * are sufficient (for now?)
+ */
+static const unsigned high_class_sizes[] = {
+	1, 3,
+};
+#define high_class_count ARRAY_SIZE(high_class_sizes)
+
+#define total_class_count (class_count + half_class_count + high_class_count)
 
 /* Below a0.x are normal regs.  RA doesn't need to assign a0.x/p0.x. */
-#define NUM_REGS             (4 * 48)
+#define NUM_REGS             (4 * 48)  /* r0 to r47 */
+#define NUM_HIGH_REGS        (4 * 8)   /* r48 to r55 */
+#define FIRST_HIGH_REG       (4 * 48)
 /* Number of virtual regs in a given class: */
 #define CLASS_REGS(i)        (NUM_REGS - (class_sizes[i] - 1))
 #define HALF_CLASS_REGS(i)   (NUM_REGS - (half_class_sizes[i] - 1))
+#define HIGH_CLASS_REGS(i)   (NUM_HIGH_REGS - (high_class_sizes[i] - 1))
+
+#define HALF_OFFSET          (class_count)
+#define HIGH_OFFSET          (class_count + half_class_count)
 
 /* register-set, created one time, used for all shaders: */
 struct ir3_ra_reg_set {
 	struct ra_regs *regs;
 	unsigned int classes[class_count];
 	unsigned int half_classes[half_class_count];
+	unsigned int high_classes[high_class_count];
 	/* maps flat virtual register space to base gpr: */
 	uint16_t *ra_reg_to_gpr;
 	/* maps cls,gpr to flat virtual register space: */
 	uint16_t **gpr_to_ra_reg;
 };
 
-/* One-time setup of RA register-set, which describes all the possible
- * "virtual" registers and their interferences.  Ie. double register
- * occupies (and conflicts with) two single registers, and so forth.
- * Since registers do not need to be aligned to their class size, they
- * can conflict with other registers in the same class too.  Ie:
- *
- *    Single (base) |  Double
- *    --------------+---------------
- *       R0         |  D0
- *       R1         |  D0 D1
- *       R2         |     D1 D2
- *       R3         |        D2
- *           .. and so on..
- *
- * (NOTE the disassembler uses notation like r0.x/y/z/w but those are
- * really just four scalar registers.  Don't let that confuse you.)
- */
-struct ir3_ra_reg_set *
-ir3_ra_alloc_reg_set(void *memctx)
+static void
+build_q_values(unsigned int **q_values, unsigned off,
+		const unsigned *sizes, unsigned count)
 {
-	struct ir3_ra_reg_set *set = rzalloc(memctx, struct ir3_ra_reg_set);
-	unsigned ra_reg_count, reg, first_half_reg;
-	unsigned int **q_values;
-
-	/* calculate # of regs across all classes: */
-	ra_reg_count = 0;
-	for (unsigned i = 0; i < class_count; i++)
-		ra_reg_count += CLASS_REGS(i);
-	for (unsigned i = 0; i < half_class_count; i++)
-		ra_reg_count += HALF_CLASS_REGS(i);
-
-	/* allocate and populate q_values: */
-	q_values = ralloc_array(set, unsigned *, total_class_count);
-	for (unsigned i = 0; i < class_count; i++) {
-		q_values[i] = rzalloc_array(q_values, unsigned, total_class_count);
+	for (unsigned i = 0; i < count; i++) {
+		q_values[i + off] = rzalloc_array(q_values, unsigned, total_class_count);
 
 		/* From register_allocate.c:
 		 *
@@ -175,19 +171,50 @@ ir3_ra_alloc_reg_set(void *memctx)
 		 *
 		 * (Idea copied from brw_fs_reg_allocate.cpp)
 		 */
-		for (unsigned j = 0; j < class_count; j++)
-			q_values[i][j] = class_sizes[i] + class_sizes[j] - 1;
+		for (unsigned j = 0; j < count; j++)
+			q_values[i + off][j + off] = sizes[i] + sizes[j] - 1;
 	}
+}
 
-	for (unsigned i = class_count; i < total_class_count; i++) {
-		q_values[i] = ralloc_array(q_values, unsigned, total_class_count);
+/* One-time setup of RA register-set, which describes all the possible
+ * "virtual" registers and their interferences.  Ie. double register
+ * occupies (and conflicts with) two single registers, and so forth.
+ * Since registers do not need to be aligned to their class size, they
+ * can conflict with other registers in the same class too.  Ie:
+ *
+ *    Single (base) |  Double
+ *    --------------+---------------
+ *       R0         |  D0
+ *       R1         |  D0 D1
+ *       R2         |     D1 D2
+ *       R3         |        D2
+ *           .. and so on..
+ *
+ * (NOTE the disassembler uses notation like r0.x/y/z/w but those are
+ * really just four scalar registers.  Don't let that confuse you.)
+ */
+struct ir3_ra_reg_set *
+ir3_ra_alloc_reg_set(void *memctx)
+{
+	struct ir3_ra_reg_set *set = rzalloc(memctx, struct ir3_ra_reg_set);
+	unsigned ra_reg_count, reg, first_half_reg, first_high_reg, base;
+	unsigned int **q_values;
 
-		/* see comment above: */
-		for (unsigned j = class_count; j < total_class_count; j++) {
-			q_values[i][j] = half_class_sizes[i - class_count] +
-					half_class_sizes[j - class_count] - 1;
-		}
-	}
+	/* calculate # of regs across all classes: */
+	ra_reg_count = 0;
+	for (unsigned i = 0; i < class_count; i++)
+		ra_reg_count += CLASS_REGS(i);
+	for (unsigned i = 0; i < half_class_count; i++)
+		ra_reg_count += HALF_CLASS_REGS(i);
+	for (unsigned i = 0; i < high_class_count; i++)
+		ra_reg_count += HIGH_CLASS_REGS(i);
+
+	/* allocate and populate q_values: */
+	q_values = ralloc_array(set, unsigned *, total_class_count);
+
+	build_q_values(q_values, 0, class_sizes, class_count);
+	build_q_values(q_values, HALF_OFFSET, half_class_sizes, half_class_count);
+	build_q_values(q_values, HIGH_OFFSET, high_class_sizes, high_class_count);
 
 	/* allocate the reg-set.. */
 	set->regs = ra_alloc_reg_set(set, ra_reg_count, true);
@@ -215,18 +242,19 @@ ir3_ra_alloc_reg_set(void *memctx)
 	}
 
 	first_half_reg = reg;
+	base = HALF_OFFSET;
 
 	for (unsigned i = 0; i < half_class_count; i++) {
 		set->half_classes[i] = ra_alloc_reg_class(set->regs);
 
-		set->gpr_to_ra_reg[class_count + i] =
-				ralloc_array(set, uint16_t, CLASS_REGS(i));
+		set->gpr_to_ra_reg[base + i] =
+				ralloc_array(set, uint16_t, HALF_CLASS_REGS(i));
 
 		for (unsigned j = 0; j < HALF_CLASS_REGS(i); j++) {
 			ra_class_add_reg(set->regs, set->half_classes[i], reg);
 
 			set->ra_reg_to_gpr[reg] = j;
-			set->gpr_to_ra_reg[class_count + i][j] = reg;
+			set->gpr_to_ra_reg[base + i][j] = reg;
 
 			for (unsigned br = j; br < j + half_class_sizes[i]; br++)
 				ra_add_transitive_reg_conflict(set->regs, br + first_half_reg, reg);
@@ -234,6 +262,29 @@ ir3_ra_alloc_reg_set(void *memctx)
 			reg++;
 		}
 	}
+
+	first_high_reg = reg;
+	base = HIGH_OFFSET;
+
+	for (unsigned i = 0; i < high_class_count; i++) {
+		set->high_classes[i] = ra_alloc_reg_class(set->regs);
+
+		set->gpr_to_ra_reg[base + i] =
+				ralloc_array(set, uint16_t, HIGH_CLASS_REGS(i));
+
+		for (unsigned j = 0; j < HIGH_CLASS_REGS(i); j++) {
+			ra_class_add_reg(set->regs, set->high_classes[i], reg);
+
+			set->ra_reg_to_gpr[reg] = j;
+			set->gpr_to_ra_reg[base + i][j] = reg;
+
+			for (unsigned br = j; br < j + high_class_sizes[i]; br++)
+				ra_add_transitive_reg_conflict(set->regs, br + first_high_reg, reg);
+
+			reg++;
+		}
+	}
+
 
 	ra_set_finalize(set->regs, q_values);
 
@@ -287,13 +338,23 @@ is_half(struct ir3_instruction *instr)
 	return !!(instr->regs[0]->flags & IR3_REG_HALF);
 }
 
-static int
-size_to_class(unsigned sz, bool half)
+static bool
+is_high(struct ir3_instruction *instr)
 {
-	if (half) {
+	return !!(instr->regs[0]->flags & IR3_REG_HIGH);
+}
+
+static int
+size_to_class(unsigned sz, bool half, bool high)
+{
+	if (high) {
+		for (unsigned i = 0; i < high_class_count; i++)
+			if (high_class_sizes[i] >= sz)
+				return i + HIGH_OFFSET;
+	} else if (half) {
 		for (unsigned i = 0; i < half_class_count; i++)
 			if (half_class_sizes[i] >= sz)
-				return i + class_count;
+				return i + HALF_OFFSET;
 	} else {
 		for (unsigned i = 0; i < class_count; i++)
 			if (class_sizes[i] >= sz)
@@ -423,41 +484,6 @@ get_definer(struct ir3_ra_ctx *ctx, struct ir3_instruction *instr,
 		d = instr;
 	}
 
-	if (d->regs[0]->flags & IR3_REG_PHI_SRC) {
-		struct ir3_instruction *phi = d->regs[0]->instr;
-		struct ir3_instruction *dd;
-		int dsz, doff;
-
-		dd = get_definer(ctx, phi, &dsz, &doff);
-
-		*sz = MAX2(*sz, dsz);
-		*off = doff;
-
-		if (instr_before(dd, d)) {
-			d = dd;
-		}
-	}
-
-	if (d->opc == OPC_META_PHI) {
-		/* we have already inserted parallel-copies into
-		 * the phi, so we don't need to chase definers
-		 */
-		struct ir3_register *src;
-		struct ir3_instruction *dd = d;
-
-		/* note: don't use foreach_ssa_src as this gets called once
-		 * while assigning regs (which clears SSA flag)
-		 */
-		foreach_src(src, d) {
-			if (!src->instr)
-				continue;
-			if (instr_before(src->instr, dd))
-				dd = src->instr;
-		}
-
-		d = dd;
-	}
-
 	if (d->opc == OPC_META_FO) {
 		struct ir3_instruction *dd;
 		int dsz, doff;
@@ -494,10 +520,9 @@ ra_block_find_definers(struct ir3_ra_ctx *ctx, struct ir3_block *block)
 			id->cls = -1;
 		} else if (instr->regs[0]->flags & IR3_REG_ARRAY) {
 			id->cls = total_class_count;
-			id->defn = instr;
 		} else {
 			id->defn = get_definer(ctx, instr, &id->sz, &id->off);
-			id->cls = size_to_class(id->sz, is_half(id->defn));
+			id->cls = size_to_class(id->sz, is_half(id->defn), is_high(id->defn));
 		}
 	}
 }
@@ -529,7 +554,7 @@ ra_block_name_instructions(struct ir3_ra_ctx *ctx, struct ir3_block *block)
 		/* arrays which don't fit in one of the pre-defined class
 		 * sizes are pre-colored:
 		 */
-		if (id->cls >= 0) {
+		if ((id->cls >= 0) && (id->cls < total_class_count)) {
 			instr->name = ctx->class_alloc_count[id->cls]++;
 			ctx->alloc_count++;
 		}
@@ -653,13 +678,7 @@ ra_block_compute_live_ranges(struct ir3_ra_ctx *ctx, struct ir3_block *block)
 		 *     to texture sample instructions;  We consider these to be
 		 *     defined at the earliest fanin source.
 		 *
-		 * phi: used to merge values from different flow control paths
-		 *     to the same reg.  Consider defined at earliest phi src,
-		 *     and update all the other phi src's (which may come later
-		 *     in the program) as users to extend the var's live range.
-		 *
-		 * Most of this, other than phi, is completely handled in the
-		 * get_definer() helper.
+		 * Most of this is handled in the get_definer() helper.
 		 *
 		 * In either case, we trace the instruction back to the original
 		 * definer and consider that as the def/use ip.
@@ -673,8 +692,6 @@ ra_block_compute_live_ranges(struct ir3_ra_ctx *ctx, struct ir3_block *block)
 				struct ir3_array *arr =
 					ir3_lookup_array(ctx->ir, dst->array.id);
 				unsigned i;
-
-				debug_assert(!(dst->flags & IR3_REG_PHI_SRC));
 
 				arr->start_ip = MIN2(arr->start_ip, instr->ip);
 				arr->end_ip = MAX2(arr->end_ip, instr->ip);
@@ -710,30 +727,15 @@ ra_block_compute_live_ranges(struct ir3_ra_ctx *ctx, struct ir3_block *block)
 
 				def(name, id->defn);
 
-				if (is_half(id->defn)) {
+				if (is_high(id->defn)) {
 					ra_set_node_class(ctx->g, name,
-							ctx->set->half_classes[id->cls - class_count]);
+							ctx->set->high_classes[id->cls - HIGH_OFFSET]);
+				} else if (is_half(id->defn)) {
+					ra_set_node_class(ctx->g, name,
+							ctx->set->half_classes[id->cls - HALF_OFFSET]);
 				} else {
 					ra_set_node_class(ctx->g, name,
 							ctx->set->classes[id->cls]);
-				}
-
-				/* extend the live range for phi srcs, which may come
-				 * from the bottom of the loop
-				 */
-				if (id->defn->regs[0]->flags & IR3_REG_PHI_SRC) {
-					struct ir3_instruction *phi = id->defn->regs[0]->instr;
-					foreach_ssa_src(src, phi) {
-						/* if src is after phi, then we need to extend
-						 * the liverange to the end of src's block:
-						 */
-						if (src->ip > phi->ip) {
-							struct ir3_instruction *last =
-									list_last_entry(&src->block->instr_list,
-											struct ir3_instruction, node);
-							ctx->use[name] = MAX2(ctx->use[name], last->ip);
-						}
-					}
 				}
 			}
 		}
@@ -744,6 +746,7 @@ ra_block_compute_live_ranges(struct ir3_ra_ctx *ctx, struct ir3_block *block)
 					ir3_lookup_array(ctx->ir, reg->array.id);
 				arr->start_ip = MIN2(arr->start_ip, instr->ip);
 				arr->end_ip = MAX2(arr->end_ip, instr->ip);
+
 				/* indirect read is treated like a read fromall array
 				 * elements, since we don't know which one is actually
 				 * read:
@@ -757,6 +760,10 @@ ra_block_compute_live_ranges(struct ir3_ra_ctx *ctx, struct ir3_block *block)
 				} else {
 					unsigned name = arr->base + reg->array.offset;
 					use(name, instr);
+					/* NOTE: arrays are not SSA so unconditionally
+					 * set use bit:
+					 */
+					BITSET_SET(bd->use, name);
 					debug_assert(reg->array.offset < arr->length);
 				}
 			} else if ((src = ssa(reg)) && writes_gpr(src)) {
@@ -856,10 +863,16 @@ ra_add_interference(struct ir3_ra_ctx *ctx)
 		list_for_each_entry (struct ir3_block, block, &ir->block_list, node) {
 			struct ir3_ra_block_data *bd = block->data;
 			debug_printf("block%u:\n", block_id(block));
-			print_bitset("def", bd->def, ctx->alloc_count);
-			print_bitset("use", bd->use, ctx->alloc_count);
-			print_bitset("l/i", bd->livein, ctx->alloc_count);
-			print_bitset("l/o", bd->liveout, ctx->alloc_count);
+			print_bitset("  def", bd->def, ctx->alloc_count);
+			print_bitset("  use", bd->use, ctx->alloc_count);
+			print_bitset("  l/i", bd->livein, ctx->alloc_count);
+			print_bitset("  l/o", bd->liveout, ctx->alloc_count);
+		}
+		list_for_each_entry (struct ir3_array, arr, &ir->array_list, node) {
+			debug_printf("array%u:\n", arr->id);
+			debug_printf("  length:   %u\n", arr->length);
+			debug_printf("  start_ip: %u\n", arr->start_ip);
+			debug_printf("  end_ip:   %u\n", arr->end_ip);
 		}
 	}
 
@@ -876,6 +889,17 @@ ra_add_interference(struct ir3_ra_ctx *ctx)
 			if (BITSET_TEST(bd->liveout, i)) {
 				ctx->def[i] = MIN2(ctx->def[i], block->end_ip);
 				ctx->use[i] = MAX2(ctx->use[i], block->end_ip);
+			}
+		}
+
+		list_for_each_entry (struct ir3_array, arr, &ctx->ir->array_list, node) {
+			for (unsigned i = 0; i < arr->length; i++) {
+				if (BITSET_TEST(bd->livein, i + arr->base)) {
+					arr->start_ip = MIN2(arr->start_ip, block->start_ip);
+				}
+				if (BITSET_TEST(bd->livein, i + arr->base)) {
+					arr->end_ip = MAX2(arr->end_ip, block->end_ip);
+				}
 			}
 		}
 	}
@@ -971,6 +995,7 @@ reg_assign(struct ir3_ra_ctx *ctx, struct ir3_register *reg,
 			reg->array.offset = num;
 		} else {
 			reg->num = num;
+			reg->flags &= ~IR3_REG_SSA;
 		}
 
 		reg->flags &= ~IR3_REG_ARRAY;
@@ -981,8 +1006,11 @@ reg_assign(struct ir3_ra_ctx *ctx, struct ir3_register *reg,
 
 		debug_assert(!(reg->flags & IR3_REG_RELATIV));
 
+		if (is_high(id->defn))
+			num += FIRST_HIGH_REG;
+
 		reg->num = num;
-		reg->flags &= ~(IR3_REG_SSA | IR3_REG_PHI_SRC);
+		reg->flags &= ~IR3_REG_SSA;
 
 		if (is_half(id->defn))
 			reg->flags |= IR3_REG_HALF;
@@ -1029,7 +1057,7 @@ ra_alloc(struct ir3_ra_ctx *ctx)
 		unsigned i = 0, j;
 		if (ctx->frag_face && (i < ir->ninputs) && ir->inputs[i]) {
 			struct ir3_instruction *instr = ir->inputs[i];
-			int cls = size_to_class(1, true);
+			int cls = size_to_class(1, true, false);
 			unsigned name = __ra_name(ctx, cls, instr);
 			unsigned reg = ctx->set->gpr_to_ra_reg[cls][0];
 

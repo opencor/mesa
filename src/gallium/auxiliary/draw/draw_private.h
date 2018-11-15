@@ -1,5 +1,5 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
  *
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 /**
@@ -83,7 +83,7 @@ struct draw_vertex_buffer {
 
 /**
  * Basic vertex info.
- * Carry some useful information around with the vertices in the prim pipe.
+ * Carry some useful information around with the vertices in the prim pipe.  
  */
 struct vertex_header {
    unsigned clipmask:DRAW_TOTAL_CLIP_PLANES;
@@ -103,7 +103,7 @@ struct vertex_header {
 
 
 /* maximum number of shader variants we can cache */
-#define DRAW_MAX_SHADER_VARIANTS 128
+#define DRAW_MAX_SHADER_VARIANTS 512
 
 /**
  * Private context for the drawing module.
@@ -116,7 +116,7 @@ struct draw_context
    struct {
       struct draw_stage *first;  /**< one of the following */
 
-      struct draw_stage *validate;
+      struct draw_stage *validate; 
 
       /* stages (in logical order) */
       struct draw_stage *flatshade;
@@ -193,21 +193,21 @@ struct draw_context
          unsigned eltSizeIB;
          unsigned eltSize;
          unsigned eltMax;
-         int eltBias;
+         int eltBias;         
          unsigned min_index;
          unsigned max_index;
-
+         
          /** vertex arrays */
          struct draw_vertex_buffer vbuffer[PIPE_MAX_ATTRIBS];
-
+         
          /** constant buffers (for vertex/geometry shader) */
          const void *vs_constants[PIPE_MAX_CONSTANT_BUFFERS];
          unsigned vs_constants_size[PIPE_MAX_CONSTANT_BUFFERS];
          const void *gs_constants[PIPE_MAX_CONSTANT_BUFFERS];
          unsigned gs_constants_size[PIPE_MAX_CONSTANT_BUFFERS];
-
+         
          /* pointer to planes */
-         float (*planes)[DRAW_TOTAL_CLIP_PLANES][4];
+         float (*planes)[DRAW_TOTAL_CLIP_PLANES][4]; 
       } user;
 
       boolean test_fse;         /* enable FSE even though its not correct (eg for softpipe) */
@@ -426,7 +426,7 @@ void draw_pt_flush( struct draw_context *draw, unsigned flags );
 
 
 /*******************************************************************************
- * Primitive processing (pipeline) code:
+ * Primitive processing (pipeline) code: 
  */
 
 boolean draw_pipeline_init( struct draw_context *draw );
@@ -457,13 +457,13 @@ void draw_pipeline_run_linear( struct draw_context *draw,
 
 
 
-void draw_pipeline_flush( struct draw_context *draw,
+void draw_pipeline_flush( struct draw_context *draw, 
                           unsigned flags );
 
 
 
 /*******************************************************************************
- * Flushing
+ * Flushing 
  */
 
 #define DRAW_FLUSH_PARAMETER_CHANGE 0x1  /**< Constants, viewport, etc */
@@ -487,7 +487,7 @@ draw_stats_clipper_primitives(struct draw_context *draw,
 void draw_update_clip_flags(struct draw_context *draw);
 void draw_update_viewport_flags(struct draw_context *draw);
 
-/**
+/** 
  * Return index i from the index buffer.
  * If the index buffer would overflow we return index 0.
  */

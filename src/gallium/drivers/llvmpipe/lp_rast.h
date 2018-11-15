@@ -83,7 +83,7 @@ struct lp_rast_state {
     * the fragment shader, such as blend color and alpha ref value.
     */
    struct lp_jit_context jit_context;
-
+   
    /* The shader itself.  Probably we also need to pass a pointer to
     * the tile color/z/stencil data somehow
      */
@@ -162,7 +162,7 @@ lp_rast_create( unsigned num_threads );
 void
 lp_rast_destroy( struct lp_rasterizer * );
 
-void
+void 
 lp_rast_queue_scene( struct lp_rasterizer *rast,
                      struct lp_scene *scene );
 

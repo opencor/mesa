@@ -34,13 +34,6 @@ extern "C" {
 
 #include <EGL/eglplatform.h>
 
-#ifdef EGL_MESA_drm_image
-/* Mesa's extension to EGL_MESA_drm_image... */
-#ifndef EGL_DRM_BUFFER_USE_CURSOR_MESA
-#define EGL_DRM_BUFFER_USE_CURSOR_MESA		0x0004
-#endif
-#endif
-
 #ifndef EGL_WL_bind_wayland_display
 #define EGL_WL_bind_wayland_display 1
 
@@ -70,6 +63,7 @@ typedef EGLBoolean (EGLAPIENTRYP PFNEGLQUERYWAYLANDBUFFERWL) (EGLDisplay dpy, st
 #ifndef EGL_WL_create_wayland_buffer_from_image
 #define EGL_WL_create_wayland_buffer_from_image 1
 
+struct wl_buffer;
 #ifdef EGL_EGLEXT_PROTOTYPES
 EGLAPI struct wl_buffer * EGLAPIENTRY eglCreateWaylandBufferFromImageWL(EGLDisplay dpy, EGLImageKHR image);
 #endif

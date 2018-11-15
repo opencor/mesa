@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
  /*
@@ -31,7 +31,7 @@
   * Authors:
   *   Brian Paul
   */
-
+ 
 
 #include <assert.h>
 
@@ -60,9 +60,9 @@ invert_stipple(GLuint dest[32], const GLuint src[32], GLuint winHeight)
 }
 
 
-
-static void
-update_stipple( struct st_context *st )
+/** Update the stipple when the pattern or window height changes */
+void
+st_update_polygon_stipple( struct st_context *st )
 {
    const struct gl_context *ctx = st->ctx;
    const GLuint sz = sizeof(st->state.poly_stipple);
@@ -84,9 +84,3 @@ update_stipple( struct st_context *st )
       st->pipe->set_polygon_stipple(st->pipe, &newStipple);
    }
 }
-
-
-/** Update the stipple when the pattern or window height changes */
-const struct st_tracked_state st_update_polygon_stipple = {
-   update_stipple					/* update */
-};

@@ -33,6 +33,11 @@
 #include <stdlib.h>
 #include "glsl_symbol_table.h"
 
+/* THIS is a macro defined somewhere deep in the Windows MSVC header files.
+ * Undefine it here to avoid collision with the lexer's THIS token.
+ */
+#undef THIS
+
 struct gl_context;
 
 struct glsl_switch_state {
@@ -317,8 +322,7 @@ struct _mesa_glsl_parse_state {
    bool has_framebuffer_fetch() const
    {
       return EXT_shader_framebuffer_fetch_enable ||
-             MESA_shader_framebuffer_fetch_enable ||
-             MESA_shader_framebuffer_fetch_non_coherent_enable;
+             EXT_shader_framebuffer_fetch_non_coherent_enable;
    }
 
    bool has_texture_cube_map_array() const
@@ -332,6 +336,11 @@ struct _mesa_glsl_parse_state {
    bool has_shader_image_load_store() const
    {
       return ARB_shader_image_load_store_enable || is_version(420, 310);
+   }
+
+   bool has_bindless() const
+   {
+      return ARB_bindless_texture_enable;
    }
 
    void process_version_directive(YYLTYPE *locp, int version,
@@ -349,7 +358,7 @@ struct _mesa_glsl_parse_state {
       unsigned ver;
       uint8_t gl_ver;
       bool es;
-   } supported_versions[16];
+   } supported_versions[17];
 
    bool es_shader;
    bool compat_shader;
@@ -421,6 +430,16 @@ struct _mesa_glsl_parse_state {
     * a layout directive as specified by ARB_compute_variable_group_size.
     */
    bool cs_input_local_size_variable_specified;
+
+   /**
+    * True if a shader declare bindless_sampler/bindless_image, and
+    * respectively bound_sampler/bound_image at global scope as specified by
+    * ARB_bindless_texture.
+    */
+   bool bindless_sampler_specified;
+   bool bindless_image_specified;
+   bool bound_sampler_specified;
+   bool bound_image_specified;
 
    /**
     * Output layout qualifiers from GLSL 1.50 (geometry shader controls),
@@ -592,6 +611,10 @@ struct _mesa_glsl_parse_state {
    bool ARB_ES3_2_compatibility_warn;
    bool ARB_arrays_of_arrays_enable;
    bool ARB_arrays_of_arrays_warn;
+   bool ARB_bindless_texture_enable;
+   bool ARB_bindless_texture_warn;
+   bool ARB_compatibility_enable;
+   bool ARB_compatibility_warn;
    bool ARB_compute_shader_enable;
    bool ARB_compute_shader_warn;
    bool ARB_compute_variable_group_size_enable;
@@ -616,6 +639,8 @@ struct _mesa_glsl_parse_state {
    bool ARB_fragment_coord_conventions_warn;
    bool ARB_fragment_layer_viewport_enable;
    bool ARB_fragment_layer_viewport_warn;
+   bool ARB_fragment_shader_interlock_enable;
+   bool ARB_fragment_shader_interlock_warn;
    bool ARB_gpu_shader5_enable;
    bool ARB_gpu_shader5_warn;
    bool ARB_gpu_shader_fp64_enable;
@@ -694,6 +719,8 @@ struct _mesa_glsl_parse_state {
     */
    bool OES_EGL_image_external_enable;
    bool OES_EGL_image_external_warn;
+   bool OES_EGL_image_external_essl3_enable;
+   bool OES_EGL_image_external_essl3_warn;
    bool OES_geometry_point_size_enable;
    bool OES_geometry_point_size_warn;
    bool OES_geometry_shader_enable;
@@ -761,6 +788,8 @@ struct _mesa_glsl_parse_state {
    bool EXT_separate_shader_objects_warn;
    bool EXT_shader_framebuffer_fetch_enable;
    bool EXT_shader_framebuffer_fetch_warn;
+   bool EXT_shader_framebuffer_fetch_non_coherent_enable;
+   bool EXT_shader_framebuffer_fetch_non_coherent_warn;
    bool EXT_shader_integer_mix_enable;
    bool EXT_shader_integer_mix_warn;
    bool EXT_shader_io_blocks_enable;
@@ -779,10 +808,6 @@ struct _mesa_glsl_parse_state {
    bool EXT_texture_cube_map_array_warn;
    bool INTEL_conservative_rasterization_enable;
    bool INTEL_conservative_rasterization_warn;
-   bool MESA_shader_framebuffer_fetch_enable;
-   bool MESA_shader_framebuffer_fetch_warn;
-   bool MESA_shader_framebuffer_fetch_non_coherent_enable;
-   bool MESA_shader_framebuffer_fetch_non_coherent_warn;
    bool MESA_shader_integer_functions_enable;
    bool MESA_shader_integer_functions_warn;
    bool NV_image_formats_enable;
@@ -810,6 +835,11 @@ struct _mesa_glsl_parse_state {
 
    bool fs_post_depth_coverage;
 
+   bool fs_pixel_interlock_ordered;
+   bool fs_pixel_interlock_unordered;
+   bool fs_sample_interlock_ordered;
+   bool fs_sample_interlock_unordered;
+
    unsigned fs_blend_support;
 
    /**
@@ -825,6 +855,7 @@ struct _mesa_glsl_parse_state {
    unsigned atomic_counter_offsets[MAX_COMBINED_ATOMIC_BUFFERS];
 
    bool allow_extension_directive_midshader;
+   bool allow_builtin_variable_redeclaration;
 
    /**
     * Known subroutine type declarations.
@@ -929,6 +960,11 @@ extern int glcpp_preprocess(void *ctx, const char **shader, char **info_log,
 
 extern void _mesa_destroy_shader_compiler(void);
 extern void _mesa_destroy_shader_compiler_caches(void);
+
+extern void
+_mesa_glsl_copy_symbols_from_table(struct exec_list *shader_ir,
+                                   struct glsl_symbol_table *src,
+                                   struct glsl_symbol_table *dest);
 
 #ifdef __cplusplus
 }

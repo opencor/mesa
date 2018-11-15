@@ -45,7 +45,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "dri_util.h"
 #include "radeon_chipset.h"
 #include "radeon_reg.h"
-#include "xmlconfig.h"
+#include "util/xmlconfig.h"
 
 
 typedef struct {
@@ -126,7 +126,6 @@ struct __DRIimageRec {
 #define radeon_prepare_render               r200_radeon_prepare_render
 #define radeonUnbindContext                 r200_radeonUnbindContext
 #define radeon_update_renderbuffers         r200_radeon_update_renderbuffers
-#define radeon_check_front_buffer_rendering r200_radeon_check_front_buffer_rendering
 #define radeonCountStateEmitSize            r200_radeonCountStateEmitSize
 #define radeon_draw_buffer                  r200_radeon_draw_buffer
 #define radeonDrawBuffer                    r200_radeonDrawBuffer

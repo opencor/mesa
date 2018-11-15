@@ -1,6 +1,6 @@
 /*
  Copyright (c) 2008, 2009 Apple Inc.
-
+ 
  Permission is hereby granted, free of charge, to any person
  obtaining a copy of this software and associated documentation files
  (the "Software"), to deal in the Software without restriction,
@@ -8,10 +8,10 @@
  publish, distribute, sublicense, and/or sell copies of the Software,
  and to permit persons to whom the Software is furnished to do so,
  subject to the following conditions:
-
+ 
  The above copyright notice and this permission notice shall be
  included in all copies or substantial portions of the Software.
-
+ 
  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -20,7 +20,7 @@
  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  DEALINGS IN THE SOFTWARE.
-
+ 
  Except as contained in this notice, the name(s) of the above
  copyright holders shall not be used in advertising or otherwise to
  promote the sale, use or other dealings in this Software without
@@ -112,7 +112,7 @@ struct apple_glx_drawable
 
    struct apple_glx_drawable_callbacks callbacks;
 
-   /*
+   /* 
     * This mutex protects the reference count and any other drawable data.
     * It's used to prevent an early release of a drawable.
     */
@@ -161,8 +161,8 @@ bool apple_glx_create_drawable(Display * dpy,
 
 void apple_glx_garbage_collect_drawables(Display * dpy);
 
-/*
- * This returns the total number of drawables.
+/* 
+ * This returns the total number of drawables. 
  * It's mostly intended for debugging and introspection.
  */
 unsigned int apple_glx_get_drawable_count(void);

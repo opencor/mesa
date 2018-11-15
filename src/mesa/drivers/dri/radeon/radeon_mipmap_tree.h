@@ -85,7 +85,7 @@ void radeon_miptree_unreference(radeon_mipmap_tree **ptr);
 
 GLboolean radeon_miptree_matches_image(radeon_mipmap_tree *mt,
 				       struct gl_texture_image *texImage);
-
+				       
 void radeon_try_alloc_miptree(radeonContextPtr rmesa, radeonTexObj *t);
 GLuint radeon_miptree_image_offset(radeon_mipmap_tree *mt,
 				   GLuint face, GLuint level);

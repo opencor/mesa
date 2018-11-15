@@ -30,7 +30,7 @@
 
 /* Compute the size of an array */
 #ifndef ARRAY_SIZE
-#  define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
+#  define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #endif
 
 /* For compatibility with Clang's __has_builtin() */
@@ -136,6 +136,18 @@ do {                       \
 #define MALLOCLIKE
 #endif
 
+/* Forced function inlining */
+/* Note: Clang also sets __GNUC__ (see other cases below) */
+#ifndef ALWAYS_INLINE
+#  if defined(__GNUC__)
+#    define ALWAYS_INLINE inline __attribute__((always_inline))
+#  elif defined(_MSC_VER)
+#    define ALWAYS_INLINE __forceinline
+#  else
+#    define ALWAYS_INLINE inline
+#  endif
+#endif
+
 /* Used to optionally mark structures with misaligned elements or size as
  * packed, to trade off performance for space.
  */
@@ -158,6 +170,16 @@ do {                       \
 #define ATTRIBUTE_RETURNS_NONNULL __attribute__((__returns_nonnull__))
 #else
 #define ATTRIBUTE_RETURNS_NONNULL
+#endif
+
+#ifndef NORETURN
+#  ifdef _MSC_VER
+#    define NORETURN __declspec(noreturn)
+#  elif defined HAVE_FUNC_ATTRIBUTE_NORETURN
+#    define NORETURN __attribute__((__noreturn__))
+#  else
+#    define NORETURN
+#  endif
 #endif
 
 #ifdef __cplusplus
@@ -230,11 +252,28 @@ do {                       \
 #define ATTRIBUTE_NOINLINE
 #endif
 
+
+/**
+ * Check that STRUCT::FIELD can hold MAXVAL.  We use a lot of bitfields
+ * in Mesa/gallium.  We have to be sure they're of sufficient size to
+ * hold the largest expected value.
+ * Note that with MSVC, enums are signed and enum bitfields need one extra
+ * high bit (always zero) to ensure the max value is handled correctly.
+ * This macro will detect that with MSVC, but not GCC.
+ */
+#define ASSERT_BITFIELD_SIZE(STRUCT, FIELD, MAXVAL) \
+   do { \
+      MAYBE_UNUSED STRUCT s;                \
+      s.FIELD = (MAXVAL); \
+      assert((int) s.FIELD == (MAXVAL) && "Insufficient bitfield size!"); \
+   } while (0)
+
+
 /** Compute ceiling of integer quotient of A divided by B. */
 #define DIV_ROUND_UP( A, B )  ( (A) % (B) == 0 ? (A)/(B) : (A)/(B)+1 )
 
-/** Clamp X to [MIN,MAX] */
-#define CLAMP( X, MIN, MAX )  ( (X)<(MIN) ? (MIN) : ((X)>(MAX) ? (MAX) : (X)) )
+/** Clamp X to [MIN,MAX].  Turn NaN into MIN, arbitrarily. */
+#define CLAMP( X, MIN, MAX )  ( (X)>(MIN) ? ((X)>(MAX) ? (MAX) : (X)) : (MIN) )
 
 /** Minimum of two values: */
 #define MIN2( A, B )   ( (A)<(B) ? (A) : (B) )
@@ -245,5 +284,18 @@ do {                       \
 /** Minimum and maximum of three values: */
 #define MIN3( A, B, C ) ((A) < (B) ? MIN2(A, C) : MIN2(B, C))
 #define MAX3( A, B, C ) ((A) > (B) ? MAX2(A, C) : MAX2(B, C))
+
+/** Align a value to a power of two */
+#define ALIGN_POT(x, pot_align) (((x) + (pot_align) - 1) & ~((pot_align) - 1))
+
+/**
+ * Macro for declaring an explicit conversion operator.  Defaults to an
+ * implicit conversion if C++11 is not supported.
+ */
+#if __cplusplus >= 201103L
+#define EXPLICIT_CONVERSION explicit
+#elif defined(__cplusplus)
+#define EXPLICIT_CONVERSION
+#endif
 
 #endif /* UTIL_MACROS_H */

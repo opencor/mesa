@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #ifndef _INTEL_INIT_H_
@@ -33,7 +33,7 @@
 #include "dri_util.h"
 #include "intel_bufmgr.h"
 #include "i915_drm.h"
-#include "xmlconfig.h"
+#include "util/xmlconfig.h"
 
 struct intel_screen
 {
@@ -117,7 +117,6 @@ struct intel_screen
 #define intel_check_front_buffer_rendering  old_intel_check_front_buffer_rendering
 #define intelInitBufferFuncs                old_intelInitBufferFuncs
 #define intelClearWithBlit                  old_intelClearWithBlit
-#define intelEmitCopyBlit                   old_intelEmitCopyBlit
 #define intelEmitImmediateColorExpandBlit   old_intelEmitImmediateColorExpandBlit
 #define intel_emit_linear_blit              old_intel_emit_linear_blit
 #define intel_miptree_blit                  old_intel_miptree_blit
@@ -139,7 +138,6 @@ struct intel_screen
 #define get_time                            old_get_time
 #define intel_translate_blend_factor        old_intel_translate_blend_factor
 #define intel_translate_compare_func        old_intel_translate_compare_func
-#define intel_translate_logic_op            old_intel_translate_logic_op
 #define intel_translate_shadow_compare_func old_intel_translate_shadow_compare_func
 #define intel_translate_stencil_op          old_intel_translate_stencil_op
 #define intel_init_syncobj_functions        old_intel_init_syncobj_functions

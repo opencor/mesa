@@ -46,7 +46,7 @@ int rtasm_cpu_has_sse(void)
    return !debug_get_option_nosse() && get_cpu_caps()->has_sse;
 }
 
-int rtasm_cpu_has_sse2(void)
+int rtasm_cpu_has_sse2(void) 
 {
    return !debug_get_option_nosse() && get_cpu_caps()->has_sse2;
 }

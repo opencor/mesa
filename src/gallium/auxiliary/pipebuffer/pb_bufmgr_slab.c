@@ -29,10 +29,10 @@
 /**
  * @file
  * S-lab pool implementation.
- *
+ * 
  * @sa http://en.wikipedia.org/wiki/Slab_allocation
- *
- * @author Thomas Hellstrom <thellstom-at-vmware-dot-com>
+ * 
+ * @author Thomas Hellstrom <thellstrom-at-vmware-dot-com>
  * @author Jose Fonseca <jfonseca@vmware.com>
  */
 
@@ -42,7 +42,6 @@
 #include "pipe/p_defines.h"
 #include "util/u_memory.h"
 #include "util/list.h"
-#include "util/u_time.h"
 
 #include "pb_buffer.h"
 #include "pb_bufmgr.h"
@@ -53,22 +52,22 @@ struct pb_slab;
 
 /**
  * Buffer in a slab.
- *
+ * 
  * Sub-allocation of a contiguous buffer.
  */
 struct pb_slab_buffer
 {
    struct pb_buffer base;
-
+   
    struct pb_slab *slab;
-
+   
    struct list_head head;
-
+   
    unsigned mapCount;
-
+   
    /** Offset relative to the start of the slab buffer. */
    pb_size start;
-
+   
    /** Use when validating, to signal that all mappings are finished */
    /* TODO: Actually validation does not reach this stage yet */
    cnd_t event;
@@ -76,7 +75,7 @@ struct pb_slab_buffer
 
 
 /**
- * Slab -- a contiguous piece of memory.
+ * Slab -- a contiguous piece of memory. 
  */
 struct pb_slab
 {
@@ -84,80 +83,80 @@ struct pb_slab
    struct list_head freeBuffers;
    pb_size numBuffers;
    pb_size numFree;
-
+   
    struct pb_slab_buffer *buffers;
    struct pb_slab_manager *mgr;
-
+   
    /** Buffer from the provider */
    struct pb_buffer *bo;
-
-   void *virtual;
+   
+   void *virtual;   
 };
 
 
 /**
- * It adds/removes slabs as needed in order to meet the allocation/destruction
+ * It adds/removes slabs as needed in order to meet the allocation/destruction 
  * of individual buffers.
  */
-struct pb_slab_manager
+struct pb_slab_manager 
 {
    struct pb_manager base;
-
+   
    /** From where we get our buffers */
    struct pb_manager *provider;
-
+   
    /** Size of the buffers we hand on downstream */
    pb_size bufSize;
-
+   
    /** Size of the buffers we request upstream */
    pb_size slabSize;
-
-   /**
+   
+   /** 
     * Alignment, usage to be used to allocate the slab buffers.
-    *
-    * We can only provide buffers which are consistent (in alignment, usage)
-    * with this description.
+    * 
+    * We can only provide buffers which are consistent (in alignment, usage) 
+    * with this description.   
     */
    struct pb_desc desc;
 
-   /**
+   /** 
     * Partial slabs
-    *
-    * Full slabs are not stored in any list. Empty slabs are destroyed
+    * 
+    * Full slabs are not stored in any list. Empty slabs are destroyed 
     * immediatly.
     */
    struct list_head slabs;
-
+   
    mtx_t mutex;
 };
 
 
 /**
- * Wrapper around several slabs, therefore capable of handling buffers of
- * multiple sizes.
- *
+ * Wrapper around several slabs, therefore capable of handling buffers of 
+ * multiple sizes. 
+ * 
  * This buffer manager just dispatches buffer allocations to the appropriate slab
- * manager, according to the requested buffer size, or by passes the slab
+ * manager, according to the requested buffer size, or by passes the slab 
  * managers altogether for even greater sizes.
- *
+ * 
  * The data of this structure remains constant after
  * initialization and thus needs no mutex protection.
  */
-struct pb_slab_range_manager
+struct pb_slab_range_manager 
 {
    struct pb_manager base;
 
    struct pb_manager *provider;
-
+   
    pb_size minBufSize;
    pb_size maxBufSize;
-
-   /** @sa pb_slab_manager::desc */
+   
+   /** @sa pb_slab_manager::desc */ 
    struct pb_desc desc;
-
+   
    unsigned numBuckets;
    pb_size *bucketSizes;
-
+   
    /** Array of pb_slab_manager, one for each bucket size */
    struct pb_manager **buckets;
 };
@@ -200,9 +199,9 @@ pb_slab_buffer_destroy(struct pb_buffer *_buf)
    struct list_head *list = &buf->head;
 
    mtx_lock(&mgr->mutex);
-
+   
    assert(!pipe_is_referenced(&buf->base.reference));
-
+   
    buf->mapCount = 0;
 
    LIST_DEL(list);
@@ -226,7 +225,7 @@ pb_slab_buffer_destroy(struct pb_buffer *_buf)
 
 
 static void *
-pb_slab_buffer_map(struct pb_buffer *_buf,
+pb_slab_buffer_map(struct pb_buffer *_buf, 
                    unsigned flags,
                    void *flush_ctx)
 {
@@ -245,13 +244,13 @@ pb_slab_buffer_unmap(struct pb_buffer *_buf)
    struct pb_slab_buffer *buf = pb_slab_buffer(_buf);
 
    --buf->mapCount;
-   if (buf->mapCount == 0)
+   if (buf->mapCount == 0) 
        cnd_broadcast(&buf->event);
 }
 
 
-static enum pipe_error
-pb_slab_buffer_validate(struct pb_buffer *_buf,
+static enum pipe_error 
+pb_slab_buffer_validate(struct pb_buffer *_buf, 
                          struct pb_validate *vl,
                          unsigned flags)
 {
@@ -261,7 +260,7 @@ pb_slab_buffer_validate(struct pb_buffer *_buf,
 
 
 static void
-pb_slab_buffer_fence(struct pb_buffer *_buf,
+pb_slab_buffer_fence(struct pb_buffer *_buf, 
                       struct pipe_fence_handle *fence)
 {
    struct pb_slab_buffer *buf = pb_slab_buffer(_buf);
@@ -280,7 +279,7 @@ pb_slab_buffer_get_base_buffer(struct pb_buffer *_buf,
 }
 
 
-static const struct pb_vtbl
+static const struct pb_vtbl 
 pb_slab_buffer_vtbl = {
       pb_slab_buffer_destroy,
       pb_slab_buffer_map,
@@ -293,7 +292,7 @@ pb_slab_buffer_vtbl = {
 
 /**
  * Create a new slab.
- *
+ * 
  * Called when we ran out of free slabs.
  */
 static enum pipe_error
@@ -315,9 +314,9 @@ pb_slab_create(struct pb_slab_manager *mgr)
       goto out_err0;
    }
 
-   /* Note down the slab virtual address. All mappings are accessed directly
+   /* Note down the slab virtual address. All mappings are accessed directly 
     * through this address so it is required that the buffer is pinned. */
-   slab->virtual = pb_map(slab->bo,
+   slab->virtual = pb_map(slab->bo, 
                           PB_USAGE_CPU_READ |
                           PB_USAGE_CPU_WRITE, NULL);
    if(!slab->virtual) {
@@ -361,9 +360,9 @@ pb_slab_create(struct pb_slab_manager *mgr)
 
    return PIPE_OK;
 
-out_err1:
+out_err1: 
    pb_reference(&slab->bo, NULL);
-out_err0:
+out_err0: 
    FREE(slab);
    return ret;
 }
@@ -383,7 +382,7 @@ pb_slab_manager_create_buffer(struct pb_manager *_mgr,
    assert(size <= mgr->bufSize);
    if(size > mgr->bufSize)
       return NULL;
-
+   
    /* check if we can provide the requested alignment */
    assert(pb_check_alignment(desc->alignment, mgr->desc.alignment));
    if(!pb_check_alignment(desc->alignment, mgr->desc.alignment))
@@ -397,7 +396,7 @@ pb_slab_manager_create_buffer(struct pb_manager *_mgr,
       return NULL;
 
    mtx_lock(&mgr->mutex);
-
+   
    /* Create a new slab, if we run out of partial slabs */
    if (mgr->slabs.next == &mgr->slabs) {
       (void) pb_slab_create(mgr);
@@ -406,11 +405,11 @@ pb_slab_manager_create_buffer(struct pb_manager *_mgr,
 	 return NULL;
       }
    }
-
+   
    /* Allocate the buffer from a partial (or just created) slab */
    list = mgr->slabs.next;
    slab = LIST_ENTRY(struct pb_slab, list, head);
-
+   
    /* If totally full remove from the partial slab list */
    if (--slab->numFree == 0)
       LIST_DELINIT(list);
@@ -420,11 +419,11 @@ pb_slab_manager_create_buffer(struct pb_manager *_mgr,
 
    mtx_unlock(&mgr->mutex);
    buf = LIST_ENTRY(struct pb_slab_buffer, list, head);
-
+   
    pipe_reference_init(&buf->base.reference, 1);
    buf->base.alignment = desc->alignment;
    buf->base.usage = desc->usage;
-
+   
    return &buf->base;
 }
 
@@ -472,7 +471,7 @@ pb_slab_manager_create(struct pb_manager *provider,
    mgr->desc = *desc;
 
    LIST_INITHEAD(&mgr->slabs);
-
+   
    (void) mtx_init(&mgr->mutex, mtx_plain);
 
    return &mgr->base;
@@ -510,7 +509,7 @@ pb_slab_range_manager_flush(struct pb_manager *_mgr)
    struct pb_slab_range_manager *mgr = pb_slab_range_manager(_mgr);
 
    /* Individual slabs don't hold any temporary buffers so no need to call them */
-
+   
    assert(mgr->provider->flush);
    if(mgr->provider->flush)
       mgr->provider->flush(mgr->provider);
@@ -522,7 +521,7 @@ pb_slab_range_manager_destroy(struct pb_manager *_mgr)
 {
    struct pb_slab_range_manager *mgr = pb_slab_range_manager(_mgr);
    unsigned i;
-
+   
    for (i = 0; i < mgr->numBuckets; ++i)
       mgr->buckets[i]->destroy(mgr->buckets[i]);
    FREE(mgr->buckets);
@@ -544,7 +543,7 @@ pb_slab_range_manager_create(struct pb_manager *provider,
 
    if (!provider)
       return NULL;
-
+   
    mgr = CALLOC_STRUCT(pb_slab_range_manager);
    if (!mgr)
       goto out_err0;
@@ -563,7 +562,7 @@ pb_slab_range_manager_create(struct pb_manager *provider,
       bufSize *= 2;
       ++mgr->numBuckets;
    }
-
+   
    mgr->buckets = CALLOC(mgr->numBuckets, sizeof(*mgr->buckets));
    if (!mgr->buckets)
       goto out_err1;
@@ -578,12 +577,12 @@ pb_slab_range_manager_create(struct pb_manager *provider,
 
    return &mgr->base;
 
-out_err2:
+out_err2: 
    for (i = 0; i < mgr->numBuckets; ++i)
       if(mgr->buckets[i])
 	    mgr->buckets[i]->destroy(mgr->buckets[i]);
    FREE(mgr->buckets);
-out_err1:
+out_err1: 
    FREE(mgr);
 out_err0:
    return NULL;

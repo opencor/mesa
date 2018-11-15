@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
@@ -96,7 +96,7 @@ i915_reduced_primitive_state(struct intel_context *intel, GLenum rprim)
 
 
 /* Pull apart the vertex format registers and figure out how large a
- * vertex is supposed to be.
+ * vertex is supposed to be. 
  */
 static bool
 i915_check_vertex_size(struct intel_context *intel, GLuint expected)
@@ -176,7 +176,7 @@ i915_emit_invarient_state(struct intel_context *intel)
 {
    BATCH_LOCALS;
 
-   BEGIN_BATCH(17);
+   BEGIN_BATCH(15);
 
    OUT_BATCH(_3DSTATE_AA_CMD |
              AA_LINE_ECAAR_WIDTH_ENABLE |
@@ -199,11 +199,6 @@ i915_emit_invarient_state(struct intel_context *intel)
              CSB_TCB(2, 2) |
              CSB_TCB(3, 3) |
              CSB_TCB(4, 4) | CSB_TCB(5, 5) | CSB_TCB(6, 6) | CSB_TCB(7, 7));
-
-   /* Need to initialize this to zero.
-    */
-   OUT_BATCH(_3DSTATE_LOAD_STATE_IMMEDIATE_1 | I1_LOAD_S(3) | (0));
-   OUT_BATCH(0);
 
    OUT_BATCH(_3DSTATE_SCISSOR_RECT_0_CMD);
    OUT_BATCH(0);
@@ -346,7 +341,7 @@ i915_emit_state(struct intel_context *intel)
    }
 
    /* work out list of buffers to emit */
-
+   
    /* Do this here as we may have flushed the batchbuffer above,
     * causing more state to be dirty!
     */
@@ -437,7 +432,7 @@ i915_emit_state(struct intel_context *intel)
    }
 
    /* Combine all the dirty texture state into a single command to
-    * avoid lockups on I915 hardware.
+    * avoid lockups on I915 hardware. 
     */
    if (dirty & I915_UPLOAD_TEX_ALL) {
       int nr = 0;
@@ -833,7 +828,7 @@ i915_new_batch(struct intel_context *intel)
    i915->current_vertex_size = 0;
 }
 
-static void
+static void 
 i915_assert_not_dirty( struct intel_context *intel )
 {
    struct i915_context *i915 = i915_context(&intel->ctx);

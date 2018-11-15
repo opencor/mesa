@@ -1,9 +1,9 @@
 #!/usr/bin/env python2
 ##########################################################################
-#
+# 
 # Copyright 2008 VMware, Inc.
 # All Rights Reserved.
-#
+# 
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the
 # "Software"), to deal in the Software without restriction, including
@@ -11,11 +11,11 @@
 # distribute, sub license, and/or sell copies of the Software, and to
 # permit persons to whom the Software is furnished to do so, subject to
 # the following conditions:
-#
+# 
 # The above copyright notice and this permission notice (including the
 # next paragraph) shall be included in all copies or substantial portions
 # of the Software.
-#
+# 
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
 # OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
 # MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
 # ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-#
+# 
 ##########################################################################
 
 
@@ -68,21 +68,21 @@ class XmlTokenizer:
         self.index = 0
         self.final = False
         self.skip_ws = skip_ws
-
+        
         self.character_pos = 0, 0
         self.character_data = ''
-
+        
         self.parser = xml.parsers.expat.ParserCreate()
         self.parser.StartElementHandler  = self.handle_element_start
         self.parser.EndElementHandler    = self.handle_element_end
         self.parser.CharacterDataHandler = self.handle_character_data
-
+    
     def handle_element_start(self, name, attributes):
         self.finish_character_data()
         line, column = self.pos()
         token = XmlToken(ELEMENT_START, name, attributes, line, column)
         self.tokens.append(token)
-
+    
     def handle_element_end(self, name):
         self.finish_character_data()
         line, column = self.pos()
@@ -93,15 +93,15 @@ class XmlTokenizer:
         if not self.character_data:
             self.character_pos = self.pos()
         self.character_data += data
-
+    
     def finish_character_data(self):
         if self.character_data:
-            if not self.skip_ws or not self.character_data.isspace():
+            if not self.skip_ws or not self.character_data.isspace(): 
                 line, column = self.character_pos
                 token = XmlToken(CHARACTER_DATA, self.character_data, None, line, column)
                 self.tokens.append(token)
             self.character_data = ''
-
+    
     def next(self):
         size = 16*1024
         while self.index >= len(self.tokens) and not self.final:
@@ -147,13 +147,13 @@ class XmlParser:
     def __init__(self, fp):
         self.tokenizer = XmlTokenizer(fp)
         self.consume()
-
+    
     def consume(self):
         self.token = self.tokenizer.next()
 
     def match_element_start(self, name):
         return self.token.type == ELEMENT_START and self.token.name_or_data == name
-
+    
     def match_element_end(self, name):
         return self.token.type == ELEMENT_END and self.token.name_or_data == name
 
@@ -167,7 +167,7 @@ class XmlParser:
         attrs = self.token.attrs
         self.consume()
         return attrs
-
+    
     def element_end(self, name):
         while self.token.type == CHARACTER_DATA:
             self.consume()
@@ -192,7 +192,7 @@ class TraceParser(XmlParser):
     def __init__(self, fp):
         XmlParser.__init__(self, fp)
         self.last_call_no = 0
-
+    
     def parse(self):
         self.element_start('trace')
         while self.token.type not in (ELEMENT_END, EOF):
@@ -229,7 +229,7 @@ class TraceParser(XmlParser):
             else:
                 raise TokenMismatch("<arg ...> or <ret ...>", self.token)
         self.element_end('call')
-
+        
         return Call(no, klass, method, args, ret, time)
 
     def parse_arg(self):
@@ -265,49 +265,49 @@ class TraceParser(XmlParser):
         self.element_start('null')
         self.element_end('null')
         return Literal(None)
-
+        
     def parse_bool(self):
         self.element_start('bool')
         value = int(self.character_data())
         self.element_end('bool')
         return Literal(value)
-
+        
     def parse_int(self):
         self.element_start('int')
         value = int(self.character_data())
         self.element_end('int')
         return Literal(value)
-
+        
     def parse_uint(self):
         self.element_start('uint')
         value = int(self.character_data())
         self.element_end('uint')
         return Literal(value)
-
+        
     def parse_float(self):
         self.element_start('float')
         value = float(self.character_data())
         self.element_end('float')
         return Literal(value)
-
+        
     def parse_enum(self):
         self.element_start('enum')
         name = self.character_data()
         self.element_end('enum')
         return NamedConstant(name)
-
+        
     def parse_string(self):
         self.element_start('string')
         value = self.character_data()
         self.element_end('string')
         return Literal(value)
-
+        
     def parse_bytes(self):
         self.element_start('bytes')
         value = self.character_data()
         self.element_end('bytes')
         return Blob(value)
-
+        
     def parse_array(self):
         self.element_start('array')
         elems = []
@@ -348,10 +348,10 @@ class TraceParser(XmlParser):
 
     def handle_call(self, call):
         pass
-
-
+    
+    
 class TraceDumper(TraceParser):
-
+    
     def __init__(self, fp, outStream = sys.stdout):
         TraceParser.__init__(self, fp)
         self.formatter = format.DefaultFormatter(outStream)
@@ -360,10 +360,10 @@ class TraceDumper(TraceParser):
     def handle_call(self, call):
         call.visit(self.pretty_printer)
         self.formatter.newline()
-
+        
 
 class Main:
-    '''Common main class for all retrace command line utilities.'''
+    '''Common main class for all retrace command line utilities.''' 
 
     def __init__(self):
         pass
@@ -371,7 +371,7 @@ class Main:
     def main(self):
         optparser = self.get_optparser()
         (options, args) = optparser.parse_args(sys.argv[1:])
-
+    
         if not args:
             optparser.error('insufficient number of arguments')
 

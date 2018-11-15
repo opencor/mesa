@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2006 VMware, Inc., Bismarck, ND., USA
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,28 +10,28 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL
  * THE COPYRIGHT HOLDERS, AUTHORS AND/OR ITS SUPPLIERS BE LIABLE FOR ANY CLAIM,
- * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
- * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+ * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR 
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE 
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
- *
+ * 
+ * 
  **************************************************************************/
 
 /**
  * \file
  * Batch buffer pool management.
- *
+ * 
  * \author Jose Fonseca <jfonseca-at-vmware-dot-com>
- * \author Thomas Hellström <thellstom-at-vmware-dot-com>
+ * \author Thomas Hellström <thellstrom-at-vmware-dot-com>
  */
 
 
@@ -55,20 +55,20 @@
 struct pool_pb_manager
 {
    struct pb_manager base;
-
+   
    mtx_t mutex;
-
+   
    pb_size bufSize;
    pb_size bufAlign;
-
+   
    pb_size numFree;
    pb_size numTot;
-
+   
    struct list_head free;
-
+   
    struct pb_buffer *buffer;
    void *map;
-
+   
    struct pool_buffer *bufs;
 };
 
@@ -84,11 +84,11 @@ pool_pb_manager(struct pb_manager *mgr)
 struct pool_buffer
 {
    struct pb_buffer base;
-
+   
    struct pool_pb_manager *mgr;
-
+   
    struct list_head head;
-
+   
    pb_size start;
 };
 
@@ -107,7 +107,7 @@ pool_buffer_destroy(struct pb_buffer *buf)
 {
    struct pool_buffer *pool_buf = pool_buffer(buf);
    struct pool_pb_manager *pool = pool_buf->mgr;
-
+   
    assert(!pipe_is_referenced(&pool_buf->base.reference));
 
    mtx_lock(&pool->mutex);
@@ -140,8 +140,8 @@ pool_buffer_unmap(struct pb_buffer *buf)
 }
 
 
-static enum pipe_error
-pool_buffer_validate(struct pb_buffer *buf,
+static enum pipe_error 
+pool_buffer_validate(struct pb_buffer *buf, 
                      struct pb_validate *vl,
                      unsigned flags)
 {
@@ -152,7 +152,7 @@ pool_buffer_validate(struct pb_buffer *buf,
 
 
 static void
-pool_buffer_fence(struct pb_buffer *buf,
+pool_buffer_fence(struct pb_buffer *buf, 
                   struct pipe_fence_handle *fence)
 {
    struct pool_buffer *pool_buf = pool_buffer(buf);
@@ -173,7 +173,7 @@ pool_buffer_get_base_buffer(struct pb_buffer *buf,
 }
 
 
-static const struct pb_vtbl
+static const struct pb_vtbl 
 pool_buffer_vtbl = {
       pool_buffer_destroy,
       pool_buffer_map,
@@ -195,7 +195,7 @@ pool_bufmgr_create_buffer(struct pb_manager *mgr,
 
    assert(size == pool->bufSize);
    assert(pool->bufAlign % desc->alignment == 0);
-
+   
    mtx_lock(&pool->mutex);
 
    if (pool->numFree == 0) {
@@ -216,13 +216,13 @@ pool_bufmgr_create_buffer(struct pb_manager *mgr,
    --pool->numFree;
 
    mtx_unlock(&pool->mutex);
-
+   
    pool_buf = LIST_ENTRY(struct pool_buffer, item, head);
    assert(!pipe_is_referenced(&pool_buf->base.reference));
    pipe_reference_init(&pool_buf->base.reference, 1);
    pool_buf->base.alignment = desc->alignment;
    pool_buf->base.usage = desc->usage;
-
+   
    return SUPER(pool_buf);
 }
 
@@ -241,21 +241,21 @@ pool_bufmgr_destroy(struct pb_manager *mgr)
    mtx_lock(&pool->mutex);
 
    FREE(pool->bufs);
-
+   
    pb_unmap(pool->buffer);
    pb_reference(&pool->buffer, NULL);
-
+   
    mtx_unlock(&pool->mutex);
-
+   
    FREE(mgr);
 }
 
 
 struct pb_manager *
-pool_bufmgr_create(struct pb_manager *provider,
-                   pb_size numBufs,
+pool_bufmgr_create(struct pb_manager *provider, 
+                   pb_size numBufs, 
                    pb_size bufSize,
-                   const struct pb_desc *desc)
+                   const struct pb_desc *desc) 
 {
    struct pool_pb_manager *pool;
    struct pool_buffer *pool_buf;
@@ -263,7 +263,7 @@ pool_bufmgr_create(struct pb_manager *provider,
 
    if (!provider)
       return NULL;
-
+   
    pool = CALLOC_STRUCT(pool_pb_manager);
    if (!pool)
       return NULL;
@@ -277,11 +277,11 @@ pool_bufmgr_create(struct pb_manager *provider,
    pool->numTot = numBufs;
    pool->numFree = numBufs;
    pool->bufSize = bufSize;
-   pool->bufAlign = desc->alignment;
-
+   pool->bufAlign = desc->alignment; 
+   
    (void) mtx_init(&pool->mutex, mtx_plain);
 
-   pool->buffer = provider->create_buffer(provider, numBufs*bufSize, desc);
+   pool->buffer = provider->create_buffer(provider, numBufs*bufSize, desc); 
    if (!pool->buffer)
       goto failure;
 
@@ -309,7 +309,7 @@ pool_bufmgr_create(struct pb_manager *provider,
    }
 
    return SUPER(pool);
-
+   
 failure:
    FREE(pool->bufs);
    if(pool->map)

@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
@@ -39,21 +39,21 @@ int
 intel_translate_shadow_compare_func(GLenum func)
 {
    switch (func) {
-   case GL_NEVER:
+   case GL_NEVER: 
        return COMPAREFUNC_ALWAYS;
-   case GL_LESS:
+   case GL_LESS: 
        return COMPAREFUNC_LEQUAL;
-   case GL_LEQUAL:
+   case GL_LEQUAL: 
        return COMPAREFUNC_LESS;
-   case GL_GREATER:
+   case GL_GREATER: 
        return COMPAREFUNC_GEQUAL;
-   case GL_GEQUAL:
+   case GL_GEQUAL: 
       return COMPAREFUNC_GREATER;
-   case GL_NOTEQUAL:
+   case GL_NOTEQUAL: 
       return COMPAREFUNC_EQUAL;
-   case GL_EQUAL:
+   case GL_EQUAL: 
       return COMPAREFUNC_NOTEQUAL;
-   case GL_ALWAYS:
+   case GL_ALWAYS: 
        return COMPAREFUNC_NEVER;
    }
 
@@ -150,45 +150,4 @@ intel_translate_blend_factor(GLenum factor)
 
    fprintf(stderr, "Unknown value in %s: %x\n", __func__, factor);
    return BLENDFACT_ZERO;
-}
-
-int
-intel_translate_logic_op(GLenum opcode)
-{
-   switch (opcode) {
-   case GL_CLEAR:
-      return LOGICOP_CLEAR;
-   case GL_AND:
-      return LOGICOP_AND;
-   case GL_AND_REVERSE:
-      return LOGICOP_AND_RVRSE;
-   case GL_COPY:
-      return LOGICOP_COPY;
-   case GL_COPY_INVERTED:
-      return LOGICOP_COPY_INV;
-   case GL_AND_INVERTED:
-      return LOGICOP_AND_INV;
-   case GL_NOOP:
-      return LOGICOP_NOOP;
-   case GL_XOR:
-      return LOGICOP_XOR;
-   case GL_OR:
-      return LOGICOP_OR;
-   case GL_OR_INVERTED:
-      return LOGICOP_OR_INV;
-   case GL_NOR:
-      return LOGICOP_NOR;
-   case GL_EQUIV:
-      return LOGICOP_EQUIV;
-   case GL_INVERT:
-      return LOGICOP_INV;
-   case GL_OR_REVERSE:
-      return LOGICOP_OR_RVRSE;
-   case GL_NAND:
-      return LOGICOP_NAND;
-   case GL_SET:
-      return LOGICOP_SET;
-   default:
-      return LOGICOP_SET;
-   }
 }

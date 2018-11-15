@@ -57,6 +57,8 @@
 
 #include "vbo/vbo.h"
 
+#include "tnl.h"
+
 #define MAX_PIPELINE_STAGES     30
 
 /*
@@ -76,39 +78,45 @@
  * attribs want (16).
  */
 enum {
-	_TNL_ATTRIB_POS = 0,
-	_TNL_ATTRIB_WEIGHT = 1,
-	_TNL_ATTRIB_NORMAL = 2,
-	_TNL_ATTRIB_COLOR0 = 3,
-	_TNL_ATTRIB_COLOR1 = 4,
-	_TNL_ATTRIB_FOG = 5,
-	_TNL_ATTRIB_COLOR_INDEX = 6,
-	_TNL_ATTRIB_EDGEFLAG = 7,
-	_TNL_ATTRIB_TEX0 = 8,
-	_TNL_ATTRIB_TEX1 = 9,
-	_TNL_ATTRIB_TEX2 = 10,
-	_TNL_ATTRIB_TEX3 = 11,
-	_TNL_ATTRIB_TEX4 = 12,
-	_TNL_ATTRIB_TEX5 = 13,
-	_TNL_ATTRIB_TEX6 = 14,
-	_TNL_ATTRIB_TEX7 = 15,
+	_TNL_ATTRIB_POS,
+	_TNL_ATTRIB_NORMAL,
+	_TNL_ATTRIB_COLOR0,
+	_TNL_ATTRIB_COLOR1,
+	_TNL_ATTRIB_FOG,
+	_TNL_ATTRIB_COLOR_INDEX,
+	_TNL_ATTRIB_EDGEFLAG,
+	_TNL_ATTRIB_TEX0,
+	_TNL_ATTRIB_TEX1,
+	_TNL_ATTRIB_TEX2,
+	_TNL_ATTRIB_TEX3,
+	_TNL_ATTRIB_TEX4,
+	_TNL_ATTRIB_TEX5,
+	_TNL_ATTRIB_TEX6,
+	_TNL_ATTRIB_TEX7,
 
-	_TNL_ATTRIB_GENERIC0 = 17, /* doesn't really exist! */
-	_TNL_ATTRIB_GENERIC1 = 18,
-	_TNL_ATTRIB_GENERIC2 = 19,
-	_TNL_ATTRIB_GENERIC3 = 20,
-	_TNL_ATTRIB_GENERIC4 = 21,
-	_TNL_ATTRIB_GENERIC5 = 22,
-	_TNL_ATTRIB_GENERIC6 = 23,
-	_TNL_ATTRIB_GENERIC7 = 24,
-	_TNL_ATTRIB_GENERIC8 = 25,
-	_TNL_ATTRIB_GENERIC9 = 26,
-	_TNL_ATTRIB_GENERIC10 = 27,
-	_TNL_ATTRIB_GENERIC11 = 28,
-	_TNL_ATTRIB_GENERIC12 = 29,
-	_TNL_ATTRIB_GENERIC13 = 30,
-	_TNL_ATTRIB_GENERIC14 = 31,
-	_TNL_ATTRIB_GENERIC15 = 32,
+	/* This is really a VARYING_SLOT, not an attrib.  Need to fix
+	 * tnl to understand the difference.
+	 */
+	_TNL_ATTRIB_POINTSIZE,
+
+	_TNL_ATTRIB_GENERIC0, /* doesn't really exist! */
+	_TNL_ATTRIB_GENERIC1,
+	_TNL_ATTRIB_GENERIC2,
+	_TNL_ATTRIB_GENERIC3,
+	_TNL_ATTRIB_GENERIC4,
+	_TNL_ATTRIB_GENERIC5,
+	_TNL_ATTRIB_GENERIC6,
+	_TNL_ATTRIB_GENERIC7,
+	_TNL_ATTRIB_GENERIC8,
+	_TNL_ATTRIB_GENERIC9,
+	_TNL_ATTRIB_GENERIC10,
+	_TNL_ATTRIB_GENERIC11,
+	_TNL_ATTRIB_GENERIC12,
+	_TNL_ATTRIB_GENERIC13,
+	_TNL_ATTRIB_GENERIC14,
+	_TNL_ATTRIB_GENERIC15,
+
+	_TNL_ATTRIB_MAX,
 
 	/* These alias with the generics, but they are not active
 	 * concurrently, so it's not a problem.  The TNL module
@@ -120,26 +128,19 @@ enum {
 	 * generic attribute in order to pick up per-vertex material
 	 * data.
 	 */
-	_TNL_ATTRIB_MAT_FRONT_AMBIENT = 17,
-	_TNL_ATTRIB_MAT_BACK_AMBIENT = 18,
-	_TNL_ATTRIB_MAT_FRONT_DIFFUSE = 19,
-	_TNL_ATTRIB_MAT_BACK_DIFFUSE = 20,
-	_TNL_ATTRIB_MAT_FRONT_SPECULAR = 21,
-	_TNL_ATTRIB_MAT_BACK_SPECULAR = 22,
-	_TNL_ATTRIB_MAT_FRONT_EMISSION = 23,
-	_TNL_ATTRIB_MAT_BACK_EMISSION = 24,
-	_TNL_ATTRIB_MAT_FRONT_SHININESS = 25,
-	_TNL_ATTRIB_MAT_BACK_SHININESS = 26,
-	_TNL_ATTRIB_MAT_FRONT_INDEXES = 27,
-	_TNL_ATTRIB_MAT_BACK_INDEXES = 28,
-
-	/* This is really a VARYING_SLOT, not an attrib.  Need to fix
-	 * tnl to understand the difference.
-	 */
-	_TNL_ATTRIB_POINTSIZE = 16,
-
-	_TNL_ATTRIB_MAX = 33
-} ;
+	_TNL_ATTRIB_MAT_FRONT_AMBIENT=VERT_ATTRIB_MAT(MAT_ATTRIB_FRONT_AMBIENT),
+	_TNL_ATTRIB_MAT_BACK_AMBIENT,
+	_TNL_ATTRIB_MAT_FRONT_DIFFUSE,
+	_TNL_ATTRIB_MAT_BACK_DIFFUSE,
+	_TNL_ATTRIB_MAT_FRONT_SPECULAR,
+	_TNL_ATTRIB_MAT_BACK_SPECULAR,
+	_TNL_ATTRIB_MAT_FRONT_EMISSION,
+	_TNL_ATTRIB_MAT_BACK_EMISSION,
+	_TNL_ATTRIB_MAT_FRONT_SHININESS,
+	_TNL_ATTRIB_MAT_BACK_SHININESS,
+	_TNL_ATTRIB_MAT_FRONT_INDEXES,
+	_TNL_ATTRIB_MAT_BACK_INDEXES,
+};
 
 #define _TNL_ATTRIB_TEX(u)       (_TNL_ATTRIB_TEX0 + (u))
 #define _TNL_ATTRIB_GENERIC(n) (_TNL_ATTRIB_GENERIC0 + (n))
@@ -150,7 +151,7 @@ enum {
 /**
  * Handy attribute ranges:
  */
-#define _TNL_FIRST_PROG      _TNL_ATTRIB_WEIGHT
+#define _TNL_FIRST_PROG      _TNL_ATTRIB_NORMAL
 #define _TNL_LAST_PROG       _TNL_ATTRIB_TEX7
 
 #define _TNL_FIRST_TEX       _TNL_ATTRIB_TEX0
@@ -159,8 +160,8 @@ enum {
 #define _TNL_FIRST_GENERIC _TNL_ATTRIB_GENERIC0
 #define _TNL_LAST_GENERIC  _TNL_ATTRIB_GENERIC15
 
-#define _TNL_FIRST_MAT       _TNL_ATTRIB_MAT_FRONT_AMBIENT /* GENERIC0 */
-#define _TNL_LAST_MAT        _TNL_ATTRIB_MAT_BACK_INDEXES  /* GENERIC11 */
+#define _TNL_FIRST_MAT       _TNL_ATTRIB_MAT_FRONT_AMBIENT /* GENERIC4 */
+#define _TNL_LAST_MAT        _TNL_ATTRIB_MAT_BACK_INDEXES  /* GENERIC15 */
 
 /* Number of available texture attributes */
 #define _TNL_NUM_TEX 8
@@ -204,7 +205,7 @@ struct vertex_buffer
     * such as backface color or eye-space coordinates, they are stored
     * here.
     */
-   GLuint      *Elts;
+   GLuint      *Elts;		                
    GLvector4f  *EyePtr;		                /* _TNL_BIT_POS */
    GLvector4f  *ClipPtr;	                /* _TNL_BIT_POS */
    GLvector4f  *NdcPtr;                         /* _TNL_BIT_POS */
@@ -217,8 +218,8 @@ struct vertex_buffer
    GLvector4f  *BackfaceColorPtr;
    GLvector4f  *BackfaceSecondaryColorPtr;
 
-   const struct _mesa_prim  *Primitive;
-   GLuint      PrimitiveCount;
+   const struct _mesa_prim  *Primitive;	              
+   GLuint      PrimitiveCount;	      
 
    /* Inputs to the vertex program stage */
    GLvector4f *AttribPtr[_TNL_ATTRIB_MAX];
@@ -263,10 +264,10 @@ struct tnl_pipeline_stage
 
 
 /** Contains the array of all pipeline stages.
- * The default values are defined at the end of t_pipeline.c
+ * The default values are defined at the end of t_pipeline.c 
  */
 struct tnl_pipeline {
-
+   
    GLuint last_attrib_stride[_TNL_ATTRIB_MAX];
    GLuint last_attrib_size[_TNL_ATTRIB_MAX];
    GLuint input_changes;
@@ -279,16 +280,16 @@ struct tnl_pipeline {
 struct tnl_clipspace;
 struct tnl_clipspace_attr;
 
-typedef void (*tnl_extract_func)( const struct tnl_clipspace_attr *a,
-				  GLfloat *out,
+typedef void (*tnl_extract_func)( const struct tnl_clipspace_attr *a, 
+				  GLfloat *out, 
 				  const GLubyte *v );
 
-typedef void (*tnl_insert_func)( const struct tnl_clipspace_attr *a,
-				 GLubyte *v,
+typedef void (*tnl_insert_func)( const struct tnl_clipspace_attr *a, 
+				 GLubyte *v, 
 				 const GLfloat *in );
 
-typedef void (*tnl_emit_func)( struct gl_context *ctx,
-			       GLuint count,
+typedef void (*tnl_emit_func)( struct gl_context *ctx, 
+			       GLuint count, 
 			       GLubyte *dest );
 
 
@@ -356,7 +357,7 @@ struct tnl_clipspace_fastpath {
 struct tnl_clipspace
 {
    GLboolean need_extras;
-
+   
    GLuint new_inputs;
 
    GLubyte *vertex_buf;
@@ -373,13 +374,13 @@ struct tnl_clipspace
    /* Parameters and constants for codegen:
     */
    GLboolean need_viewport;
-   GLfloat vp_scale[4];
+   GLfloat vp_scale[4];		
    GLfloat vp_xlate[4];
    GLfloat chan_scale[4];
    GLfloat identity[4];
 
    struct tnl_clipspace_fastpath *fastpath;
-
+   
    void (*codegen_emit)( struct gl_context *ctx );
 };
 
@@ -407,7 +408,7 @@ struct tnl_device_driver
    void (*RunPipeline)(struct gl_context *ctx);
    /* Replaces PipelineStart/PipelineFinish -- intended to allow
     * drivers to wrap _tnl_run_pipeline() with code to validate state
-    * and grab/release hardware locks.
+    * and grab/release hardware locks.  
     */
 
    void (*NotifyMaterialChange)(struct gl_context *ctx);
@@ -482,7 +483,7 @@ struct tnl_device_driver
        *
        * This function is called only from _tnl_render_stage in tnl/t_render.c.
        */
-
+      
 
       GLboolean (*Multipass)( struct gl_context *ctx, GLuint passno );
       /* Driver may request additional render passes by returning GL_TRUE
@@ -495,6 +496,41 @@ struct tnl_device_driver
        */
    } Render;
 };
+
+
+/**
+ * Utility that tracks and updates the current array entries.
+ */
+struct tnl_inputs
+{
+   /**
+    * Array of inputs to be set to the _DrawArrays pointer.
+    * The array contains pointers into the _DrawVAO and to the vbo modules
+    * current values. The array of pointers is updated incrementally
+    * based on the current and vertex_processing_mode values below.
+    */
+   struct tnl_vertex_array inputs[VERT_ATTRIB_MAX];
+   /** Those VERT_BIT_'s where the inputs array point to current values. */
+   GLbitfield current;
+   /** Store which aliasing current values - generics or materials - are set. */
+   gl_vertex_processing_mode vertex_processing_mode;
+};
+
+
+/**
+ * Initialize inputs.
+ */
+void
+_tnl_init_inputs(struct tnl_inputs *inputs);
+
+
+/**
+ * Update the tnl_vertex_array array inside the tnl_inputs structure
+ * provided the current _VPMode, the provided vao and
+ * the vao's enabled arrays filtered by the filter bitmask.
+ */
+void
+_tnl_update_inputs(struct gl_context *ctx, struct tnl_inputs *inputs);
 
 
 /**
@@ -527,7 +563,7 @@ typedef struct
 
    GLvector4f tmp_inputs[VERT_ATTRIB_MAX];
 
-   /* Temp storage for t_draw.c:
+   /* Temp storage for t_draw.c: 
     */
    GLubyte *block[VERT_ATTRIB_MAX];
    GLuint nr_blocks;
@@ -537,6 +573,9 @@ typedef struct
    struct tnl_shine_tab *_ShineTable[2]; /**< Active shine tables */
    struct tnl_shine_tab *_ShineTabList;  /**< MRU list of inactive shine tables */
    /**@}*/
+
+   /* The list of tnl_vertex_array inputs. */
+   struct tnl_inputs draw_arrays;
 } TNLcontext;
 
 

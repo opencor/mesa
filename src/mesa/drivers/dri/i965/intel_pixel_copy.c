@@ -25,6 +25,7 @@
 
 #include "main/image.h"
 #include "main/state.h"
+#include "main/stencil.h"
 #include "main/mtypes.h"
 #include "main/condrender.h"
 #include "main/fbobject.h"
@@ -100,7 +101,7 @@ do_blit_copypixels(struct gl_context * ctx,
       return false;
    }
 
-   if (draw_irb->mt->num_samples > 1 || read_irb->mt->num_samples > 1) {
+   if (draw_irb->mt->surf.samples > 1 || read_irb->mt->surf.samples > 1) {
       perf_debug("glCopyPixels() fallback: multisampled buffers\n");
       return false;
    }
@@ -115,14 +116,14 @@ do_blit_copypixels(struct gl_context * ctx,
       return false;
    }
 
-   if (ctx->Stencil._Enabled) {
+   if (brw->stencil_enabled) {
       perf_debug("glCopyPixels(): Unsupported stencil test state\n");
       return false;
    }
 
    if (ctx->Fog.Enabled ||
        ctx->Texture._MaxEnabledTexImageUnit != -1 ||
-       ctx->FragmentProgram._Enabled) {
+       _mesa_arb_fragment_program_enabled(ctx)) {
       perf_debug("glCopyPixels(): Unsupported fragment shader state\n");
       return false;
    }
@@ -133,10 +134,7 @@ do_blit_copypixels(struct gl_context * ctx,
       return false;
    }
 
-   if (!ctx->Color.ColorMask[0][0] ||
-       !ctx->Color.ColorMask[0][1] ||
-       !ctx->Color.ColorMask[0][2] ||
-       !ctx->Color.ColorMask[0][3]) {
+   if (GET_COLORMASK(ctx->Color.ColorMask, 0) != 0xf) {
       perf_debug("glCopyPixels(): Unsupported color mask state\n");
       return false;
    }
@@ -172,12 +170,12 @@ do_blit_copypixels(struct gl_context * ctx,
 
    if (!intel_miptree_blit(brw,
                            read_irb->mt, read_irb->mt_level, read_irb->mt_layer,
-                           srcx, srcy, _mesa_is_winsys_fbo(read_fb),
+                           srcx, srcy, read_fb->FlipY,
                            draw_irb->mt, draw_irb->mt_level, draw_irb->mt_layer,
-                           dstx, dsty, _mesa_is_winsys_fbo(fb),
+                           dstx, dsty, fb->FlipY,
                            width, height,
                            (ctx->Color.ColorLogicOpEnabled ?
-                            ctx->Color.LogicOp : GL_COPY))) {
+                            ctx->Color._LogicOp : COLOR_LOGICOP_COPY))) {
       DBG("%s: blit failure\n", __func__);
       return false;
    }
@@ -198,12 +196,15 @@ intelCopyPixels(struct gl_context * ctx,
                 GLsizei width, GLsizei height,
                 GLint destx, GLint desty, GLenum type)
 {
+   struct brw_context *brw = brw_context(ctx);
+
    DBG("%s\n", __func__);
 
    if (!_mesa_check_conditional_render(ctx))
       return;
 
-   if (do_blit_copypixels(ctx, srcx, srcy, width, height, destx, desty, type))
+   if (brw->screen->devinfo.gen < 6 &&
+       do_blit_copypixels(ctx, srcx, srcy, width, height, destx, desty, type))
       return;
 
    /* this will use swrast if needed */

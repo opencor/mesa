@@ -28,9 +28,9 @@
 /**
  * \file
  * Buffer cache.
- *
+ * 
  * \author Jose Fonseca <jfonseca-at-vmware-dot-com>
- * \author Thomas Hellström <thellstom-at-vmware-dot-com>
+ * \author Thomas Hellström <thellstrom-at-vmware-dot-com>
  */
 
 
@@ -39,7 +39,6 @@
 #include "os/os_thread.h"
 #include "util/u_memory.h"
 #include "util/list.h"
-#include "util/u_time.h"
 
 #include "pb_buffer.h"
 #include "pb_bufmgr.h"
@@ -108,7 +107,7 @@ _pb_cache_buffer_destroy(struct pb_buffer *pb_buf)
 static void
 pb_cache_buffer_destroy(struct pb_buffer *_buf)
 {
-   struct pb_cache_buffer *buf = pb_cache_buffer(_buf);
+   struct pb_cache_buffer *buf = pb_cache_buffer(_buf);   
    struct pb_cache_manager *mgr = buf->mgr;
 
    if (!mgr) {
@@ -122,10 +121,10 @@ pb_cache_buffer_destroy(struct pb_buffer *_buf)
 
 
 static void *
-pb_cache_buffer_map(struct pb_buffer *_buf,
+pb_cache_buffer_map(struct pb_buffer *_buf, 
 		    unsigned flags, void *flush_ctx)
 {
-   struct pb_cache_buffer *buf = pb_cache_buffer(_buf);
+   struct pb_cache_buffer *buf = pb_cache_buffer(_buf);   
    return pb_map(buf->buffer, flags, flush_ctx);
 }
 
@@ -133,13 +132,13 @@ pb_cache_buffer_map(struct pb_buffer *_buf,
 static void
 pb_cache_buffer_unmap(struct pb_buffer *_buf)
 {
-   struct pb_cache_buffer *buf = pb_cache_buffer(_buf);
+   struct pb_cache_buffer *buf = pb_cache_buffer(_buf);   
    pb_unmap(buf->buffer);
 }
 
 
-static enum pipe_error
-pb_cache_buffer_validate(struct pb_buffer *_buf,
+static enum pipe_error 
+pb_cache_buffer_validate(struct pb_buffer *_buf, 
                          struct pb_validate *vl,
                          unsigned flags)
 {
@@ -149,7 +148,7 @@ pb_cache_buffer_validate(struct pb_buffer *_buf,
 
 
 static void
-pb_cache_buffer_fence(struct pb_buffer *_buf,
+pb_cache_buffer_fence(struct pb_buffer *_buf, 
                       struct pipe_fence_handle *fence)
 {
    struct pb_cache_buffer *buf = pb_cache_buffer(_buf);
@@ -167,7 +166,7 @@ pb_cache_buffer_get_base_buffer(struct pb_buffer *_buf,
 }
 
 
-const struct pb_vtbl
+const struct pb_vtbl 
 pb_cache_buffer_vtbl = {
       pb_cache_buffer_destroy,
       pb_cache_buffer_map,
@@ -200,7 +199,7 @@ pb_cache_can_reclaim_buffer(struct pb_buffer *_buf)
 
 
 static struct pb_buffer *
-pb_cache_manager_create_buffer(struct pb_manager *_mgr,
+pb_cache_manager_create_buffer(struct pb_manager *_mgr, 
                                pb_size size,
                                const struct pb_desc *desc)
 {
@@ -218,7 +217,7 @@ pb_cache_manager_create_buffer(struct pb_manager *_mgr,
    buf = CALLOC_STRUCT(pb_cache_buffer);
    if (!buf)
       return NULL;
-
+   
    buf->buffer = mgr->provider->create_buffer(mgr->provider, size, desc);
 
    /* Empty the cache and try again. */
@@ -231,20 +230,20 @@ pb_cache_manager_create_buffer(struct pb_manager *_mgr,
       FREE(buf);
       return NULL;
    }
-
+   
    assert(pipe_is_referenced(&buf->buffer->reference));
    assert(pb_check_alignment(desc->alignment, buf->buffer->alignment));
    assert(buf->buffer->size >= size);
-
+   
    pipe_reference_init(&buf->base.reference, 1);
    buf->base.alignment = buf->buffer->alignment;
    buf->base.usage = buf->buffer->usage;
    buf->base.size = buf->buffer->size;
-
+   
    buf->base.vtbl = &pb_cache_buffer_vtbl;
    buf->mgr = mgr;
    pb_cache_init_entry(&mgr->cache, &buf->cache_entry, &buf->base, 0);
-
+   
    return &buf->base;
 }
 
@@ -255,7 +254,7 @@ pb_cache_manager_flush(struct pb_manager *_mgr)
    struct pb_cache_manager *mgr = pb_cache_manager(_mgr);
 
    pb_cache_release_all_buffers(&mgr->cache);
-
+   
    assert(mgr->provider->flush);
    if(mgr->provider->flush)
       mgr->provider->flush(mgr->provider);
@@ -286,7 +285,7 @@ pb_cache_manager_destroy(struct pb_manager *_mgr)
  * hold.
  */
 struct pb_manager *
-pb_cache_manager_create(struct pb_manager *provider,
+pb_cache_manager_create(struct pb_manager *provider, 
                         unsigned usecs,
                         float size_factor,
                         unsigned bypass_usage,
@@ -296,7 +295,7 @@ pb_cache_manager_create(struct pb_manager *provider,
 
    if (!provider)
       return NULL;
-
+   
    mgr = CALLOC_STRUCT(pb_cache_manager);
    if (!mgr)
       return NULL;
@@ -305,7 +304,7 @@ pb_cache_manager_create(struct pb_manager *provider,
    mgr->base.create_buffer = pb_cache_manager_create_buffer;
    mgr->base.flush = pb_cache_manager_flush;
    mgr->provider = provider;
-   pb_cache_init(&mgr->cache, usecs, size_factor, bypass_usage,
+   pb_cache_init(&mgr->cache, 1, usecs, size_factor, bypass_usage,
                  maximum_cache_size,
                  _pb_cache_buffer_destroy,
                  pb_cache_can_reclaim_buffer);

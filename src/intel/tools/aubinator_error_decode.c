@@ -46,9 +46,12 @@
 #define GREEN_HEADER CSI "1;42m"
 #define NORMAL       CSI "0m"
 
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
 /* options */
 
 static bool option_full_decode = true;
+static bool option_print_all_bb = false;
 static bool option_print_offsets = true;
 static enum { COLOR_AUTO, COLOR_ALWAYS, COLOR_NEVER } option_color;
 static char *xml_path = NULL;
@@ -63,47 +66,105 @@ print_head(unsigned int reg)
 static void
 print_register(struct gen_spec *spec, const char *name, uint32_t reg)
 {
-   struct gen_group *reg_spec = gen_spec_find_register_by_name(spec, name);
+   struct gen_group *reg_spec =
+      name ? gen_spec_find_register_by_name(spec, name) : NULL;
 
-   if (reg_spec)
-      gen_print_group(stdout, reg_spec, 0, &reg, option_color == COLOR_ALWAYS);
+   if (reg_spec) {
+      gen_print_group(stdout, reg_spec, 0, &reg, 0,
+                      option_color == COLOR_ALWAYS);
+   }
 }
 
 struct ring_register_mapping {
-   const char *ring_name;
+   unsigned ring_class;
+   unsigned ring_instance;
    const char *register_name;
 };
 
+enum {
+   RCS,
+   BCS,
+   VCS,
+   VECS,
+};
+
 static const struct ring_register_mapping acthd_registers[] = {
-   { "blt", "BCS_ACTHD_UDW" },
-   { "bsd", "VCS_ACTHD_UDW" },
-   { "bsd2", "VCS2_ACTHD_UDW" },
-   { "render", "ACTHD_UDW" },
-   { "vebox", "VECS_ACTHD_UDW" },
+   { BCS, 0, "BCS_ACTHD_UDW" },
+   { VCS, 0, "VCS_ACTHD_UDW" },
+   { VCS, 1, "VCS2_ACTHD_UDW" },
+   { RCS, 0, "ACTHD_UDW" },
+   { VECS, 0, "VECS_ACTHD_UDW" },
 };
 
 static const struct ring_register_mapping ctl_registers[] = {
-   { "blt", "BCS_RING_BUFFER_CTL" },
-   { "bsd", "VCS_RING_BUFFER_CTL" },
-   { "bsd2", "VCS2_RING_BUFFER_CTL" },
-   { "render", "RCS_RING_BUFFER_CTL" },
-   { "vebox", "VECS_RING_BUFFER_CTL" },
+   { BCS, 0, "BCS_RING_BUFFER_CTL" },
+   { VCS, 0, "VCS_RING_BUFFER_CTL" },
+   { VCS, 1, "VCS2_RING_BUFFER_CTL" },
+   { RCS, 0, "RCS_RING_BUFFER_CTL" },
+   { VECS, 0,  "VECS_RING_BUFFER_CTL" },
 };
 
 static const struct ring_register_mapping fault_registers[] = {
-   { "blt", "BCS_FAULT_REG" },
-   { "bsd", "VCS_FAULT_REG" },
-   { "render", "RCS_FAULT_REG" },
-   { "vebox", "VECS_FAULT_REG" },
+   { BCS, 0, "BCS_FAULT_REG" },
+   { VCS, 0, "VCS_FAULT_REG" },
+   { RCS, 0, "RCS_FAULT_REG" },
+   { VECS, 0, "VECS_FAULT_REG" },
 };
+
+static int ring_name_to_class(const char *ring_name,
+                              unsigned int *class)
+{
+   static const char *class_names[] = {
+      [RCS] = "rcs",
+      [BCS] = "bcs",
+      [VCS] = "vcs",
+      [VECS] = "vecs",
+   };
+   for (size_t i = 0; i < ARRAY_SIZE(class_names); i++) {
+      if (strncmp(ring_name, class_names[i], strlen(class_names[i])))
+         continue;
+
+      *class = i;
+      return atoi(ring_name + strlen(class_names[i]));
+   }
+
+   static const struct {
+      const char *name;
+      unsigned int class;
+      int instance;
+   } legacy_names[] = {
+      { "render", RCS, 0 },
+      { "blt", BCS, 0 },
+      { "bsd", VCS, 0 },
+      { "bsd2", VCS, 1 },
+      { "vebox", VECS, 0 },
+   };
+   for (size_t i = 0; i < ARRAY_SIZE(legacy_names); i++) {
+      if (strcmp(ring_name, legacy_names[i].name))
+         continue;
+
+      *class = legacy_names[i].class;
+      return legacy_names[i].instance;
+   }
+
+   return -1;
+}
 
 static const char *
 register_name_from_ring(const struct ring_register_mapping *mapping,
                         unsigned nb_mapping,
                         const char *ring_name)
 {
+   unsigned int class;
+   int instance;
+
+   instance = ring_name_to_class(ring_name, &class);
+   if (instance < 0)
+      return NULL;
+
    for (unsigned i = 0; i < nb_mapping; i++) {
-      if (strcmp(mapping[i].ring_name, ring_name) == 0)
+      if (mapping[i].ring_class == class &&
+          mapping[i].ring_instance == instance)
          return mapping[i].register_name;
    }
    return NULL;
@@ -113,16 +174,35 @@ static const char *
 instdone_register_for_ring(const struct gen_device_info *devinfo,
                            const char *ring_name)
 {
-   if (strcmp(ring_name, "blt") == 0)
-      return "BCS_INSTDONE";
-   else if (strcmp(ring_name, "vebox") == 0)
-      return "VECS_INSTDONE";
-   else if (strcmp(ring_name, "bsd") == 0)
-      return "VCS_INSTDONE";
-   else if (strcmp(ring_name, "render") == 0) {
+   unsigned int class;
+   int instance;
+
+   instance = ring_name_to_class(ring_name, &class);
+   if (instance < 0)
+      return NULL;
+
+   switch (class) {
+   case RCS:
       if (devinfo->gen == 6)
          return "INSTDONE_2";
-      return "INSTDONE_1";
+      else
+         return "INSTDONE_1";
+
+   case BCS:
+      return "BCS_INSTDONE";
+
+   case VCS:
+      switch (instance) {
+      case 0:
+         return "VCS_INSTDONE";
+      case 1:
+         return "VCS2_INSTDONE";
+      default:
+         return NULL;
+      }
+
+   case VECS:
+      return "VECS_INSTDONE";
    }
 
    return NULL;
@@ -204,47 +284,20 @@ print_fault_data(struct gen_device_info *devinfo, uint32_t data1, uint32_t data0
           data1 & (1 << 4) ? "GGTT" : "PPGTT");
 }
 
-#define MAX_RINGS 10 /* I really hope this never... */
-
 #define CSI "\e["
 #define NORMAL       CSI "0m"
 
-static void decode(struct gen_spec *spec,
-                   const char *buffer_name,
-                   const char *ring_name,
-                   uint64_t gtt_offset,
-                   uint32_t *data,
-                   int *count)
-{
-   uint32_t *p, *end = (data + *count);
-   int length;
-   struct gen_group *inst;
+struct section {
+   uint64_t gtt_offset;
+   char *ring_name;
+   const char *buffer_name;
+   uint32_t *data;
+   int count;
+};
 
-   for (p = data; p < end; p += length) {
-      const char *color = option_full_decode ? BLUE_HEADER : NORMAL,
-         *reset_color = NORMAL;
-      uint64_t offset = gtt_offset + 4 * (p - data);
-
-      inst = gen_spec_find_instruction(spec, p);
-      length = gen_group_get_length(inst, p);
-      assert(inst == NULL || length > 0);
-      length = MAX2(1, length);
-      if (inst == NULL) {
-         printf("unknown instruction %08x\n", p[0]);
-         continue;
-      }
-      if (option_color == COLOR_NEVER) {
-         color = "";
-         reset_color = "";
-      }
-
-      printf("%s0x%08"PRIx64":  0x%08x:  %-80s%s\n",
-             color, offset, p[0], gen_group_get_name(inst), reset_color);
-
-      gen_print_group(stdout, inst, offset, p,
-                      option_color == COLOR_ALWAYS);
-   }
-}
+#define MAX_SECTIONS 256
+static unsigned num_sections;
+static struct section sections[MAX_SECTIONS];
 
 static int zlib_inflate(uint32_t **ptr, int len)
 {
@@ -331,107 +384,97 @@ static int ascii85_decode(const char *in, uint32_t **out, bool inflate)
    return zlib_inflate(out, len);
 }
 
+static struct gen_batch_decode_bo
+get_gen_batch_bo(void *user_data, uint64_t address)
+{
+   for (int s = 0; s < num_sections; s++) {
+      if (sections[s].gtt_offset <= address &&
+          address < sections[s].gtt_offset + sections[s].count * 4) {
+         return (struct gen_batch_decode_bo) {
+            .addr = sections[s].gtt_offset,
+            .map = sections[s].data,
+            .size = sections[s].count * 4,
+         };
+      }
+   }
+
+   return (struct gen_batch_decode_bo) { .map = NULL };
+}
+
 static void
 read_data_file(FILE *file)
 {
    struct gen_spec *spec = NULL;
-   uint32_t *data = NULL;
    long long unsigned fence;
-   int data_size = 0, count = 0, line_number = 0, matched;
+   int matched;
    char *line = NULL;
    size_t line_size;
    uint32_t offset, value;
-   uint64_t gtt_offset = 0, new_gtt_offset;
-   const char *buffer_name = "batch buffer";
    char *ring_name = NULL;
    struct gen_device_info devinfo;
 
    while (getline(&line, &line_size, file) > 0) {
       char *new_ring_name = NULL;
       char *dashes;
-      line_number++;
 
       if (sscanf(line, "%m[^ ] command stream\n", &new_ring_name) > 0) {
          free(ring_name);
          ring_name = new_ring_name;
       }
 
-      dashes = strstr(line, "---");
-      if (dashes) {
-         uint32_t lo, hi;
-         char *new_ring_name = malloc(dashes - line);
-         strncpy(new_ring_name, line, dashes - line);
-         new_ring_name[dashes - line - 1] = '\0';
-
-         printf("%s", line);
-
-         matched = sscanf(dashes, "--- gtt_offset = 0x%08x %08x\n",
-                          &hi, &lo);
-         if (matched > 0) {
-            new_gtt_offset = hi;
-            if (matched == 2) {
-               new_gtt_offset <<= 32;
-               new_gtt_offset |= lo;
-            }
-
-            decode(spec,
-                   buffer_name, ring_name,
-                   gtt_offset, data, &count);
-            gtt_offset = new_gtt_offset;
-            free(ring_name);
-            ring_name = new_ring_name;
-            buffer_name = "batch buffer";
-            continue;
-         }
-
-         matched = sscanf(dashes, "--- ringbuffer = 0x%08x %08x\n",
-                          &hi, &lo);
-         if (matched > 0) {
-            new_gtt_offset = hi;
-            if (matched == 2) {
-               new_gtt_offset <<= 32;
-               new_gtt_offset |= lo;
-            }
-
-            decode(spec,
-                   buffer_name, ring_name,
-                   gtt_offset, data, &count);
-            gtt_offset = new_gtt_offset;
-            free(ring_name);
-            ring_name = new_ring_name;
-            buffer_name = "ring buffer";
-            continue;
-         }
-
-         matched = sscanf(dashes, "--- HW Context = 0x%08x %08x\n",
-                          &hi, &lo);
-         if (matched > 0) {
-            new_gtt_offset = hi;
-            if (matched == 2) {
-               new_gtt_offset <<= 32;
-               new_gtt_offset |= lo;
-            }
-
-            decode(spec,
-                   buffer_name, ring_name,
-                   gtt_offset, data, &count);
-            gtt_offset = new_gtt_offset;
-            free(ring_name);
-            ring_name = new_ring_name;
-            buffer_name = "HW Context";
-            continue;
-         }
-      }
-
       if (line[0] == ':' || line[0] == '~') {
-         count = ascii85_decode(line+1, &data, line[0] == ':');
+         uint32_t *data = NULL;
+         int count = ascii85_decode(line+1, &data, line[0] == ':');
          if (count == 0) {
             fprintf(stderr, "ASCII85 decode failed.\n");
-            exit(1);
+            exit(EXIT_FAILURE);
          }
-         decode(spec,
-                buffer_name, ring_name,
-                gtt_offset, data, &count);
+         assert(num_sections < MAX_SECTIONS);
+         sections[num_sections].data = data;
+         sections[num_sections].count = count;
+         num_sections++;
+         continue;
+      }
+
+      dashes = strstr(line, "---");
+      if (dashes) {
+         const struct {
+            const char *match;
+            const char *name;
+         } buffers[] = {
+            { "ringbuffer", "ring buffer" },
+            { "gtt_offset", "batch buffer" },
+            { "hw context", "HW Context" },
+            { "hw status", "HW status" },
+            { "wa context", "WA context" },
+            { "wa batchbuffer", "WA batch" },
+            { "NULL context", "Kernel context" },
+            { "user", "user" },
+            { "semaphores", "semaphores", },
+            { "guc log buffer", "GuC log", },
+            { NULL, "unknown" },
+         }, *b;
+
+         free(ring_name);
+         ring_name = malloc(dashes - line);
+         strncpy(ring_name, line, dashes - line);
+         ring_name[dashes - line - 1] = '\0';
+
+         dashes += 4;
+         for (b = buffers; b->match; b++) {
+            if (strncasecmp(dashes, b->match, strlen(b->match)) == 0)
+               break;
+         }
+
+         assert(num_sections < MAX_SECTIONS);
+         sections[num_sections].buffer_name = b->name;
+         sections[num_sections].ring_name = strdup(ring_name);
+
+         uint32_t hi, lo;
+         dashes = strchr(dashes, '=');
+         if (dashes && sscanf(dashes, "= 0x%08x %08x\n", &hi, &lo))
+            sections[num_sections].gtt_offset = ((uint64_t) hi) << 32 | lo;
+
          continue;
       }
 
@@ -440,10 +483,6 @@ read_data_file(FILE *file)
          uint32_t reg, reg2;
 
          /* display reg section is after the ringbuffers, don't mix them */
-         decode(spec,
-                buffer_name, ring_name,
-                gtt_offset, data, &count);
-
          printf("%s", line);
 
          matched = sscanf(line, "PCI ID: 0x%04x\n", &reg);
@@ -457,7 +496,7 @@ read_data_file(FILE *file)
          if (matched == 1) {
             if (!gen_get_device_info(reg, &devinfo)) {
                printf("Unable to identify devid=%x\n", reg);
-               return;
+               exit(EXIT_FAILURE);
             }
 
             printf("Detected GEN%i chipset\n", devinfo.gen);
@@ -505,6 +544,18 @@ read_data_file(FILE *file)
                print_register(spec, reg_name, reg);
          }
 
+         matched = sscanf(line, "  SC_INSTDONE: 0x%08x\n", &reg);
+         if (matched == 1)
+            print_register(spec, "SC_INSTDONE", reg);
+
+         matched = sscanf(line, "  SAMPLER_INSTDONE[%*d][%*d]: 0x%08x\n", &reg);
+         if (matched == 1)
+            print_register(spec, "SAMPLER_INSTDONE", reg);
+
+         matched = sscanf(line, "  ROW_INSTDONE[%*d][%*d]: 0x%08x\n", &reg);
+         if (matched == 1)
+            print_register(spec, "ROW_INSTDONE", reg);
+
          matched = sscanf(line, "  INSTDONE1: 0x%08x\n", &reg);
          if (matched == 1)
             print_register(spec, "INSTDONE_1", reg);
@@ -530,28 +581,46 @@ read_data_file(FILE *file)
 
          continue;
       }
-
-      count++;
-
-      if (count > data_size) {
-         data_size = data_size ? data_size * 2 : 1024;
-         data = realloc(data, data_size * sizeof (uint32_t));
-         if (data == NULL) {
-            fprintf(stderr, "Out of memory.\n");
-            exit(1);
-         }
-      }
-
-      data[count-1] = value;
    }
 
-   decode(spec,
-          buffer_name, ring_name,
-          gtt_offset, data, &count);
-
-   free(data);
    free(line);
    free(ring_name);
+
+   enum gen_batch_decode_flags batch_flags = 0;
+   if (option_color == COLOR_ALWAYS)
+      batch_flags |= GEN_BATCH_DECODE_IN_COLOR;
+   if (option_full_decode)
+      batch_flags |= GEN_BATCH_DECODE_FULL;
+   if (option_print_offsets)
+      batch_flags |= GEN_BATCH_DECODE_OFFSETS;
+   batch_flags |= GEN_BATCH_DECODE_FLOATS;
+
+   struct gen_batch_decode_ctx batch_ctx;
+   gen_batch_decode_ctx_init(&batch_ctx, &devinfo, stdout, batch_flags,
+                             xml_path, get_gen_batch_bo, NULL, NULL);
+
+
+   for (int s = 0; s < num_sections; s++) {
+      printf("--- %s (%s) at 0x%08x %08x\n",
+             sections[s].buffer_name, sections[s].ring_name,
+             (unsigned) (sections[s].gtt_offset >> 32),
+             (unsigned) sections[s].gtt_offset);
+
+      if (option_print_all_bb ||
+          strcmp(sections[s].buffer_name, "batch buffer") == 0 ||
+          strcmp(sections[s].buffer_name, "ring buffer") == 0 ||
+          strcmp(sections[s].buffer_name, "HW Context") == 0) {
+         gen_print_batch(&batch_ctx, sections[s].data, sections[s].count,
+                         sections[s].gtt_offset);
+      }
+   }
+
+   gen_batch_decode_ctx_finish(&batch_ctx);
+
+   for (int s = 0; s < num_sections; s++) {
+      free(sections[s].ring_name);
+      free(sections[s].data);
+   }
 }
 
 static void
@@ -596,7 +665,8 @@ print_help(const char *progname, FILE *file)
            "                        if omitted), 'always', or 'never'\n"
            "      --no-pager      don't launch pager\n"
            "      --no-offsets    don't print instruction offsets\n"
-           "      --xml=DIR       load hardware xml description from directory DIR\n",
+           "      --xml=DIR       load hardware xml description from directory DIR\n"
+           "      --all-bb        print out all batchbuffers\n",
            progname);
 }
 
@@ -615,6 +685,7 @@ main(int argc, char *argv[])
       { "headers",    no_argument,       (int *) &option_full_decode,   false },
       { "color",      required_argument, NULL,                          'c' },
       { "xml",        required_argument, NULL,                          'x' },
+      { "all-bb",     no_argument,       (int *) &option_print_all_bb,  true },
       { NULL,         0,                 NULL,                          0 }
    };
 
@@ -643,7 +714,7 @@ main(int argc, char *argv[])
 
    if (help || argc == 1) {
       print_help(argv[0], stderr);
-      exit(0);
+      exit(EXIT_SUCCESS);
    }
 
    if (optind >= argc) {
@@ -666,7 +737,7 @@ main(int argc, char *argv[])
          }
       } else {
          read_data_file(stdin);
-         exit(0);
+         exit(EXIT_SUCCESS);
       }
    } else {
       path = argv[optind];
@@ -674,7 +745,7 @@ main(int argc, char *argv[])
       if (error != 0) {
          fprintf(stderr, "Error opening %s: %s\n",
                  path, strerror(errno));
-         exit(1);
+         exit(EXIT_FAILURE);
       }
    }
 
@@ -693,8 +764,8 @@ main(int argc, char *argv[])
       file = fopen(filename, "r");
       if (!file) {
          int minor;
+         free(filename);
          for (minor = 0; minor < 64; minor++) {
-            free(filename);
             ret = asprintf(&filename, "%s/%d/i915_error_state", path, minor);
             assert(ret > 0);
 

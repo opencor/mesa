@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
  /*
@@ -174,53 +174,29 @@ st_BlitFramebuffer(struct gl_context *ctx,
    if (mask & GL_COLOR_BUFFER_BIT) {
       struct gl_renderbuffer_attachment *srcAtt =
          &readFB->Attachment[readFB->_ColorReadBufferIndex];
+      GLuint i;
 
       blit.mask = PIPE_MASK_RGBA;
 
       if (srcAtt->Type == GL_TEXTURE) {
          struct st_texture_object *srcObj = st_texture_object(srcAtt->Texture);
-         GLuint i;
 
          if (!srcObj || !srcObj->pt) {
             return;
          }
 
-         for (i = 0; i < drawFB->_NumColorDrawBuffers; i++) {
-            struct st_renderbuffer *dstRb =
-               st_renderbuffer(drawFB->_ColorDrawBuffers[i]);
+         blit.src.resource = srcObj->pt;
+         blit.src.level = srcAtt->TextureLevel;
+         blit.src.box.z = srcAtt->Zoffset + srcAtt->CubeMapFace;
+         blit.src.format = srcObj->pt->format;
 
-            if (dstRb) {
-               struct pipe_surface *dstSurf;
-
-               st_update_renderbuffer_surface(st, dstRb);
-
-               dstSurf = dstRb->surface;
-
-               if (dstSurf) {
-                  blit.dst.resource = dstSurf->texture;
-                  blit.dst.level = dstSurf->u.tex.level;
-                  blit.dst.box.z = dstSurf->u.tex.first_layer;
-                  blit.dst.format = dstSurf->format;
-
-                  blit.src.resource = srcObj->pt;
-                  blit.src.level = srcAtt->TextureLevel;
-                  blit.src.box.z = srcAtt->Zoffset + srcAtt->CubeMapFace;
-                  blit.src.format = srcObj->pt->format;
-
-                  if (!ctx->Color.sRGBEnabled)
-                     blit.src.format = util_format_linear(blit.src.format);
-
-                  st->pipe->blit(st->pipe, &blit);
-                  dstRb->defined = true; /* front buffer tracking */
-               }
-            }
-         }
+         if (!ctx->Color.sRGBEnabled)
+            blit.src.format = util_format_linear(blit.src.format);
       }
       else {
          struct st_renderbuffer *srcRb =
             st_renderbuffer(readFB->_ColorReadBuffer);
          struct pipe_surface *srcSurf;
-         GLuint i;
 
          if (!srcRb)
             return;
@@ -232,31 +208,31 @@ st_BlitFramebuffer(struct gl_context *ctx,
 
          srcSurf = srcRb->surface;
 
-         for (i = 0; i < drawFB->_NumColorDrawBuffers; i++) {
-            struct st_renderbuffer *dstRb =
-               st_renderbuffer(drawFB->_ColorDrawBuffers[i]);
+         blit.src.resource = srcSurf->texture;
+         blit.src.level = srcSurf->u.tex.level;
+         blit.src.box.z = srcSurf->u.tex.first_layer;
+         blit.src.format = srcSurf->format;
+      }
 
-            if (dstRb) {
-               struct pipe_surface *dstSurf;
+      for (i = 0; i < drawFB->_NumColorDrawBuffers; i++) {
+         struct st_renderbuffer *dstRb =
+            st_renderbuffer(drawFB->_ColorDrawBuffers[i]);
 
-               st_update_renderbuffer_surface(st, dstRb);
+         if (dstRb) {
+            struct pipe_surface *dstSurf;
 
-               dstSurf = dstRb->surface;
+            st_update_renderbuffer_surface(st, dstRb);
 
-               if (dstSurf) {
-                  blit.dst.resource = dstSurf->texture;
-                  blit.dst.level = dstSurf->u.tex.level;
-                  blit.dst.box.z = dstSurf->u.tex.first_layer;
-                  blit.dst.format = dstSurf->format;
+            dstSurf = dstRb->surface;
 
-                  blit.src.resource = srcSurf->texture;
-                  blit.src.level = srcSurf->u.tex.level;
-                  blit.src.box.z = srcSurf->u.tex.first_layer;
-                  blit.src.format = srcSurf->format;
+            if (dstSurf) {
+               blit.dst.resource = dstSurf->texture;
+               blit.dst.level = dstSurf->u.tex.level;
+               blit.dst.box.z = dstSurf->u.tex.first_layer;
+               blit.dst.format = dstSurf->format;
 
-                  st->pipe->blit(st->pipe, &blit);
-                  dstRb->defined = true; /* front buffer tracking */
-               }
+               st->pipe->blit(st->pipe, &blit);
+               dstRb->defined = true; /* front buffer tracking */
             }
          }
       }
@@ -268,7 +244,7 @@ st_BlitFramebuffer(struct gl_context *ctx,
       /* get src/dst depth surfaces */
       struct st_renderbuffer *srcDepthRb =
          st_renderbuffer(readFB->Attachment[BUFFER_DEPTH].Renderbuffer);
-      struct st_renderbuffer *dstDepthRb =
+      struct st_renderbuffer *dstDepthRb = 
          st_renderbuffer(drawFB->Attachment[BUFFER_DEPTH].Renderbuffer);
       struct pipe_surface *dstDepthSurf =
          dstDepthRb ? dstDepthRb->surface : NULL;

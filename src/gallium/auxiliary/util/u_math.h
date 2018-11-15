@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2008 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
@@ -179,14 +179,6 @@ util_fast_pow(float x, float y)
    return util_fast_exp2(util_fast_log2(x) * y);
 }
 
-/* Note that this counts zero as a power of two.
- */
-static inline boolean
-util_is_power_of_two( unsigned v )
-{
-   return (v & (v-1)) == 0;
-}
-
 
 /**
  * Floor(x), returned as int.
@@ -211,7 +203,7 @@ util_ifloor(float f)
 static inline int
 util_iround(float f)
 {
-#if defined(PIPE_CC_GCC) && defined(PIPE_ARCH_X86)
+#if defined(PIPE_CC_GCC) && defined(PIPE_ARCH_X86) 
    int r;
    __asm__ ("fistpl %0" : "=m" (r) : "t" (f) : "st");
    return r;
@@ -429,6 +421,23 @@ util_logbase2(unsigned n)
 #endif
 }
 
+static inline uint64_t
+util_logbase2_64(uint64_t n)
+{
+#if defined(HAVE___BUILTIN_CLZLL)
+   return ((sizeof(uint64_t) * 8 - 1) - __builtin_clzll(n | 1));
+#else
+   uint64_t pos = 0ull;
+   if (n >= 1ull<<32) { n >>= 32; pos += 32; }
+   if (n >= 1ull<<16) { n >>= 16; pos += 16; }
+   if (n >= 1ull<< 8) { n >>=  8; pos +=  8; }
+   if (n >= 1ull<< 4) { n >>=  4; pos +=  4; }
+   if (n >= 1ull<< 2) { n >>=  2; pos +=  2; }
+   if (n >= 1ull<< 1) {           pos +=  1; }
+   return pos;
+#endif
+}
+
 /**
  * Returns the ceiling of log n base 2, and 0 when n == 0. Equivalently,
  * returns the smallest x such that n <= 2**x.
@@ -440,6 +449,15 @@ util_logbase2_ceil(unsigned n)
       return 0;
 
    return 1 + util_logbase2(n - 1);
+}
+
+static inline uint64_t
+util_logbase2_ceil64(uint64_t n)
+{
+   if (n <= 1)
+      return 0;
+
+   return 1ull + util_logbase2_64(n - 1);
 }
 
 /**
@@ -459,7 +477,7 @@ util_next_power_of_two(unsigned x)
    if (x <= 1)
       return 1;
 
-   if (util_is_power_of_two(x))
+   if (util_is_power_of_two_or_zero(x))
       return x;
 
    val--;
@@ -468,6 +486,35 @@ util_next_power_of_two(unsigned x)
    val = (val >> 4) | val;
    val = (val >> 8) | val;
    val = (val >> 16) | val;
+   val++;
+   return val;
+#endif
+}
+
+static inline uint64_t
+util_next_power_of_two64(uint64_t x)
+{
+#if defined(HAVE___BUILTIN_CLZLL)
+   if (x <= 1)
+       return 1;
+
+   return (1ull << ((sizeof(uint64_t) * 8) - __builtin_clzll(x - 1)));
+#else
+   uint64_t val = x;
+
+   if (x <= 1)
+      return 1;
+
+   if (util_is_power_of_two_or_zero64(x))
+      return x;
+
+   val--;
+   val = (val >> 1)  | val;
+   val = (val >> 2)  | val;
+   val = (val >> 4)  | val;
+   val = (val >> 8)  | val;
+   val = (val >> 16) | val;
+   val = (val >> 32) | val;
    val++;
    return val;
 #endif
@@ -605,8 +652,9 @@ util_memcpy_cpu_to_le32(void * restrict dest, const void * restrict src, size_t 
 /**
  * Clamp X to [MIN, MAX].
  * This is a macro to allow float, int, uint, etc. types.
+ * We arbitrarily turn NaN into MIN.
  */
-#define CLAMP( X, MIN, MAX )  ( (X)<(MIN) ? (MIN) : ((X)>(MAX) ? (MAX) : (X)) )
+#define CLAMP( X, MIN, MAX )  ( (X)>(MIN) ? ((X)>(MAX) ? (MAX) : (X)) : (MIN) )
 
 #define MIN2( A, B )   ( (A)<(B) ? (A) : (B) )
 #define MAX2( A, B )   ( (A)>(B) ? (A) : (B) )

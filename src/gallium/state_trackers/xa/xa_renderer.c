@@ -393,9 +393,10 @@ renderer_set_constants(struct xa_context *r,
 	&r->fs_const_buffer;
 
     pipe_resource_reference(cbuf, NULL);
-    *cbuf = pipe_buffer_create(r->pipe->screen,
-			       PIPE_BIND_CONSTANT_BUFFER, PIPE_USAGE_DEFAULT,
-			       param_bytes);
+    *cbuf = pipe_buffer_create_const0(r->pipe->screen,
+                                      PIPE_BIND_CONSTANT_BUFFER,
+                                      PIPE_USAGE_DEFAULT,
+                                      param_bytes);
 
     if (*cbuf) {
 	pipe_buffer_write(r->pipe, *cbuf, 0, param_bytes, params);
@@ -416,7 +417,7 @@ renderer_copy_prepare(struct xa_context *r,
     uint32_t fs_traits = FS_COMPOSITE;
 
     assert(screen->is_format_supported(screen, dst_surface->format,
-				       PIPE_TEXTURE_2D, 0,
+				       PIPE_TEXTURE_2D, 0, 0,
 				       PIPE_BIND_RENDER_TARGET));
     (void)screen;
 

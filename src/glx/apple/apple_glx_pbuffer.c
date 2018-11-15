@@ -1,6 +1,6 @@
 /*
  Copyright (c) 2009 Apple Inc.
-
+ 
  Permission is hereby granted, free of charge, to any person
  obtaining a copy of this software and associated documentation files
  (the "Software"), to deal in the Software without restriction,
@@ -8,10 +8,10 @@
  publish, distribute, sublicense, and/or sell copies of the Software,
  and to permit persons to whom the Software is furnished to do so,
  subject to the following conditions:
-
+ 
  The above copyright notice and this permission notice shall be
  included in all copies or substantial portions of the Software.
-
+ 
  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -20,7 +20,7 @@
  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  DEALINGS IN THE SOFTWARE.
-
+ 
  Except as contained in this notice, the name(s) of the above
  copyright holders shall not be used in advertising or otherwise to
  promote the sale, use or other dealings in this Software without
@@ -40,12 +40,14 @@
 #include "apple_glx_context.h"
 #include "apple_glx_drawable.h"
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <assert.h>
 #include "apple_glx.h"
 #include "glxconfig.h"
 #include "apple_cgl.h"
+#include "util/debug.h"
 
 /* mesa defines in glew.h, Apple in glext.h.
  * Due to namespace nightmares, just do it here.
@@ -191,7 +193,7 @@ get_max_size(int *widthresult, int *heightresult)
    oldcontext = apple_cgl.get_current_context();
 
    if (!oldcontext) {
-      /*
+      /* 
        * There is no current context, so we need to make one in order
        * to call glGetInteger.
        */
@@ -208,7 +210,7 @@ get_max_size(int *widthresult, int *heightresult)
 
       err = apple_cgl.choose_pixel_format(attr, &pfobj, &vsref);
       if (kCGLNoError != err) {
-         if (getenv("LIBGL_DIAGNOSTIC")) {
+         if (env_var_as_boolean("LIBGL_DIAGNOSTIC", false)) {
             printf("choose_pixel_format error in %s: %s\n", __func__,
                    apple_cgl.error_string(err));
          }
@@ -220,7 +222,7 @@ get_max_size(int *widthresult, int *heightresult)
       err = apple_cgl.create_context(pfobj, NULL, &newcontext);
 
       if (kCGLNoError != err) {
-         if (getenv("LIBGL_DIAGNOSTIC")) {
+         if (env_var_as_boolean("LIBGL_DIAGNOSTIC", false)) {
             printf("create_context error in %s: %s\n", __func__,
                    apple_cgl.error_string(err));
          }

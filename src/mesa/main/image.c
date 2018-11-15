@@ -288,7 +288,7 @@ _mesa_image_address3d( const struct gl_pixelstore_attrib *packing,
  * \param width image width.
  * \param format pixel format.
  * \param type pixel data type.
- *
+ * 
  * \return the stride in bytes for the given parameters, or -1 if error
  */
 GLint
@@ -581,7 +581,7 @@ _mesa_convert_colors(GLenum srcType, const GLvoid *src,
       }
       break;
    default:
-      _mesa_problem(NULL, "Invalid datatype in _mesa_convert_colors");
+      unreachable("Invalid datatype in _mesa_convert_colors");
    }
 
    free(tempBuffer);

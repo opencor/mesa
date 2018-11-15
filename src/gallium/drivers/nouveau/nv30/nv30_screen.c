@@ -64,6 +64,7 @@ nv30_screen_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
    case PIPE_CAP_MAX_TEXTURE_CUBE_LEVELS:
       return 13;
    case PIPE_CAP_GLSL_FEATURE_LEVEL:
+   case PIPE_CAP_GLSL_FEATURE_LEVEL_COMPATIBILITY:
       return 120;
    case PIPE_CAP_ENDIANNESS:
       return PIPE_ENDIAN_LITTLE;
@@ -76,13 +77,11 @@ nv30_screen_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
    case PIPE_CAP_MAX_VERTEX_ATTRIB_STRIDE:
       return 2048;
    /* supported capabilities */
-   case PIPE_CAP_TWO_SIDED_STENCIL:
    case PIPE_CAP_ANISOTROPIC_FILTER:
    case PIPE_CAP_POINT_SPRITE:
    case PIPE_CAP_OCCLUSION_QUERY:
    case PIPE_CAP_QUERY_TIME_ELAPSED:
    case PIPE_CAP_QUERY_TIMESTAMP:
-   case PIPE_CAP_TEXTURE_SHADOW_MAP:
    case PIPE_CAP_TEXTURE_SWIZZLE:
    case PIPE_CAP_DEPTH_CLIP_DISABLE:
    case PIPE_CAP_TGSI_FS_COORD_ORIGIN_UPPER_LEFT:
@@ -90,12 +89,12 @@ nv30_screen_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
    case PIPE_CAP_TGSI_FS_COORD_PIXEL_CENTER_HALF_INTEGER:
    case PIPE_CAP_TGSI_FS_COORD_PIXEL_CENTER_INTEGER:
    case PIPE_CAP_TGSI_TEXCOORD:
-   case PIPE_CAP_USER_CONSTANT_BUFFERS:
    case PIPE_CAP_BUFFER_MAP_PERSISTENT_COHERENT:
    case PIPE_CAP_VERTEX_BUFFER_OFFSET_4BYTE_ALIGNED_ONLY:
    case PIPE_CAP_VERTEX_BUFFER_STRIDE_4BYTE_ALIGNED_ONLY:
    case PIPE_CAP_VERTEX_ELEMENT_SRC_OFFSET_4BYTE_ALIGNED_ONLY:
    case PIPE_CAP_PREFER_BLIT_BASED_TEXTURE_TRANSFER:
+   case PIPE_CAP_ALLOW_MAPPED_BUFFERS_DURING_EXECUTION:
       return 1;
    /* nv35 capabilities */
    case PIPE_CAP_DEPTH_BOUNDS_TEST:
@@ -216,6 +215,29 @@ nv30_screen_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
    case PIPE_CAP_SPARSE_BUFFER_PAGE_SIZE:
    case PIPE_CAP_TGSI_BALLOT:
    case PIPE_CAP_TGSI_TES_LAYER_VIEWPORT:
+   case PIPE_CAP_CAN_BIND_CONST_BUFFER_AS_VERTEX:
+   case PIPE_CAP_POST_DEPTH_COVERAGE:
+   case PIPE_CAP_BINDLESS_TEXTURE:
+   case PIPE_CAP_NIR_SAMPLERS_AS_DEREF:
+   case PIPE_CAP_QUERY_SO_OVERFLOW:
+   case PIPE_CAP_MEMOBJ:
+   case PIPE_CAP_LOAD_CONSTBUF:
+   case PIPE_CAP_TGSI_ANY_REG_AS_ADDRESS:
+   case PIPE_CAP_TILE_RASTER_ORDER:
+   case PIPE_CAP_MAX_COMBINED_SHADER_OUTPUT_RESOURCES:
+   case PIPE_CAP_FRAMEBUFFER_MSAA_CONSTRAINTS:
+   case PIPE_CAP_SIGNED_VERTEX_BUFFER_OFFSET:
+   case PIPE_CAP_CONTEXT_PRIORITY_MASK:
+   case PIPE_CAP_FENCE_SIGNAL:
+   case PIPE_CAP_CONSTBUF0_FLAGS:
+   case PIPE_CAP_PACKED_UNIFORMS:
+   case PIPE_CAP_CONSERVATIVE_RASTER_POST_SNAP_TRIANGLES:
+   case PIPE_CAP_CONSERVATIVE_RASTER_POST_SNAP_POINTS_LINES:
+   case PIPE_CAP_CONSERVATIVE_RASTER_PRE_SNAP_TRIANGLES:
+   case PIPE_CAP_CONSERVATIVE_RASTER_PRE_SNAP_POINTS_LINES:
+   case PIPE_CAP_CONSERVATIVE_RASTER_POST_DEPTH_COVERAGE:
+   case PIPE_CAP_MAX_CONSERVATIVE_RASTER_SUBPIXEL_PRECISION_BIAS:
+   case PIPE_CAP_PROGRAMMABLE_SAMPLE_LOCATIONS:
       return 0;
 
    case PIPE_CAP_VENDOR_ID:
@@ -257,6 +279,10 @@ nv30_screen_get_paramf(struct pipe_screen *pscreen, enum pipe_capf param)
       return (eng3d->oclass >= NV40_3D_CLASS) ? 16.0 : 8.0;
    case PIPE_CAPF_MAX_TEXTURE_LOD_BIAS:
       return 15.0;
+   case PIPE_CAPF_MIN_CONSERVATIVE_RASTER_DILATE:
+   case PIPE_CAPF_MAX_CONSERVATIVE_RASTER_DILATE:
+   case PIPE_CAPF_CONSERVATIVE_RASTER_DILATE_GRANULARITY:
+      return 0.0;
    default:
       debug_printf("unknown paramf %d\n", param);
       return 0;
@@ -306,13 +332,20 @@ nv30_screen_get_shader_param(struct pipe_screen *pscreen,
       case PIPE_SHADER_CAP_INDIRECT_CONST_ADDR:
       case PIPE_SHADER_CAP_SUBROUTINES:
       case PIPE_SHADER_CAP_INTEGERS:
+      case PIPE_SHADER_CAP_INT64_ATOMICS:
+      case PIPE_SHADER_CAP_FP16:
       case PIPE_SHADER_CAP_TGSI_DROUND_SUPPORTED:
       case PIPE_SHADER_CAP_TGSI_DFRACEXP_DLDEXP_SUPPORTED:
+      case PIPE_SHADER_CAP_TGSI_LDEXP_SUPPORTED:
       case PIPE_SHADER_CAP_TGSI_FMA_SUPPORTED:
       case PIPE_SHADER_CAP_TGSI_ANY_INOUT_DECL_RANGE:
       case PIPE_SHADER_CAP_MAX_SHADER_BUFFERS:
       case PIPE_SHADER_CAP_MAX_SHADER_IMAGES:
       case PIPE_SHADER_CAP_LOWER_IF_THRESHOLD:
+      case PIPE_SHADER_CAP_TGSI_SKIP_MERGE_REGISTERS:
+      case PIPE_SHADER_CAP_MAX_HW_ATOMIC_COUNTERS:
+      case PIPE_SHADER_CAP_MAX_HW_ATOMIC_COUNTER_BUFFERS:
+      case PIPE_SHADER_CAP_SCALAR_ISA:
          return 0;
       default:
          debug_printf("unknown vertex shader param %d\n", param);
@@ -353,13 +386,19 @@ nv30_screen_get_shader_param(struct pipe_screen *pscreen,
       case PIPE_SHADER_CAP_INDIRECT_CONST_ADDR:
       case PIPE_SHADER_CAP_SUBROUTINES:
       case PIPE_SHADER_CAP_INTEGERS:
+      case PIPE_SHADER_CAP_FP16:
       case PIPE_SHADER_CAP_TGSI_DROUND_SUPPORTED:
       case PIPE_SHADER_CAP_TGSI_DFRACEXP_DLDEXP_SUPPORTED:
+      case PIPE_SHADER_CAP_TGSI_LDEXP_SUPPORTED:
       case PIPE_SHADER_CAP_TGSI_FMA_SUPPORTED:
       case PIPE_SHADER_CAP_TGSI_ANY_INOUT_DECL_RANGE:
       case PIPE_SHADER_CAP_MAX_SHADER_BUFFERS:
       case PIPE_SHADER_CAP_MAX_SHADER_IMAGES:
       case PIPE_SHADER_CAP_LOWER_IF_THRESHOLD:
+      case PIPE_SHADER_CAP_TGSI_SKIP_MERGE_REGISTERS:
+      case PIPE_SHADER_CAP_MAX_HW_ATOMIC_COUNTERS:
+      case PIPE_SHADER_CAP_MAX_HW_ATOMIC_COUNTER_BUFFERS:
+      case PIPE_SHADER_CAP_SCALAR_ISA:
          return 0;
       default:
          debug_printf("unknown fragment shader param %d\n", param);
@@ -376,6 +415,7 @@ nv30_screen_is_format_supported(struct pipe_screen *pscreen,
                                 enum pipe_format format,
                                 enum pipe_texture_target target,
                                 unsigned sample_count,
+                                unsigned storage_sample_count,
                                 unsigned bindings)
 {
    if (sample_count > nv30_screen(pscreen)->max_sample_count)
@@ -384,9 +424,8 @@ nv30_screen_is_format_supported(struct pipe_screen *pscreen,
    if (!(0x00000017 & (1 << sample_count)))
       return false;
 
-   if (!util_format_is_supported(format, bindings)) {
+   if (MAX2(1, sample_count) != MAX2(1, storage_sample_count))
       return false;
-   }
 
    /* shared is always supported */
    bindings &= ~PIPE_BIND_SHARED;

@@ -358,7 +358,7 @@ create_ycbcr_frag_shader(struct vl_mc *r, float scale, bool invert,
       else
          ureg_ADD(shader, ureg_writemask(tmp, TGSI_WRITEMASK_XYZ),
                   ureg_src(tmp), ureg_scalar(flags, TGSI_SWIZZLE_Z));
-
+                  
       ureg_MUL(shader, ureg_writemask(fragment, TGSI_WRITEMASK_XYZ), ureg_src(tmp), ureg_imm1f(shader, invert ? -1.0f : 1.0f));
       ureg_MOV(shader, ureg_writemask(fragment, TGSI_WRITEMASK_W), ureg_imm1f(shader, 1.0f));
 
@@ -518,7 +518,7 @@ vl_mc_init(struct vl_mc *renderer, struct pipe_context *pipe,
       goto error_fs_ycbcr_sub;
 
    return true;
-
+   
 error_fs_ycbcr_sub:
    renderer->pipe->delete_fs_state(renderer->pipe, renderer->fs_ycbcr);
 
@@ -643,7 +643,7 @@ vl_mc_render_ycbcr(struct vl_mc *renderer, struct vl_mc_buffer *buffer, unsigned
    renderer->pipe->bind_fs_state(renderer->pipe, renderer->fs_ycbcr);
 
    util_draw_arrays_instanced(renderer->pipe, PIPE_PRIM_QUADS, 0, 4, 0, num_instances);
-
+   
    if (buffer->surface_cleared) {
       renderer->pipe->bind_blend_state(renderer->pipe, renderer->blend_sub[mask]);
       renderer->pipe->bind_fs_state(renderer->pipe, renderer->fs_ycbcr_sub);

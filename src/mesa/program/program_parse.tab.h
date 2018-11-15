@@ -140,16 +140,15 @@ extern int _mesa_program_debug;
     TEX_ARRAYSHADOW2D = 350,
     VERTEX = 351,
     VTXATTRIB = 352,
-    WEIGHT = 353,
-    IDENTIFIER = 354,
-    USED_IDENTIFIER = 355,
-    MASK4 = 356,
-    MASK3 = 357,
-    MASK2 = 358,
-    MASK1 = 359,
-    SWIZZLE = 360,
-    DOT_DOT = 361,
-    DOT = 362
+    IDENTIFIER = 353,
+    USED_IDENTIFIER = 354,
+    MASK4 = 355,
+    MASK3 = 356,
+    MASK2 = 357,
+    MASK1 = 358,
+    SWIZZLE = 359,
+    DOT_DOT = 360,
+    DOT = 361
   };
 #endif
 
@@ -158,7 +157,7 @@ extern int _mesa_program_debug;
 
 union YYSTYPE
 {
-#line 126 "./program/program_parse.y" /* yacc.c:1909  */
+#line 127 "./program/program_parse.y" /* yacc.c:1909  */
 
    struct asm_instruction *inst;
    struct asm_symbol *sym;
@@ -172,7 +171,7 @@ union YYSTYPE
    unsigned attrib;
    int integer;
    float real;
-   gl_state_index state[STATE_LENGTH];
+   gl_state_index16 state[STATE_LENGTH];
    int negate;
    struct asm_vector vector;
    enum prog_opcode opcode;
@@ -184,7 +183,7 @@ union YYSTYPE
       unsigned negate:1;
    } ext_swizzle;
 
-#line 188 "./program/program_parse.tab.h" /* yacc.c:1909  */
+#line 187 "./program/program_parse.tab.h" /* yacc.c:1909  */
 };
 
 typedef union YYSTYPE YYSTYPE;

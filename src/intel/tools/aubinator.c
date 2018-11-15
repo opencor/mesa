@@ -37,11 +37,24 @@
 #include <sys/wait.h>
 #include <sys/mman.h>
 
+#include "util/list.h"
 #include "util/macros.h"
+#include "util/rb_tree.h"
 
 #include "common/gen_decoder.h"
+#include "common/gen_disasm.h"
+#include "common/gen_gem.h"
 #include "intel_aub.h"
-#include "gen_disasm.h"
+
+#ifndef HAVE_MEMFD_CREATE
+#include <sys/syscall.h>
+
+static inline int
+memfd_create(const char *name, unsigned int flags)
+{
+   return syscall(SYS_memfd_create, name, flags);
+}
+#endif
 
 /* Below is the only command missing from intel_aub.h in libdrm
  * So, reuse intel_aub.h from libdrm and #define the
@@ -56,708 +69,324 @@
 
 /* options */
 
-static bool option_full_decode = true;
-static bool option_print_offsets = true;
+static int option_full_decode = true;
+static int option_print_offsets = true;
+static int max_vbo_lines = -1;
 static enum { COLOR_AUTO, COLOR_ALWAYS, COLOR_NEVER } option_color;
 
 /* state */
 
 uint16_t pci_id = 0;
 char *input_file = NULL, *xml_path = NULL;
-struct gen_spec *spec;
-struct gen_disasm *disasm;
+struct gen_device_info devinfo;
+struct gen_batch_decode_ctx batch_ctx;
 
-uint64_t gtt_size, gtt_end;
-void *gtt;
-uint64_t general_state_base;
-uint64_t surface_state_base;
-uint64_t dynamic_state_base;
-uint64_t instruction_base;
-uint64_t instruction_bound;
+struct bo_map {
+   struct list_head link;
+   struct gen_batch_decode_bo bo;
+   bool unmap_after_use;
+};
+
+struct ggtt_entry {
+   struct rb_node node;
+   uint64_t virt_addr;
+   uint64_t phys_addr;
+};
+
+struct phys_mem {
+   struct rb_node node;
+   uint64_t fd_offset;
+   uint64_t phys_addr;
+   uint8_t *data;
+};
+
+static struct list_head maps;
+static struct rb_tree ggtt = {NULL};
+static struct rb_tree mem = {NULL};
+int mem_fd = -1;
+off_t mem_fd_len = 0;
 
 FILE *outfile;
 
-static inline uint32_t
-field(uint32_t value, int start, int end)
-{
-   uint32_t mask;
-
-   mask = ~0U >> (31 - end + start);
-
-   return (value >> start) & mask;
-}
-
 struct brw_instruction;
 
+static void
+add_gtt_bo_map(struct gen_batch_decode_bo bo, bool unmap_after_use)
+{
+   struct bo_map *m = calloc(1, sizeof(*m));
+
+   m->bo = bo;
+   m->unmap_after_use = unmap_after_use;
+   list_add(&m->link, &maps);
+}
+
+static void
+clear_bo_maps(void)
+{
+   list_for_each_entry_safe(struct bo_map, i, &maps, link) {
+      if (i->unmap_after_use)
+         munmap((void *)i->bo.map, i->bo.size);
+      list_del(&i->link);
+      free(i);
+   }
+}
+
+static inline struct ggtt_entry *
+ggtt_entry_next(struct ggtt_entry *entry)
+{
+   if (!entry)
+      return NULL;
+   struct rb_node *node = rb_node_next(&entry->node);
+   if (!node)
+      return NULL;
+   return rb_node_data(struct ggtt_entry, node, node);
+}
+
 static inline int
-valid_offset(uint32_t offset)
+cmp_uint64(uint64_t a, uint64_t b)
 {
-   return offset < gtt_end;
+   if (a < b)
+      return -1;
+   if (a > b)
+      return 1;
+   return 0;
 }
 
-static void
-decode_group(struct gen_group *strct, const uint32_t *p, int starting_dword)
+static inline int
+cmp_ggtt_entry(const struct rb_node *node, const void *addr)
 {
-   uint64_t offset = option_print_offsets ? (void *) p - gtt : 0;
-   gen_print_group(outfile, strct, offset, p, option_color == COLOR_ALWAYS);
+   struct ggtt_entry *entry = rb_node_data(struct ggtt_entry, node, node);
+   return cmp_uint64(entry->virt_addr, *(const uint64_t *)addr);
 }
 
-static void
-dump_binding_table(struct gen_spec *spec, uint32_t offset)
+static struct ggtt_entry *
+ensure_ggtt_entry(struct rb_tree *tree, uint64_t virt_addr)
 {
-   uint32_t *pointers, i;
-   uint64_t start;
-   struct gen_group *surface_state;
-
-   surface_state = gen_spec_find_struct(spec, "RENDER_SURFACE_STATE");
-   if (surface_state == NULL) {
-      fprintf(outfile, "did not find RENDER_SURFACE_STATE info\n");
-      return;
+   struct rb_node *node = rb_tree_search_sloppy(&ggtt, &virt_addr,
+                                                cmp_ggtt_entry);
+   int cmp = 0;
+   if (!node || (cmp = cmp_ggtt_entry(node, &virt_addr))) {
+      struct ggtt_entry *new_entry = calloc(1, sizeof(*new_entry));
+      new_entry->virt_addr = virt_addr;
+      rb_tree_insert_at(&ggtt, node, &new_entry->node, cmp > 0);
+      node = &new_entry->node;
    }
 
-   start = surface_state_base + offset;
-   pointers = gtt + start;
-   for (i = 0; i < 16; i++) {
-      if (pointers[i] == 0)
+   return rb_node_data(struct ggtt_entry, node, node);
+}
+
+static struct ggtt_entry *
+search_ggtt_entry(uint64_t virt_addr)
+{
+   virt_addr &= ~0xfff;
+
+   struct rb_node *node = rb_tree_search(&ggtt, &virt_addr, cmp_ggtt_entry);
+
+   if (!node)
+      return NULL;
+
+   return rb_node_data(struct ggtt_entry, node, node);
+}
+
+static inline int
+cmp_phys_mem(const struct rb_node *node, const void *addr)
+{
+   struct phys_mem *mem = rb_node_data(struct phys_mem, node, node);
+   return cmp_uint64(mem->phys_addr, *(uint64_t *)addr);
+}
+
+static struct phys_mem *
+ensure_phys_mem(uint64_t phys_addr)
+{
+   struct rb_node *node = rb_tree_search_sloppy(&mem, &phys_addr, cmp_phys_mem);
+   int cmp = 0;
+   if (!node || (cmp = cmp_phys_mem(node, &phys_addr))) {
+      struct phys_mem *new_mem = calloc(1, sizeof(*new_mem));
+      new_mem->phys_addr = phys_addr;
+      new_mem->fd_offset = mem_fd_len;
+
+      int ftruncate_res = ftruncate(mem_fd, mem_fd_len += 4096);
+      assert(ftruncate_res == 0);
+
+      new_mem->data = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED,
+                           mem_fd, new_mem->fd_offset);
+      assert(new_mem->data != MAP_FAILED);
+
+      rb_tree_insert_at(&mem, node, &new_mem->node, cmp > 0);
+      node = &new_mem->node;
+   }
+
+   return rb_node_data(struct phys_mem, node, node);
+}
+
+static struct phys_mem *
+search_phys_mem(uint64_t phys_addr)
+{
+   phys_addr &= ~0xfff;
+
+   struct rb_node *node = rb_tree_search(&mem, &phys_addr, cmp_phys_mem);
+
+   if (!node)
+      return NULL;
+
+   return rb_node_data(struct phys_mem, node, node);
+}
+
+static void
+handle_ggtt_entry_write(uint64_t address, const void *_data, uint32_t _size)
+{
+   uint64_t virt_addr = (address / sizeof(uint64_t)) << 12;
+   const uint64_t *data = _data;
+   size_t size = _size / sizeof(*data);
+   for (const uint64_t *entry = data;
+        entry < data + size;
+        entry++, virt_addr += 4096) {
+      struct ggtt_entry *pt = ensure_ggtt_entry(&ggtt, virt_addr);
+      pt->phys_addr = *entry;
+   }
+}
+
+static void
+handle_physical_write(uint64_t phys_address, const void *data, uint32_t size)
+{
+   uint32_t to_write = size;
+   for (uint64_t page = phys_address & ~0xfff; page < phys_address + size; page += 4096) {
+      struct phys_mem *mem = ensure_phys_mem(page);
+      uint64_t offset = MAX2(page, phys_address) - page;
+      uint32_t size_this_page = MIN2(to_write, 4096 - offset);
+      to_write -= size_this_page;
+      memcpy(mem->data + offset, data, size_this_page);
+      data = (const uint8_t *)data + size_this_page;
+   }
+}
+
+static void
+handle_ggtt_write(uint64_t virt_address, const void *data, uint32_t size)
+{
+   uint32_t to_write = size;
+   for (uint64_t page = virt_address & ~0xfff; page < virt_address + size; page += 4096) {
+      struct ggtt_entry *entry = search_ggtt_entry(page);
+      assert(entry && entry->phys_addr & 0x1);
+
+      uint64_t offset = MAX2(page, virt_address) - page;
+      uint32_t size_this_page = MIN2(to_write, 4096 - offset);
+      to_write -= size_this_page;
+
+      uint64_t phys_page = entry->phys_addr & ~0xfff; /* Clear the validity bits. */
+      handle_physical_write(phys_page + offset, data, size_this_page);
+      data = (const uint8_t *)data + size_this_page;
+   }
+}
+
+static struct gen_batch_decode_bo
+get_ggtt_batch_bo(void *user_data, uint64_t address)
+{
+   struct gen_batch_decode_bo bo = {0};
+
+   list_for_each_entry(struct bo_map, i, &maps, link)
+      if (i->bo.addr <= address && i->bo.addr + i->bo.size > address)
+         return i->bo;
+
+   address &= ~0xfff;
+
+   struct ggtt_entry *start =
+      (struct ggtt_entry *)rb_tree_search_sloppy(&ggtt, &address,
+                                                 cmp_ggtt_entry);
+   if (start && start->virt_addr < address)
+      start = ggtt_entry_next(start);
+   if (!start)
+      return bo;
+
+   struct ggtt_entry *last = start;
+   for (struct ggtt_entry *i = ggtt_entry_next(last);
+        i && last->virt_addr + 4096 == i->virt_addr;
+        last = i, i = ggtt_entry_next(last))
+      ;
+
+   bo.addr = MIN2(address, start->virt_addr);
+   bo.size = last->virt_addr - bo.addr + 4096;
+   bo.map = mmap(NULL, bo.size, PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+   assert(bo.map != MAP_FAILED);
+
+   for (struct ggtt_entry *i = start;
+        i;
+        i = i == last ? NULL : ggtt_entry_next(i)) {
+      uint64_t phys_addr = i->phys_addr & ~0xfff;
+      struct phys_mem *phys_mem = search_phys_mem(phys_addr);
+
+      if (!phys_mem)
          continue;
-      start = pointers[i] + surface_state_base;
-      if (!valid_offset(start)) {
-         fprintf(outfile, "pointer %u: %08x <not valid>\n",
-                 i, pointers[i]);
-         continue;
-      } else {
-         fprintf(outfile, "pointer %u: %08x\n", i, pointers[i]);
-      }
 
-      decode_group(surface_state, gtt + start, 0);
+      uint32_t map_offset = i->virt_addr - address;
+      void *res = mmap((uint8_t *)bo.map + map_offset, 4096, PROT_READ,
+                       MAP_SHARED | MAP_FIXED, mem_fd, phys_mem->fd_offset);
+      assert(res != MAP_FAILED);
    }
+
+   add_gtt_bo_map(bo, true);
+
+   return bo;
 }
 
-static void
-handle_3dstate_index_buffer(struct gen_spec *spec, uint32_t *p)
+static struct phys_mem *
+ppgtt_walk(uint64_t pml4, uint64_t address)
 {
-   void *start;
-   uint32_t length, i, type, size;
-
-   start = gtt + p[2];
-   type = (p[1] >> 8) & 3;
-   size = 1 << type;
-   length = p[4] / size;
-   if (length > 10)
-      length = 10;
-
-   fprintf(outfile, "\t");
-
-   for (i = 0; i < length; i++) {
-      switch (type) {
-      case 0:
-         fprintf(outfile, "%3d ", ((uint8_t *)start)[i]);
-         break;
-      case 1:
-         fprintf(outfile, "%3d ", ((uint16_t *)start)[i]);
-         break;
-      case 2:
-         fprintf(outfile, "%3d ", ((uint32_t *)start)[i]);
-         break;
-      }
+   uint64_t shift = 39;
+   uint64_t addr = pml4;
+   for (int level = 4; level > 0; level--) {
+      struct phys_mem *table = search_phys_mem(addr);
+      if (!table)
+         return NULL;
+      int index = (address >> shift) & 0x1ff;
+      uint64_t entry = ((uint64_t *)table->data)[index];
+      if (!(entry & 1))
+         return NULL;
+      addr = entry & ~0xfff;
+      shift -= 9;
    }
-   if (length < p[4] / size)
-      fprintf(outfile, "...\n");
-   else
-      fprintf(outfile, "\n");
+   return search_phys_mem(addr);
 }
-
-static inline uint64_t
-get_address(struct gen_spec *spec, uint32_t *p)
-{
-   /* Addresses are always guaranteed to be page-aligned and sometimes
-    * hardware packets have extra stuff stuffed in the bottom 12 bits.
-    */
-   uint64_t addr = p[0] & ~0xfffu;
-
-   if (gen_spec_get_gen(spec) >= gen_make_gen(8,0)) {
-      /* On Broadwell and above, we have 48-bit addresses which consume two
-       * dwords.  Some packets require that these get stored in a "canonical
-       * form" which means that bit 47 is sign-extended through the upper
-       * bits. In order to correctly handle those aub dumps, we need to mask
-       * off the top 16 bits.
-       */
-      addr |= ((uint64_t)p[1] & 0xffff) << 32;
-   }
-
-   return addr;
-}
-
-static inline uint64_t
-get_offset(uint32_t *p, uint32_t start, uint32_t end)
-{
-   assert(start <= end);
-   assert(end < 64);
-
-   uint64_t mask = (~0ull >> (64 - (end - start + 1))) << start;
-
-   uint64_t offset = p[0];
-   if (end >= 32)
-      offset |= (uint64_t) p[1] << 32;
-
-   return offset & mask;
-}
-
-static void
-handle_state_base_address(struct gen_spec *spec, uint32_t *p)
-{
-   if (gen_spec_get_gen(spec) >= gen_make_gen(8,0)) {
-      if (p[1] & 1)
-         general_state_base = get_address(spec, &p[1]);
-      if (p[4] & 1)
-         surface_state_base = get_address(spec, &p[4]);
-      if (p[6] & 1)
-         dynamic_state_base = get_address(spec, &p[6]);
-      if (p[10] & 1)
-         instruction_base = get_address(spec, &p[10]);
-      if (p[15] & 1)
-         instruction_bound = p[15] & 0xfff;
-   } else {
-      if (p[2] & 1)
-         surface_state_base = get_address(spec, &p[2]);
-      if (p[3] & 1)
-         dynamic_state_base = get_address(spec, &p[3]);
-      if (p[5] & 1)
-         instruction_base = get_address(spec, &p[5]);
-      if (p[9] & 1)
-         instruction_bound = get_address(spec, &p[9]);
-   }
-}
-
-static void
-dump_samplers(struct gen_spec *spec, uint32_t offset)
-{
-   uint32_t i;
-   uint64_t start;
-   struct gen_group *sampler_state;
-
-   sampler_state = gen_spec_find_struct(spec, "SAMPLER_STATE");
-
-   start = dynamic_state_base + offset;
-   for (i = 0; i < 4; i++) {
-      fprintf(outfile, "sampler state %d\n", i);
-      decode_group(sampler_state, gtt + start + i * 16, 0);
-   }
-}
-
-static void
-handle_media_interface_descriptor_load(struct gen_spec *spec, uint32_t *p)
-{
-   int i, length = p[2] / 32;
-   struct gen_group *descriptor_structure;
-   uint32_t *descriptors;
-   uint64_t start;
-   struct brw_instruction *insns;
-
-   descriptor_structure =
-      gen_spec_find_struct(spec, "INTERFACE_DESCRIPTOR_DATA");
-   if (descriptor_structure == NULL) {
-      fprintf(outfile, "did not find INTERFACE_DESCRIPTOR_DATA info\n");
-      return;
-   }
-
-   start = dynamic_state_base + p[3];
-   descriptors = gtt + start;
-   for (i = 0; i < length; i++, descriptors += 8) {
-      fprintf(outfile, "descriptor %u: %08x\n", i, *descriptors);
-      decode_group(descriptor_structure, descriptors, 0);
-
-      start = instruction_base + descriptors[0];
-      if (!valid_offset(start)) {
-         fprintf(outfile, "kernel: %08"PRIx64" <not valid>\n", start);
-         continue;
-      } else {
-         fprintf(outfile, "kernel: %08"PRIx64"\n", start);
-      }
-
-      insns = (struct brw_instruction *) (gtt + start);
-      gen_disasm_disassemble(disasm, insns, 0, stdout);
-
-      dump_samplers(spec, descriptors[3] & ~0x1f);
-      dump_binding_table(spec, descriptors[4] & ~0x1f);
-   }
-}
-
-/* Heuristic to determine whether a uint32_t is probably actually a float
- * (http://stackoverflow.com/a/2953466)
- */
 
 static bool
-probably_float(uint32_t bits)
+ppgtt_mapped(uint64_t pml4, uint64_t address)
 {
-   int exp = ((bits & 0x7f800000U) >> 23) - 127;
-   uint32_t mant = bits & 0x007fffff;
-
-   /* +- 0.0 */
-   if (exp == -127 && mant == 0)
-      return true;
-
-   /* +- 1 billionth to 1 billion */
-   if (-30 <= exp && exp <= 30)
-      return true;
-
-   /* some value with only a few binary digits */
-   if ((mant & 0x0000ffff) == 0)
-      return true;
-
-   return false;
+   return ppgtt_walk(pml4, address) != NULL;
 }
 
-static void
-handle_3dstate_vertex_buffers(struct gen_spec *spec, uint32_t *p)
+static struct gen_batch_decode_bo
+get_ppgtt_batch_bo(void *user_data, uint64_t address)
 {
-   uint32_t *end, *s, *dw, *dwend;
-   uint64_t offset;
-   int n, i, count, stride;
+   struct gen_batch_decode_bo bo = {0};
+   uint64_t pml4 = *(uint64_t *)user_data;
 
-   end = (p[0] & 0xff) + p + 2;
-   for (s = &p[1], n = 0; s < end; s += 4, n++) {
-      if (gen_spec_get_gen(spec) >= gen_make_gen(8, 0)) {
-         offset = *(uint64_t *) &s[1];
-         dwend = gtt + offset + s[3];
-      } else {
-         offset = s[1];
-         dwend = gtt + s[2] + 1;
-      }
+   address &= ~0xfff;
 
-      stride = field(s[0], 0, 11);
-      count = 0;
-      fprintf(outfile, "vertex buffer %d, size %d\n", n, s[3]);
-      for (dw = gtt + offset, i = 0; dw < dwend && i < 256; dw++) {
-         if (count == 0 && count % (8 * 4) == 0)
-            fprintf(outfile, "  ");
+   if (!ppgtt_mapped(pml4, address))
+      return bo;
 
-         if (probably_float(*dw))
-            fprintf(outfile, "  %8.2f", *(float *) dw);
-         else
-            fprintf(outfile, "  0x%08x", *dw);
+   /* Map everything until the first gap since we don't know how much the
+    * decoder actually needs.
+    */
+   uint64_t end = address;
+   while (ppgtt_mapped(pml4, end))
+      end += 4096;
 
-         i++;
-         count += 4;
+   bo.addr = address;
+   bo.size = end - address;
+   bo.map = mmap(NULL, bo.size, PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+   assert(bo.map != MAP_FAILED);
 
-         if (count == stride) {
-            fprintf(outfile, "\n");
-            count = 0;
-         } else if (count % (8 * 4) == 0) {
-            fprintf(outfile, "\n");
-         } else {
-            fprintf(outfile, " ");
-         }
-      }
-      if (count > 0 && count % (8 * 4) != 0)
-         fprintf(outfile, "\n");
-   }
-}
+   for (uint64_t page = address; page < end; page += 4096) {
+      struct phys_mem *phys_mem = ppgtt_walk(pml4, page);
 
-static void
-handle_3dstate_vs(struct gen_spec *spec, uint32_t *p)
-{
-   uint64_t start;
-   struct brw_instruction *insns;
-   int vs_enable;
-
-   if (gen_spec_get_gen(spec) >= gen_make_gen(8, 0)) {
-      start = get_offset(&p[1], 6, 63);
-      vs_enable = p[7] & 1;
-   } else {
-      start = get_offset(&p[1], 6, 31);
-      vs_enable = p[5] & 1;
+      void *res = mmap((uint8_t *)bo.map + (page - bo.addr), 4096, PROT_READ,
+                       MAP_SHARED | MAP_FIXED, mem_fd, phys_mem->fd_offset);
+      assert(res != MAP_FAILED);
    }
 
-   if (vs_enable) {
-      fprintf(outfile, "instruction_base %08"PRIx64", start %08"PRIx64"\n",
-              instruction_base, start);
+   add_gtt_bo_map(bo, true);
 
-      insns = (struct brw_instruction *) (gtt + instruction_base + start);
-      gen_disasm_disassemble(disasm, insns, 0, stdout);
-   }
-}
-
-static void
-handle_3dstate_hs(struct gen_spec *spec, uint32_t *p)
-{
-   uint64_t start;
-   struct brw_instruction *insns;
-   int hs_enable;
-
-   if (gen_spec_get_gen(spec) >= gen_make_gen(8, 0)) {
-      start = get_offset(&p[3], 6, 63);
-   } else {
-      start = get_offset(&p[3], 6, 31);
-   }
-
-   hs_enable = p[2] & 0x80000000;
-
-   if (hs_enable) {
-      fprintf(outfile, "instruction_base %08"PRIx64", start %08"PRIx64"\n",
-              instruction_base, start);
-
-      insns = (struct brw_instruction *) (gtt + instruction_base + start);
-      gen_disasm_disassemble(disasm, insns, 0, stdout);
-   }
-}
-
-static void
-handle_3dstate_constant(struct gen_spec *spec, uint32_t *p)
-{
-   int i, j, length;
-   uint32_t *dw;
-   float *f;
-
-   for (i = 0; i < 4; i++) {
-      length = (p[1 + i / 2] >> (i & 1) * 16) & 0xffff;
-      f = (float *) (gtt + p[3 + i * 2] + dynamic_state_base);
-      dw = (uint32_t *) f;
-      for (j = 0; j < length * 8; j++) {
-         if (probably_float(dw[j]))
-            fprintf(outfile, "  %04.3f", f[j]);
-         else
-            fprintf(outfile, "  0x%08x", dw[j]);
-
-         if ((j & 7) == 7)
-            fprintf(outfile, "\n");
-      }
-   }
-}
-
-static void
-handle_3dstate_ps(struct gen_spec *spec, uint32_t *p)
-{
-   uint32_t mask = ~((1 << 6) - 1);
-   uint64_t start;
-   struct brw_instruction *insns;
-   static const char unused[] = "unused";
-   static const char *pixel_type[3] = {"8 pixel", "16 pixel", "32 pixel"};
-   const char *k0, *k1, *k2;
-   uint32_t k_mask, k1_offset, k2_offset;
-
-   if (gen_spec_get_gen(spec) >= gen_make_gen(8, 0)) {
-      k_mask = p[6] & 7;
-      k1_offset = 8;
-      k2_offset = 10;
-   } else {
-      k_mask = p[4] & 7;
-      k1_offset = 6;
-      k2_offset = 7;
-   }
-
-#define DISPATCH_8 1
-#define DISPATCH_16 2
-#define DISPATCH_32 4
-
-   switch (k_mask) {
-   case DISPATCH_8:
-      k0 = pixel_type[0];
-      k1 = unused;
-      k2 = unused;
-      break;
-   case DISPATCH_16:
-      k0 = pixel_type[1];
-      k1 = unused;
-      k2 = unused;
-      break;
-   case DISPATCH_8 | DISPATCH_16:
-      k0 = pixel_type[0];
-      k1 = unused;
-      k2 = pixel_type[1];
-      break;
-   case DISPATCH_32:
-      k0 = pixel_type[2];
-      k1 = unused;
-      k2 = unused;
-      break;
-   case DISPATCH_16 | DISPATCH_32:
-      k0 = unused;
-      k1 = pixel_type[2];
-      k2 = pixel_type[1];
-      break;
-   case DISPATCH_8 | DISPATCH_16 | DISPATCH_32:
-      k0 = pixel_type[0];
-      k1 = pixel_type[2];
-      k2 = pixel_type[1];
-      break;
-   default:
-      k0 = unused;
-      k1 = unused;
-      k2 = unused;
-      break;
-   }
-
-   start = instruction_base + (p[1] & mask);
-   fprintf(outfile, "  Kernel[0] %s\n", k0);
-   if (k0 != unused) {
-      insns = (struct brw_instruction *) (gtt + start);
-      gen_disasm_disassemble(disasm, insns, 0, stdout);
-   }
-
-   start = instruction_base + (p[k1_offset] & mask);
-   fprintf(outfile, "  Kernel[1] %s\n", k1);
-   if (k1 != unused) {
-      insns = (struct brw_instruction *) (gtt + start);
-      gen_disasm_disassemble(disasm, insns, 0, stdout);
-   }
-
-   start = instruction_base + (p[k2_offset] & mask);
-   fprintf(outfile, "  Kernel[2] %s\n", k2);
-   if (k2 != unused) {
-      insns = (struct brw_instruction *) (gtt + start);
-      gen_disasm_disassemble(disasm, insns, 0, stdout);
-   }
-}
-
-static void
-handle_3dstate_binding_table_pointers(struct gen_spec *spec, uint32_t *p)
-{
-   dump_binding_table(spec, p[1]);
-}
-
-static void
-handle_3dstate_sampler_state_pointers(struct gen_spec *spec, uint32_t *p)
-{
-   dump_samplers(spec, p[1]);
-}
-
-static void
-handle_3dstate_viewport_state_pointers_cc(struct gen_spec *spec, uint32_t *p)
-{
-   uint64_t start;
-   struct gen_group *cc_viewport;
-
-   cc_viewport = gen_spec_find_struct(spec, "CC_VIEWPORT");
-
-   start = dynamic_state_base + (p[1] & ~0x1fu);
-   for (uint32_t i = 0; i < 4; i++) {
-      fprintf(outfile, "viewport %d\n", i);
-      decode_group(cc_viewport, gtt + start + i * 8, 0);
-   }
-}
-
-static void
-handle_3dstate_viewport_state_pointers_sf_clip(struct gen_spec *spec,
-                                               uint32_t *p)
-{
-   uint64_t start;
-   struct gen_group *sf_clip_viewport;
-
-   sf_clip_viewport = gen_spec_find_struct(spec, "SF_CLIP_VIEWPORT");
-
-   start = dynamic_state_base + (p[1] & ~0x3fu);
-   for (uint32_t i = 0; i < 4; i++) {
-      fprintf(outfile, "viewport %d\n", i);
-      decode_group(sf_clip_viewport, gtt + start + i * 64, 0);
-   }
-}
-
-static void
-handle_3dstate_blend_state_pointers(struct gen_spec *spec, uint32_t *p)
-{
-   uint64_t start;
-   struct gen_group *blend_state;
-
-   blend_state = gen_spec_find_struct(spec, "BLEND_STATE");
-
-   start = dynamic_state_base + (p[1] & ~0x3fu);
-   decode_group(blend_state, gtt + start, 0);
-}
-
-static void
-handle_3dstate_cc_state_pointers(struct gen_spec *spec, uint32_t *p)
-{
-   uint64_t start;
-   struct gen_group *cc_state;
-
-   cc_state = gen_spec_find_struct(spec, "COLOR_CALC_STATE");
-
-   start = dynamic_state_base + (p[1] & ~0x3fu);
-   decode_group(cc_state, gtt + start, 0);
-}
-
-static void
-handle_3dstate_scissor_state_pointers(struct gen_spec *spec, uint32_t *p)
-{
-   uint64_t start;
-   struct gen_group *scissor_rect;
-
-   scissor_rect = gen_spec_find_struct(spec, "SCISSOR_RECT");
-
-   start = dynamic_state_base + (p[1] & ~0x1fu);
-   decode_group(scissor_rect, gtt + start, 0);
-}
-
-static void
-handle_load_register_imm(struct gen_spec *spec, uint32_t *p)
-{
-   struct gen_group *reg = gen_spec_find_register(spec, p[1]);
-
-   if (reg != NULL) {
-      fprintf(outfile, "register %s (0x%x): 0x%x\n",
-              reg->name, reg->register_offset, p[2]);
-      decode_group(reg, &p[2], 0);
-   }
-}
-
-#define ARRAY_LENGTH(a) (sizeof (a) / sizeof (a)[0])
-
-#define STATE_BASE_ADDRESS                  0x61010000
-
-#define MEDIA_INTERFACE_DESCRIPTOR_LOAD     0x70020000
-
-#define _3DSTATE_INDEX_BUFFER               0x780a0000
-#define _3DSTATE_VERTEX_BUFFERS             0x78080000
-
-#define _3DSTATE_VS                         0x78100000
-#define _3DSTATE_GS                         0x78110000
-#define _3DSTATE_HS                         0x781b0000
-#define _3DSTATE_DS                         0x781d0000
-
-#define _3DSTATE_CONSTANT_VS                0x78150000
-#define _3DSTATE_CONSTANT_GS                0x78160000
-#define _3DSTATE_CONSTANT_PS                0x78170000
-#define _3DSTATE_CONSTANT_HS                0x78190000
-#define _3DSTATE_CONSTANT_DS                0x781A0000
-
-#define _3DSTATE_PS                         0x78200000
-
-#define _3DSTATE_BINDING_TABLE_POINTERS_VS  0x78260000
-#define _3DSTATE_BINDING_TABLE_POINTERS_HS  0x78270000
-#define _3DSTATE_BINDING_TABLE_POINTERS_DS  0x78280000
-#define _3DSTATE_BINDING_TABLE_POINTERS_GS  0x78290000
-#define _3DSTATE_BINDING_TABLE_POINTERS_PS  0x782a0000
-
-#define _3DSTATE_SAMPLER_STATE_POINTERS_VS  0x782b0000
-#define _3DSTATE_SAMPLER_STATE_POINTERS_GS  0x782e0000
-#define _3DSTATE_SAMPLER_STATE_POINTERS_PS  0x782f0000
-
-#define _3DSTATE_VIEWPORT_STATE_POINTERS_CC 0x78230000
-#define _3DSTATE_VIEWPORT_STATE_POINTERS_SF_CLIP 0x78210000
-#define _3DSTATE_BLEND_STATE_POINTERS       0x78240000
-#define _3DSTATE_CC_STATE_POINTERS          0x780e0000
-#define _3DSTATE_SCISSOR_STATE_POINTERS     0x780f0000
-
-#define _MI_LOAD_REGISTER_IMM               0x11000000
-
-struct custom_handler {
-   uint32_t opcode;
-   void (*handle)(struct gen_spec *spec, uint32_t *p);
-} custom_handlers[] = {
-   { STATE_BASE_ADDRESS, handle_state_base_address },
-   { MEDIA_INTERFACE_DESCRIPTOR_LOAD, handle_media_interface_descriptor_load },
-   { _3DSTATE_VERTEX_BUFFERS, handle_3dstate_vertex_buffers },
-   { _3DSTATE_INDEX_BUFFER, handle_3dstate_index_buffer },
-   { _3DSTATE_VS, handle_3dstate_vs },
-   { _3DSTATE_GS, handle_3dstate_vs },
-   { _3DSTATE_DS, handle_3dstate_vs },
-   { _3DSTATE_HS, handle_3dstate_hs },
-   { _3DSTATE_CONSTANT_VS, handle_3dstate_constant },
-   { _3DSTATE_CONSTANT_GS, handle_3dstate_constant },
-   { _3DSTATE_CONSTANT_PS, handle_3dstate_constant },
-   { _3DSTATE_CONSTANT_HS, handle_3dstate_constant },
-   { _3DSTATE_CONSTANT_DS, handle_3dstate_constant },
-   { _3DSTATE_PS, handle_3dstate_ps },
-
-   { _3DSTATE_BINDING_TABLE_POINTERS_VS, handle_3dstate_binding_table_pointers },
-   { _3DSTATE_BINDING_TABLE_POINTERS_HS, handle_3dstate_binding_table_pointers },
-   { _3DSTATE_BINDING_TABLE_POINTERS_DS, handle_3dstate_binding_table_pointers },
-   { _3DSTATE_BINDING_TABLE_POINTERS_GS, handle_3dstate_binding_table_pointers },
-   { _3DSTATE_BINDING_TABLE_POINTERS_PS, handle_3dstate_binding_table_pointers },
-
-   { _3DSTATE_SAMPLER_STATE_POINTERS_VS, handle_3dstate_sampler_state_pointers },
-   { _3DSTATE_SAMPLER_STATE_POINTERS_GS, handle_3dstate_sampler_state_pointers },
-   { _3DSTATE_SAMPLER_STATE_POINTERS_PS, handle_3dstate_sampler_state_pointers },
-
-   { _3DSTATE_VIEWPORT_STATE_POINTERS_CC, handle_3dstate_viewport_state_pointers_cc },
-   { _3DSTATE_VIEWPORT_STATE_POINTERS_SF_CLIP, handle_3dstate_viewport_state_pointers_sf_clip },
-   { _3DSTATE_BLEND_STATE_POINTERS, handle_3dstate_blend_state_pointers },
-   { _3DSTATE_CC_STATE_POINTERS, handle_3dstate_cc_state_pointers },
-   { _3DSTATE_SCISSOR_STATE_POINTERS, handle_3dstate_scissor_state_pointers },
-   { _MI_LOAD_REGISTER_IMM, handle_load_register_imm }
-};
-
-static void
-parse_commands(struct gen_spec *spec, uint32_t *cmds, int size, int engine)
-{
-   uint32_t *p, *end = cmds + size / 4;
-   int length, i;
-   struct gen_group *inst;
-
-   for (p = cmds; p < end; p += length) {
-      inst = gen_spec_find_instruction(spec, p);
-      length = gen_group_get_length(inst, p);
-      assert(inst == NULL || length > 0);
-      length = MAX2(1, length);
-      if (inst == NULL) {
-         fprintf(outfile, "unknown instruction %08x\n", p[0]);
-         continue;
-      }
-
-      const char *color, *reset_color = NORMAL;
-      uint64_t offset;
-
-      if (option_full_decode) {
-         if ((p[0] & 0xffff0000) == AUB_MI_BATCH_BUFFER_START ||
-             (p[0] & 0xffff0000) == AUB_MI_BATCH_BUFFER_END)
-            color = GREEN_HEADER;
-         else
-            color = BLUE_HEADER;
-      } else
-         color = NORMAL;
-
-      if (option_color == COLOR_NEVER) {
-         color = "";
-         reset_color = "";
-      }
-
-      if (option_print_offsets)
-         offset = (void *) p - gtt;
-      else
-         offset = 0;
-
-      fprintf(outfile, "%s0x%08"PRIx64":  0x%08x:  %-80s%s\n",
-              color, offset, p[0],
-              gen_group_get_name(inst), reset_color);
-
-      if (option_full_decode) {
-         decode_group(inst, p, 0);
-
-         for (i = 0; i < ARRAY_LENGTH(custom_handlers); i++) {
-            if (gen_group_get_opcode(inst) == custom_handlers[i].opcode) {
-               custom_handlers[i].handle(spec, p);
-               break;
-            }
-         }
-      }
-
-      if ((p[0] & 0xffff0000) == AUB_MI_BATCH_BUFFER_START) {
-         uint64_t start = get_address(spec, &p[1]);
-
-         if (p[0] & (1 << 22)) {
-            /* MI_BATCH_BUFFER_START with "2nd Level Batch Buffer" set acts
-             * like a subroutine call.  Commands that come afterwards get
-             * processed once the 2nd level batch buffer returns with
-             * MI_BATCH_BUFFER_END.
-             */
-            parse_commands(spec, gtt + start, gtt_end - start, engine);
-         } else {
-            /* MI_BATCH_BUFFER_START with "2nd Level Batch Buffer" unset acts
-             * like a goto.  Nothing after it will ever get processed.  In
-             * order to prevent the recursion from growing, we just reset the
-             * loop and continue;
-             */
-            p = gtt + start;
-            /* We don't know where secondaries end so use the GTT end */
-            end = gtt + gtt_end;
-            length = 0;
-            continue;
-         }
-      } else if ((p[0] & 0xffff0000) == AUB_MI_BATCH_BUFFER_END) {
-         break;
-      }
-   }
+   return bo;
 }
 
 #define GEN_ENGINE_RENDER 1
@@ -769,26 +398,23 @@ handle_trace_block(uint32_t *p)
    int operation = p[1] & AUB_TRACE_OPERATION_MASK;
    int type = p[1] & AUB_TRACE_TYPE_MASK;
    int address_space = p[1] & AUB_TRACE_ADDRESS_SPACE_MASK;
-   uint64_t offset = p[3];
-   uint32_t size = p[4];
    int header_length = p[0] & 0xffff;
-   uint32_t *data = p + header_length + 2;
    int engine = GEN_ENGINE_RENDER;
-
-   if (gen_spec_get_gen(spec) >= gen_make_gen(8,0))
-      offset += (uint64_t) p[5] << 32;
+   struct gen_batch_decode_bo bo = {
+      .map = p + header_length + 2,
+      /* Addresses written by aubdump here are in canonical form but the batch
+       * decoder always gives us addresses with the top 16bits zeroed, so do
+       * the same here.
+       */
+      .addr = gen_48b_address((devinfo.gen >= 8 ? ((uint64_t) p[5] << 32) : 0) |
+                              ((uint64_t) p[3])),
+      .size = p[4],
+   };
 
    switch (operation) {
    case AUB_TRACE_OP_DATA_WRITE:
-      if (address_space != AUB_TRACE_MEMTYPE_GTT)
-         break;
-      if (gtt_size < offset + size) {
-         fprintf(stderr, "overflow gtt space: %s\n", strerror(errno));
-         exit(EXIT_FAILURE);
-      }
-      memcpy((char *) gtt + offset, data, size);
-      if (gtt_end < offset + size)
-         gtt_end = offset + size;
+      if (address_space == AUB_TRACE_MEMTYPE_GTT)
+         add_gtt_bo_map(bo, false);
       break;
    case AUB_TRACE_OP_COMMAND_WRITE:
       switch (type) {
@@ -803,10 +429,55 @@ handle_trace_block(uint32_t *p)
          break;
       }
 
-      parse_commands(spec, data, size, engine);
-      gtt_end = 0;
+      (void)engine; /* TODO */
+      batch_ctx.get_bo = get_ggtt_batch_bo;
+      gen_print_batch(&batch_ctx, bo.map, bo.size, 0);
+
+      clear_bo_maps();
       break;
    }
+}
+
+static void
+aubinator_init(uint16_t aub_pci_id, const char *app_name)
+{
+   if (!gen_get_device_info(pci_id, &devinfo)) {
+      fprintf(stderr, "can't find device information: pci_id=0x%x\n", pci_id);
+      exit(EXIT_FAILURE);
+   }
+
+   enum gen_batch_decode_flags batch_flags = 0;
+   if (option_color == COLOR_ALWAYS)
+      batch_flags |= GEN_BATCH_DECODE_IN_COLOR;
+   if (option_full_decode)
+      batch_flags |= GEN_BATCH_DECODE_FULL;
+   if (option_print_offsets)
+      batch_flags |= GEN_BATCH_DECODE_OFFSETS;
+   batch_flags |= GEN_BATCH_DECODE_FLOATS;
+
+   gen_batch_decode_ctx_init(&batch_ctx, &devinfo, outfile, batch_flags,
+                             xml_path, NULL, NULL, NULL);
+   batch_ctx.max_vbo_decoded_lines = max_vbo_lines;
+
+   char *color = GREEN_HEADER, *reset_color = NORMAL;
+   if (option_color == COLOR_NEVER)
+      color = reset_color = "";
+
+   fprintf(outfile, "%sAubinator: Intel AUB file decoder.%-80s%s\n",
+           color, "", reset_color);
+
+   if (input_file)
+      fprintf(outfile, "File name:        %s\n", input_file);
+
+   if (aub_pci_id)
+      fprintf(outfile, "PCI ID:           0x%x\n", aub_pci_id);
+
+   fprintf(outfile, "Application name: %s\n", app_name);
+
+   fprintf(outfile, "Decoding as:      %s\n", gen_get_device_name(pci_id));
+
+   /* Throw in a new line before the first batch */
+   fprintf(outfile, "\n");
 }
 
 static void
@@ -824,39 +495,155 @@ handle_trace_header(uint32_t *p)
    if (pci_id == 0)
       pci_id = aub_pci_id;
 
-   struct gen_device_info devinfo;
-   if (!gen_get_device_info(pci_id, &devinfo)) {
-      fprintf(stderr, "can't find device information: pci_id=0x%x\n", pci_id);
-      exit(EXIT_FAILURE);
-   }
-
-   if (xml_path == NULL)
-      spec = gen_spec_load(&devinfo);
-   else
-      spec = gen_spec_load_from_path(&devinfo, xml_path);
-   disasm = gen_disasm_create(pci_id);
-
-   if (spec == NULL || disasm == NULL)
-      exit(EXIT_FAILURE);
-
-   fprintf(outfile, "%sAubinator: Intel AUB file decoder.%-80s%s\n",
-           GREEN_HEADER, "", NORMAL);
-
-   if (input_file)
-      fprintf(outfile, "File name:        %s\n", input_file);
-
-   if (aub_pci_id)
-      fprintf(outfile, "PCI ID:           0x%x\n", aub_pci_id);
-
    char app_name[33];
    strncpy(app_name, (char *)&p[2], 32);
    app_name[32] = 0;
-   fprintf(outfile, "Application name: %s\n", app_name);
 
-   fprintf(outfile, "Decoding as:      %s\n", gen_get_device_name(pci_id));
+   aubinator_init(aub_pci_id, app_name);
+}
 
-   /* Throw in a new line before the first batch */
-   fprintf(outfile, "\n");
+static void
+handle_memtrace_version(uint32_t *p)
+{
+   int header_length = p[0] & 0xffff;
+   char app_name[64];
+   int app_name_len = MIN2(4 * (header_length + 1 - 5), ARRAY_SIZE(app_name) - 1);
+   int pci_id_len = 0;
+   int aub_pci_id = 0;
+
+   strncpy(app_name, (char *)&p[5], app_name_len);
+   app_name[app_name_len] = 0;
+   sscanf(app_name, "PCI-ID=%i %n", &aub_pci_id, &pci_id_len);
+   if (pci_id == 0)
+      pci_id = aub_pci_id;
+   aubinator_init(aub_pci_id, app_name + pci_id_len);
+}
+
+static void
+handle_memtrace_reg_write(uint32_t *p)
+{
+   static struct execlist_regs {
+      uint32_t render_elsp[4];
+      int render_elsp_index;
+      uint32_t blitter_elsp[4];
+      int blitter_elsp_index;
+   } state = {};
+
+   uint32_t offset = p[1];
+   uint32_t value = p[5];
+
+   int engine;
+   uint64_t context_descriptor;
+
+   switch (offset) {
+   case 0x2230: /* render elsp */
+      state.render_elsp[state.render_elsp_index++] = value;
+      if (state.render_elsp_index < 4)
+         return;
+
+      state.render_elsp_index = 0;
+      engine = GEN_ENGINE_RENDER;
+      context_descriptor = (uint64_t)state.render_elsp[2] << 32 |
+         state.render_elsp[3];
+      break;
+   case 0x22230: /* blitter elsp */
+      state.blitter_elsp[state.blitter_elsp_index++] = value;
+      if (state.blitter_elsp_index < 4)
+         return;
+
+      state.blitter_elsp_index = 0;
+      engine = GEN_ENGINE_BLITTER;
+      context_descriptor = (uint64_t)state.blitter_elsp[2] << 32 |
+         state.blitter_elsp[3];
+      break;
+   case 0x2510: /* render elsq0 lo */
+      state.render_elsp[3] = value;
+      return;
+      break;
+   case 0x2514: /* render elsq0 hi */
+      state.render_elsp[2] = value;
+      return;
+      break;
+   case 0x22510: /* blitter elsq0 lo */
+      state.blitter_elsp[3] = value;
+      return;
+      break;
+   case 0x22514: /* blitter elsq0 hi */
+      state.blitter_elsp[2] = value;
+      return;
+      break;
+   case 0x2550: /* render elsc */
+      engine = GEN_ENGINE_RENDER;
+      context_descriptor = (uint64_t)state.render_elsp[2] << 32 |
+         state.render_elsp[3];
+      break;
+   case 0x22550: /* blitter elsc */
+      engine = GEN_ENGINE_BLITTER;
+      context_descriptor = (uint64_t)state.blitter_elsp[2] << 32 |
+         state.blitter_elsp[3];
+      break;
+   default:
+      return;
+   }
+
+   const uint32_t pphwsp_size = 4096;
+   uint32_t pphwsp_addr = context_descriptor & 0xfffff000;
+   struct gen_batch_decode_bo pphwsp_bo = get_ggtt_batch_bo(NULL, pphwsp_addr);
+   uint32_t *context = (uint32_t *)((uint8_t *)pphwsp_bo.map +
+                                    (pphwsp_addr - pphwsp_bo.addr) +
+                                    pphwsp_size);
+
+   uint32_t ring_buffer_head = context[5];
+   uint32_t ring_buffer_tail = context[7];
+   uint32_t ring_buffer_start = context[9];
+   uint64_t pml4 = (uint64_t)context[49] << 32 | context[51];
+
+   struct gen_batch_decode_bo ring_bo = get_ggtt_batch_bo(NULL,
+                                                          ring_buffer_start);
+   assert(ring_bo.size > 0);
+   void *commands = (uint8_t *)ring_bo.map + (ring_buffer_start - ring_bo.addr);
+
+   if (context_descriptor & 0x100 /* ppgtt */) {
+      batch_ctx.get_bo = get_ppgtt_batch_bo;
+      batch_ctx.user_data = &pml4;
+   } else {
+      batch_ctx.get_bo = get_ggtt_batch_bo;
+   }
+
+   (void)engine; /* TODO */
+   gen_print_batch(&batch_ctx, commands, ring_buffer_tail - ring_buffer_head,
+                   0);
+   clear_bo_maps();
+}
+
+static void
+handle_memtrace_mem_write(uint32_t *p)
+{
+   struct gen_batch_decode_bo bo = {
+      .map = p + 5,
+      /* Addresses written by aubdump here are in canonical form but the batch
+       * decoder always gives us addresses with the top 16bits zeroed, so do
+       * the same here.
+       */
+      .addr = gen_48b_address(*(uint64_t*)&p[1]),
+      .size = p[4],
+   };
+   uint32_t address_space = p[3] >> 28;
+
+   switch (address_space) {
+   case 0: /* GGTT */
+      handle_ggtt_write(bo.addr, bo.map, bo.size);
+      break;
+   case 1: /* Local */
+      add_gtt_bo_map(bo, false);
+      break;
+   case 2: /* Physical */
+      handle_physical_write(bo.addr, bo.map, bo.size);
+      break;
+   case 4: /* GGTT Entry */
+      handle_ggtt_entry_write(bo.addr, bo.map, bo.size);
+      break;
+   }
 }
 
 struct aub_file {
@@ -892,19 +679,10 @@ aub_file_open(const char *filename)
       exit(EXIT_FAILURE);
    }
 
+   close(fd);
+
    file->cursor = file->map;
    file->end = file->map + sb.st_size / 4;
-
-   return file;
-}
-
-static struct aub_file *
-aub_file_stdin(void)
-{
-   struct aub_file *file;
-
-   file = calloc(1, sizeof *file);
-   file->stream = stdin;
 
    return file;
 }
@@ -926,33 +704,13 @@ aub_file_stdin(void)
 
 /* Newer version AUB opcode */
 #define OPCODE_NEW_AUB      0x2e
-#define SUBOPCODE_VERSION   0x00
+#define SUBOPCODE_REG_POLL  0x02
 #define SUBOPCODE_REG_WRITE 0x03
 #define SUBOPCODE_MEM_POLL  0x05
 #define SUBOPCODE_MEM_WRITE 0x06
+#define SUBOPCODE_VERSION   0x0e
 
 #define MAKE_GEN(major, minor) ( ((major) << 8) | (minor) )
-
-struct {
-   const char *name;
-   uint32_t gen;
-} device_map[] = {
-   { "bwr", MAKE_GEN(4, 0) },
-   { "cln", MAKE_GEN(4, 0) },
-   { "blc", MAKE_GEN(4, 0) },
-   { "ctg", MAKE_GEN(4, 0) },
-   { "el", MAKE_GEN(4, 0) },
-   { "il", MAKE_GEN(4, 0) },
-   { "sbr", MAKE_GEN(6, 0) },
-   { "ivb", MAKE_GEN(7, 0) },
-   { "lrb2", MAKE_GEN(0, 0) },
-   { "hsw", MAKE_GEN(7, 5) },
-   { "vlv", MAKE_GEN(7, 0) },
-   { "bdw", MAKE_GEN(8, 0) },
-   { "skl", MAKE_GEN(9, 0) },
-   { "chv", MAKE_GEN(8, 0) },
-   { "bxt", MAKE_GEN(9, 0) }
-};
 
 enum {
    AUB_ITEM_DECODE_OK,
@@ -963,11 +721,10 @@ enum {
 static int
 aub_file_decode_batch(struct aub_file *file)
 {
-   uint32_t *p, h, device, data_type, *new_cursor;
+   uint32_t *p, h, *new_cursor;
    int header_length, bias;
 
-   if (file->end - file->cursor < 1)
-      return AUB_ITEM_DECODE_NEED_MORE_DATA;
+   assert(file->cursor < file->end);
 
    p = file->cursor;
    h = *p;
@@ -989,13 +746,11 @@ aub_file_decode_batch(struct aub_file *file)
 
    new_cursor = p + header_length + bias;
    if ((h & 0xffff0000) == MAKE_HEADER(TYPE_AUB, OPCODE_AUB, SUBOPCODE_BLOCK)) {
-      if (file->end - file->cursor < 4)
-         return AUB_ITEM_DECODE_NEED_MORE_DATA;
+      assert(file->end - file->cursor >= 4);
       new_cursor += p[4] / 4;
    }
 
-   if (new_cursor > file->end)
-      return AUB_ITEM_DECODE_NEED_MORE_DATA;
+   assert(new_cursor <= file->end);
 
    switch (h & 0xffff0000) {
    case MAKE_HEADER(TYPE_AUB, OPCODE_AUB, SUBOPCODE_HEADER):
@@ -1007,24 +762,18 @@ aub_file_decode_batch(struct aub_file *file)
    case MAKE_HEADER(TYPE_AUB, OPCODE_AUB, SUBOPCODE_BMP):
       break;
    case MAKE_HEADER(TYPE_AUB, OPCODE_NEW_AUB, SUBOPCODE_VERSION):
-      fprintf(outfile, "version block: dw1 %08x\n", p[1]);
-      device = (p[1] >> 8) & 0xff;
-      fprintf(outfile, "  device %s\n", device_map[device].name);
+      handle_memtrace_version(p);
       break;
    case MAKE_HEADER(TYPE_AUB, OPCODE_NEW_AUB, SUBOPCODE_REG_WRITE):
-      fprintf(outfile, "register write block: (dwords %d)\n", h & 0xffff);
-      fprintf(outfile, "  reg 0x%x, data 0x%x\n", p[1], p[5]);
+      handle_memtrace_reg_write(p);
       break;
    case MAKE_HEADER(TYPE_AUB, OPCODE_NEW_AUB, SUBOPCODE_MEM_WRITE):
-      fprintf(outfile, "memory write block (dwords %d):\n", h & 0xffff);
-      fprintf(outfile, "  address 0x%"PRIx64"\n", *(uint64_t *) &p[1]);
-      data_type = (p[3] >> 20) & 0xff;
-      if (data_type != 0)
-         fprintf(outfile, "  data type 0x%x\n", data_type);
-      fprintf(outfile, "  address space 0x%x\n", (p[3] >> 28) & 0xf);
+      handle_memtrace_mem_write(p);
       break;
    case MAKE_HEADER(TYPE_AUB, OPCODE_NEW_AUB, SUBOPCODE_MEM_POLL):
       fprintf(outfile, "memory poll block (dwords %d):\n", h & 0xffff);
+      break;
+   case MAKE_HEADER(TYPE_AUB, OPCODE_NEW_AUB, SUBOPCODE_REG_POLL):
       break;
    default:
       fprintf(outfile, "unknown block type=0x%x, opcode=0x%x, "
@@ -1040,48 +789,6 @@ static int
 aub_file_more_stuff(struct aub_file *file)
 {
    return file->cursor < file->end || (file->stream && !feof(file->stream));
-}
-
-#define AUB_READ_BUFFER_SIZE (4096)
-#define MAX(a, b) ((a) < (b) ? (b) : (a))
-
-static void
-aub_file_data_grow(struct aub_file *file)
-{
-   size_t old_size = (file->mem_end - file->map) * 4;
-   size_t new_size = MAX(old_size * 2, AUB_READ_BUFFER_SIZE);
-   uint32_t *new_start = realloc(file->map, new_size);
-
-   file->cursor = new_start + (file->cursor - file->map);
-   file->end = new_start + (file->end - file->map);
-   file->map = new_start;
-   file->mem_end = file->map + (new_size / 4);
-}
-
-static bool
-aub_file_data_load(struct aub_file *file)
-{
-   size_t r;
-
-   if (file->stream == NULL)
-      return false;
-
-   /* First remove any consumed data */
-   if (file->cursor > file->map) {
-      memmove(file->map, file->cursor,
-              (file->end - file->cursor) * 4);
-      file->end -= file->cursor - file->map;
-      file->cursor = file->map;
-   }
-
-   /* Then load some new data in */
-   if ((file->mem_end - file->end) < (AUB_READ_BUFFER_SIZE / 4))
-      aub_file_data_grow(file);
-
-   r = fread(file->end, 1, (file->mem_end - file->end) * 4, file->stream);
-   file->end += r / 4;
-
-   return r != 0;
 }
 
 static void
@@ -1115,17 +822,17 @@ static void
 print_help(const char *progname, FILE *file)
 {
    fprintf(file,
-           "Usage: %s [OPTION]... [FILE]\n"
-           "Decode aub file contents from either FILE or the standard input.\n\n"
-           "A valid --gen option must be provided.\n\n"
-           "      --help          display this help and exit\n"
-           "      --gen=platform  decode for given platform (ivb, byt, hsw, bdw, chv, skl, kbl or bxt)\n"
-           "      --headers       decode only command headers\n"
-           "      --color[=WHEN]  colorize the output; WHEN can be 'auto' (default\n"
-           "                        if omitted), 'always', or 'never'\n"
-           "      --no-pager      don't launch pager\n"
-           "      --no-offsets    don't print instruction offsets\n"
-           "      --xml=DIR       load hardware xml description from directory DIR\n",
+           "Usage: %s [OPTION]... FILE\n"
+           "Decode aub file contents from FILE.\n\n"
+           "      --help             display this help and exit\n"
+           "      --gen=platform     decode for given platform (3 letter platform name)\n"
+           "      --headers          decode only command headers\n"
+           "      --color[=WHEN]     colorize the output; WHEN can be 'auto' (default\n"
+           "                         if omitted), 'always', or 'never'\n"
+           "      --max-vbo-lines=N  limit the number of decoded VBO lines\n"
+           "      --no-pager         don't launch pager\n"
+           "      --no-offsets       don't print instruction offsets\n"
+           "      --xml=DIR          load hardware xml description from directory DIR\n",
            progname);
 }
 
@@ -1134,30 +841,16 @@ int main(int argc, char *argv[])
    struct aub_file *file;
    int c, i;
    bool help = false, pager = true;
-   const struct {
-      const char *name;
-      int pci_id;
-   } gens[] = {
-      { "ilk", 0x0046 }, /* Intel(R) Ironlake Mobile */
-      { "snb", 0x0126 }, /* Intel(R) Sandybridge Mobile GT2 */
-      { "ivb", 0x0166 }, /* Intel(R) Ivybridge Mobile GT2 */
-      { "hsw", 0x0416 }, /* Intel(R) Haswell Mobile GT2 */
-      { "byt", 0x0155 }, /* Intel(R) Bay Trail */
-      { "bdw", 0x1616 }, /* Intel(R) HD Graphics 5500 (Broadwell GT2) */
-      { "chv", 0x22B3 }, /* Intel(R) HD Graphics (Cherryview) */
-      { "skl", 0x1912 }, /* Intel(R) HD Graphics 530 (Skylake GT2) */
-      { "kbl", 0x591D }, /* Intel(R) Kabylake GT2 */
-      { "bxt", 0x0A84 }  /* Intel(R) HD Graphics (Broxton) */
-   };
    const struct option aubinator_opts[] = {
-      { "help",       no_argument,       (int *) &help,                 true },
-      { "no-pager",   no_argument,       (int *) &pager,                false },
-      { "no-offsets", no_argument,       (int *) &option_print_offsets, false },
-      { "gen",        required_argument, NULL,                          'g' },
-      { "headers",    no_argument,       (int *) &option_full_decode,   false },
-      { "color",      required_argument, NULL,                          'c' },
-      { "xml",        required_argument, NULL,                          'x' },
-      { NULL,         0,                 NULL,                          0 }
+      { "help",          no_argument,       (int *) &help,                 true },
+      { "no-pager",      no_argument,       (int *) &pager,                false },
+      { "no-offsets",    no_argument,       (int *) &option_print_offsets, false },
+      { "gen",           required_argument, NULL,                          'g' },
+      { "headers",       no_argument,       (int *) &option_full_decode,   false },
+      { "color",         required_argument, NULL,                          'c' },
+      { "xml",           required_argument, NULL,                          'x' },
+      { "max-vbo-lines", required_argument, NULL,                          'v' },
+      { NULL,            0,                 NULL,                          0 }
    };
 
    outfile = stdout;
@@ -1165,19 +858,17 @@ int main(int argc, char *argv[])
    i = 0;
    while ((c = getopt_long(argc, argv, "", aubinator_opts, &i)) != -1) {
       switch (c) {
-      case 'g':
-         for (i = 0; i < ARRAY_SIZE(gens); i++) {
-            if (!strcmp(optarg, gens[i].name)) {
-               pci_id = gens[i].pci_id;
-               break;
-            }
-         }
-         if (i == ARRAY_SIZE(gens)) {
+      case 'g': {
+         const int id = gen_device_name_to_pci_device_id(optarg);
+         if (id < 0) {
             fprintf(stderr, "can't parse gen: '%s', expected ivb, byt, hsw, "
                                    "bdw, chv, skl, kbl or bxt\n", optarg);
             exit(EXIT_FAILURE);
+         } else {
+            pci_id = id;
          }
          break;
+      }
       case 'c':
          if (optarg == NULL || strcmp(optarg, "always") == 0)
             option_color = COLOR_ALWAYS;
@@ -1193,18 +884,21 @@ int main(int argc, char *argv[])
       case 'x':
          xml_path = strdup(optarg);
          break;
+      case 'v':
+         max_vbo_lines = atoi(optarg);
+         break;
       default:
          break;
       }
    }
 
-   if (help || argc == 1) {
+   if (optind < argc)
+      input_file = argv[optind];
+
+   if (help || !input_file) {
       print_help(argv[0], stderr);
       exit(0);
    }
-
-   if (optind < argc)
-      input_file = argv[optind];
 
    /* Do this before we redirect stdout to pager. */
    if (option_color == COLOR_AUTO)
@@ -1213,40 +907,14 @@ int main(int argc, char *argv[])
    if (isatty(1) && pager)
       setup_pager();
 
-   if (input_file == NULL)
-      file = aub_file_stdin();
-   else
-      file = aub_file_open(input_file);
+   mem_fd = memfd_create("phys memory", 0);
 
-   /* mmap a terabyte for our gtt space. */
-   gtt_size = 1ull << 40;
-   gtt = mmap(NULL, gtt_size, PROT_READ | PROT_WRITE,
-              MAP_PRIVATE | MAP_ANONYMOUS |  MAP_NORESERVE, -1, 0);
-   if (gtt == MAP_FAILED) {
-      fprintf(stderr, "failed to alloc gtt space: %s\n", strerror(errno));
-      exit(EXIT_FAILURE);
-   }
+   list_inithead(&maps);
 
-   while (aub_file_more_stuff(file)) {
-      switch (aub_file_decode_batch(file)) {
-      case AUB_ITEM_DECODE_OK:
-         break;
-      case AUB_ITEM_DECODE_NEED_MORE_DATA:
-         if (!file->stream) {
-            file->cursor = file->end;
-            break;
-         }
-         if (aub_file_more_stuff(file) && !aub_file_data_load(file)) {
-            fprintf(stderr, "failed to load data from stdin\n");
-            exit(EXIT_FAILURE);
-         }
-         break;
-      default:
-         fprintf(stderr, "failed to parse aubdump data\n");
-         exit(EXIT_FAILURE);
-      }
-   }
+   file = aub_file_open(input_file);
 
+   while (aub_file_more_stuff(file) &&
+          aub_file_decode_batch(file) == AUB_ITEM_DECODE_OK);
 
    fflush(stdout);
    /* close the stdout which is opened to write the output */

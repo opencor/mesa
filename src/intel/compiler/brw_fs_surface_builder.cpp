@@ -160,6 +160,26 @@ namespace brw {
          return emit_send(bld, SHADER_OPCODE_TYPED_ATOMIC_LOGICAL,
                           addr, tmp, surface, dims, op, rsize);
       }
+
+      fs_reg
+      emit_byte_scattered_read(const fs_builder &bld,
+                               const fs_reg &surface, const fs_reg &addr,
+                               unsigned dims, unsigned size,
+                               unsigned bit_size, brw_predicate pred)
+      {
+         return emit_send(bld, SHADER_OPCODE_BYTE_SCATTERED_READ_LOGICAL,
+                          addr, fs_reg(), surface, dims, bit_size, size, pred);
+      }
+
+      void
+      emit_byte_scattered_write(const fs_builder &bld, const fs_reg &surface,
+                                const fs_reg &addr, const fs_reg &src,
+                                unsigned dims, unsigned size,
+                                unsigned bit_size, brw_predicate pred)
+      {
+         emit_send(bld, SHADER_OPCODE_BYTE_SCATTERED_WRITE_LOGICAL,
+                   addr, src, surface, dims, bit_size, 0, pred);
+      }
    }
 }
 
@@ -169,7 +189,7 @@ namespace {
        * they come in from SPIR-V or Vulkan.  We need to turn them into an ISL
        * enum before we can use them.
        */
-      enum isl_format
+      static enum isl_format
       isl_format_for_gl_format(uint32_t gl_format)
       {
          switch (gl_format) {
@@ -358,7 +378,7 @@ namespace {
       /**
        * Check whether the bound image is suitable for untyped access.
        */
-      brw_predicate
+      static brw_predicate
       emit_untyped_image_check(const fs_builder &bld, const fs_reg &image,
                                brw_predicate pred)
       {
@@ -390,7 +410,7 @@ namespace {
        * the comparison result to f0.0.  Returns an appropriate predication
        * mode to use on subsequent image operations.
        */
-      brw_predicate
+      static brw_predicate
       emit_typed_atomic_check(const fs_builder &bld, const fs_reg &image)
       {
          const gen_device_info *devinfo = bld.shader->devinfo;
@@ -420,7 +440,7 @@ namespace {
        * and write the comparison result to f0.0.  Returns an appropriate
        * predication mode to use on subsequent image operations.
        */
-      brw_predicate
+      static brw_predicate
       emit_bounds_check(const fs_builder &bld, const fs_reg &image,
                         const fs_reg &addr, unsigned dims)
       {
@@ -443,7 +463,7 @@ namespace {
        * the surface, which may be more than the sum of \p surf_dims and \p
        * arr_dims if padding is required.
        */
-      unsigned
+      static unsigned
       num_image_coordinates(const fs_builder &bld,
                             unsigned surf_dims, unsigned arr_dims,
                             isl_format format)
@@ -465,7 +485,7 @@ namespace {
        * Transform image coordinates into the form expected by the
        * implementation.
        */
-      fs_reg
+      static fs_reg
       emit_image_coordinates(const fs_builder &bld, const fs_reg &addr,
                              unsigned surf_dims, unsigned arr_dims,
                              isl_format format)
@@ -505,7 +525,7 @@ namespace {
        * Section 4.5 "Address Tiling Function" of the IVB PRM for an in-depth
        * explanation of the hardware tiling format.
        */
-      fs_reg
+      static fs_reg
       emit_address_calculation(const fs_builder &bld, const fs_reg &image,
                                const fs_reg &coord, unsigned dims)
       {
@@ -679,7 +699,7 @@ namespace {
        * shifts and widths.  Note that bitfield components are not allowed to
        * cross 32-bit boundaries.
        */
-      fs_reg
+      static fs_reg
       emit_pack(const fs_builder &bld, const fs_reg &src,
                 const color_u &shifts, const color_u &widths)
       {
@@ -712,7 +732,7 @@ namespace {
        * shifts and widths.  Note that bitfield components are not allowed to
        * cross 32-bit boundaries.
        */
-      fs_reg
+      static fs_reg
       emit_unpack(const fs_builder &bld, const fs_reg &src,
                   const color_u &shifts, const color_u &widths)
       {
@@ -740,7 +760,7 @@ namespace {
        * Convert an integer vector into another integer vector of the
        * specified bit widths, properly handling overflow.
        */
-      fs_reg
+      static fs_reg
       emit_convert_to_integer(const fs_builder &bld, const fs_reg &src,
                               const color_u &widths, bool is_signed)
       {
@@ -780,7 +800,7 @@ namespace {
        * Convert a normalized fixed-point vector of the specified signedness
        * and bit widths into a floating point vector.
        */
-      fs_reg
+      static fs_reg
       emit_convert_from_scaled(const fs_builder &bld, const fs_reg &src,
                                const color_u &widths, bool is_signed)
       {
@@ -810,7 +830,7 @@ namespace {
        * Convert a floating-point vector into a normalized fixed-point vector
        * of the specified signedness and bit widths.
        */
-      fs_reg
+      static fs_reg
       emit_convert_to_scaled(const fs_builder &bld, const fs_reg &src,
                              const color_u &widths, bool is_signed)
       {
@@ -859,7 +879,7 @@ namespace {
        * Convert a floating point vector of the specified bit widths into a
        * 32-bit floating point vector.
        */
-      fs_reg
+      static fs_reg
       emit_convert_from_float(const fs_builder &bld, const fs_reg &src,
                               const color_u &widths)
       {
@@ -890,7 +910,7 @@ namespace {
        * Convert a vector into a floating point vector of the specified bit
        * widths.
        */
-      fs_reg
+      static fs_reg
       emit_convert_to_float(const fs_builder &bld, const fs_reg &src,
                             const color_u &widths)
       {
@@ -927,7 +947,7 @@ namespace {
       /**
        * Fill missing components of a vector with 0, 0, 0, 1.
        */
-      fs_reg
+      static fs_reg
       emit_pad(const fs_builder &bld, const fs_reg &src,
                const color_u &widths)
       {

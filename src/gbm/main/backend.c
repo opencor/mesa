@@ -99,6 +99,6 @@ _gbm_create_device(int fd)
 
       dev = backend->create_device(fd);
    }
-
+   
    return dev;
 }

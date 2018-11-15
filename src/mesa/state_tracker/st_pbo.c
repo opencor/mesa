@@ -215,7 +215,7 @@ st_pbo_draw(struct st_context *st, const struct st_pbo_addresses *addr,
 
    /* Upload vertices */
    {
-      struct pipe_vertex_buffer vbo;
+      struct pipe_vertex_buffer vbo = {0};
       struct pipe_vertex_element velem;
 
       float x0 = (float) addr->xoffset / surface_width * 2.0f - 1.0f;
@@ -225,12 +225,10 @@ st_pbo_draw(struct st_context *st, const struct st_pbo_addresses *addr,
 
       float *verts = NULL;
 
-      vbo.user_buffer = NULL;
-      vbo.buffer = NULL;
       vbo.stride = 2 * sizeof(float);
 
       u_upload_alloc(st->pipe->stream_uploader, 0, 8 * sizeof(float), 4,
-                     &vbo.buffer_offset, &vbo.buffer, (void **) &verts);
+                     &vbo.buffer_offset, &vbo.buffer.resource, (void **) &verts);
       if (!verts)
          return false;
 
@@ -247,35 +245,23 @@ st_pbo_draw(struct st_context *st, const struct st_pbo_addresses *addr,
 
       velem.src_offset = 0;
       velem.instance_divisor = 0;
-      velem.vertex_buffer_index = cso_get_aux_vertex_buffer_slot(cso);
+      velem.vertex_buffer_index = 0;
       velem.src_format = PIPE_FORMAT_R32G32_FLOAT;
 
       cso_set_vertex_elements(cso, 1, &velem);
 
       cso_set_vertex_buffers(cso, velem.vertex_buffer_index, 1, &vbo);
 
-      pipe_resource_reference(&vbo.buffer, NULL);
+      pipe_resource_reference(&vbo.buffer.resource, NULL);
    }
 
    /* Upload constants */
    {
       struct pipe_constant_buffer cb;
 
-      if (!st->has_user_constbuf) {
-         cb.buffer = NULL;
-         cb.user_buffer = NULL;
-         u_upload_data(st->pipe->const_uploader, 0, sizeof(addr->constants),
-                       st->ctx->Const.UniformBufferOffsetAlignment,
-                       &addr->constants, &cb.buffer_offset, &cb.buffer);
-         if (!cb.buffer)
-            return false;
-
-         u_upload_unmap(st->pipe->const_uploader);
-      } else {
-         cb.buffer = NULL;
-         cb.user_buffer = &addr->constants;
-         cb.buffer_offset = 0;
-      }
+      cb.buffer = NULL;
+      cb.user_buffer = &addr->constants;
+      cb.buffer_offset = 0;
       cb.buffer_size = sizeof(addr->constants);
 
       cso_set_constant_buffer(cso, PIPE_SHADER_FRAGMENT, 0, &cb);

@@ -217,7 +217,7 @@ u_vertices_per_prim(enum pipe_prim_type primitive)
  * vertex count.
  * Parts of the pipline are invoked once for each triangle in
  * triangle strip, triangle fans and triangles and once
- * for each line in line strip, line loop, lines. Also
+ * for each line in line strip, line loop, lines. Also 
  * statistics depend on knowing the exact number of decomposed
  * primitives for a set of vertices.
  */

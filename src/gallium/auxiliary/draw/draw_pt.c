@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
  /*
@@ -49,13 +49,13 @@ DEBUG_GET_ONCE_BOOL_OPTION(draw_no_fse, "DRAW_NO_FSE", FALSE)
 /* Overall we split things into:
  *     - frontend -- prepare fetch_elts, draw_elts - eg vsplit
  *     - middle   -- fetch, shade, cliptest, viewport
- *     - pipeline -- the prim pipeline: clipping, wide lines, etc
+ *     - pipeline -- the prim pipeline: clipping, wide lines, etc 
  *     - backend  -- the vbuf_render provided by the driver.
  */
 static boolean
 draw_pt_arrays(struct draw_context *draw,
                unsigned prim,
-               unsigned start,
+               unsigned start, 
                unsigned count)
 {
    struct draw_pt_front_end *frontend = NULL;
@@ -73,7 +73,7 @@ draw_pt_arrays(struct draw_context *draw,
    }
 
    if (!draw->force_passthrough) {
-      unsigned gs_out_prim = (draw->gs.geometry_shader ?
+      unsigned gs_out_prim = (draw->gs.geometry_shader ? 
                               draw->gs.geometry_shader->output_primitive :
                               prim);
 
@@ -427,7 +427,7 @@ draw_pt_arrays_restart(struct draw_context *draw,
  * Resolve true values within pipe_draw_info.
  * If we're rendering from transform feedback/stream output
  * buffers both the count and max_index need to be computed
- * from the attached stream output target.
+ * from the attached stream output target. 
  */
 static void
 resolve_draw_info(const struct pipe_draw_info *raw_info,
@@ -443,7 +443,7 @@ resolve_draw_info(const struct pipe_draw_info *raw_info,
       info->count = target->internal_offset / vertex_buffer->stride;
 
       /* Stream output draw can not be indexed */
-      debug_assert(!info->indexed);
+      debug_assert(!info->index_size);
       info->max_index = info->count - 1;
    }
 }
@@ -464,7 +464,7 @@ draw_vbo(struct draw_context *draw,
    unsigned fpstate = util_fpstate_get();
    struct pipe_draw_info resolved_info;
 
-   /* Make sure that denorms are treated like zeros. This is
+   /* Make sure that denorms are treated like zeros. This is 
     * the behavior required by D3D10. OpenGL doesn't care.
     */
    util_fpstate_set_denorms_to_zero(fpstate);
@@ -473,7 +473,7 @@ draw_vbo(struct draw_context *draw,
    info = &resolved_info;
 
    assert(info->instance_count > 0);
-   if (info->indexed)
+   if (info->index_size)
       assert(draw->pt.user.elts);
 
    count = info->count;
@@ -481,7 +481,7 @@ draw_vbo(struct draw_context *draw,
    draw->pt.user.eltBias = info->index_bias;
    draw->pt.user.min_index = info->min_index;
    draw->pt.user.max_index = info->max_index;
-   draw->pt.user.eltSize = info->indexed ? draw->pt.user.eltSizeIB : 0;
+   draw->pt.user.eltSize = info->index_size ? draw->pt.user.eltSizeIB : 0;
 
    if (0)
       debug_printf("draw_vbo(mode=%u start=%u count=%u):\n",

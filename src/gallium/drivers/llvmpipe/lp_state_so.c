@@ -51,7 +51,7 @@ llvmpipe_create_so_target(struct pipe_context *pipe,
    t->target.buffer_size = buffer_size;
    return &t->target;
 }
-
+ 
 static void
 llvmpipe_so_target_destroy(struct pipe_context *pipe,
                            struct pipe_stream_output_target *target)

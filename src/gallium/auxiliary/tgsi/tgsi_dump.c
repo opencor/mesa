@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007-2008 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include <inttypes.h>
@@ -51,14 +51,14 @@ struct dump_ctx
    uint instno;
    uint immno;
    int indent;
-
+   
    uint indentation;
    FILE *file;
 
    void (*dump_printf)(struct dump_ctx *ctx, const char *format, ...);
 };
 
-static void
+static void 
 dump_ctx_printf(struct dump_ctx *ctx, const char *format, ...)
 {
    va_list ap;
@@ -480,7 +480,7 @@ iter_property(
    struct tgsi_iterate_context *iter,
    struct tgsi_full_property *prop )
 {
-   unsigned i;
+   int i;
    struct dump_ctx *ctx = (struct dump_ctx *)iter;
 
    TXT( "PROPERTY " );
@@ -578,10 +578,14 @@ iter_instruction(
       TXT( "  " );
    ctx->indent += info->post_indent;
 
-   TXT( info->mnemonic );
+   TXT( tgsi_get_opcode_name(inst->Instruction.Opcode) );
 
    if (inst->Instruction.Saturate) {
       TXT( "_SAT" );
+   }
+
+   if (inst->Instruction.Precise) {
+      TXT( "_PRECISE" );
    }
 
    for (i = 0; i < inst->Instruction.NumDstRegs; i++) {
@@ -769,7 +773,7 @@ static void
 str_dump_ctx_printf(struct dump_ctx *ctx, const char *format, ...)
 {
    struct str_dump_ctx *sctx = (struct str_dump_ctx *)ctx;
-
+   
    if (!sctx->nospace) {
       int written;
       va_list ap;

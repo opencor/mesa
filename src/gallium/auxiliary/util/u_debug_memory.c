@@ -95,7 +95,7 @@ static unsigned long last_no = 0;
 static inline struct debug_memory_header *
 header_from_data(void *data)
 {
-   if(data)
+   if (data)
       return (struct debug_memory_header *)((char *)data - sizeof(struct debug_memory_header));
    else
       return NULL;
@@ -104,7 +104,7 @@ header_from_data(void *data)
 static inline void *
 data_from_header(struct debug_memory_header *hdr)
 {
-   if(hdr)
+   if (hdr)
       return (void *)((char *)hdr + sizeof(struct debug_memory_header));
    else
       return NULL;
@@ -113,7 +113,7 @@ data_from_header(struct debug_memory_header *hdr)
 static inline struct debug_memory_footer *
 footer_from_header(struct debug_memory_header *hdr)
 {
-   if(hdr)
+   if (hdr)
       return (struct debug_memory_footer *)((char *)hdr + sizeof(struct debug_memory_header) + hdr->size);
    else
       return NULL;
@@ -171,7 +171,7 @@ debug_free(const char *file, unsigned line, const char *function,
       return;
 
    hdr = header_from_data(ptr);
-   if(hdr->magic != DEBUG_MEMORY_MAGIC) {
+   if (hdr->magic != DEBUG_MEMORY_MAGIC) {
       debug_printf("%s:%u:%s: freeing bad or corrupted memory %p\n",
                    file, line, function,
                    ptr);
@@ -180,7 +180,7 @@ debug_free(const char *file, unsigned line, const char *function,
    }
 
    ftr = footer_from_header(hdr);
-   if(ftr->magic != DEBUG_MEMORY_MAGIC) {
+   if (ftr->magic != DEBUG_MEMORY_MAGIC) {
       debug_printf("%s:%u:%s: buffer overflow %p\n",
                    hdr->file, hdr->line, hdr->function,
                    ptr);
@@ -229,13 +229,13 @@ debug_realloc(const char *file, unsigned line, const char *function,
    if (!old_ptr)
       return debug_malloc( file, line, function, new_size );
 
-   if(!new_size) {
+   if (!new_size) {
       debug_free( file, line, function, old_ptr );
       return NULL;
    }
 
    old_hdr = header_from_data(old_ptr);
-   if(old_hdr->magic != DEBUG_MEMORY_MAGIC) {
+   if (old_hdr->magic != DEBUG_MEMORY_MAGIC) {
       debug_printf("%s:%u:%s: reallocating bad or corrupted memory %p\n",
                    file, line, function,
                    old_ptr);
@@ -244,7 +244,7 @@ debug_realloc(const char *file, unsigned line, const char *function,
    }
 
    old_ftr = footer_from_header(old_hdr);
-   if(old_ftr->magic != DEBUG_MEMORY_MAGIC) {
+   if (old_ftr->magic != DEBUG_MEMORY_MAGIC) {
       debug_printf("%s:%u:%s: buffer overflow %p\n",
                    old_hdr->file, old_hdr->line, old_hdr->function,
                    old_ptr);
@@ -301,7 +301,7 @@ debug_memory_end(unsigned long start_no)
    size_t total_size = 0;
    struct list_head *entry;
 
-   if(start_no == last_no)
+   if (start_no == last_no)
       return;
 
    entry = list.prev;
@@ -314,25 +314,25 @@ debug_memory_end(unsigned long start_no)
       ptr = data_from_header(hdr);
       ftr = footer_from_header(hdr);
 
-      if(hdr->magic != DEBUG_MEMORY_MAGIC) {
+      if (hdr->magic != DEBUG_MEMORY_MAGIC) {
          debug_printf("%s:%u:%s: bad or corrupted memory %p\n",
                       hdr->file, hdr->line, hdr->function,
                       ptr);
          debug_assert(0);
       }
 
-      if((start_no <= hdr->no && hdr->no < last_no) ||
-	 (last_no < start_no && (hdr->no < last_no || start_no <= hdr->no))) {
-	 debug_printf("%s:%u:%s: %lu bytes at %p not freed\n",
-		      hdr->file, hdr->line, hdr->function,
-		      (unsigned long) hdr->size, ptr);
+      if ((start_no <= hdr->no && hdr->no < last_no) ||
+          (last_no < start_no && (hdr->no < last_no || start_no <= hdr->no))) {
+         debug_printf("%s:%u:%s: %lu bytes at %p not freed\n",
+                      hdr->file, hdr->line, hdr->function,
+                      (unsigned long) hdr->size, ptr);
 #if DEBUG_MEMORY_STACK
-	 debug_backtrace_dump(hdr->backtrace, DEBUG_MEMORY_STACK);
+         debug_backtrace_dump(hdr->backtrace, DEBUG_MEMORY_STACK);
 #endif
-	 total_size += hdr->size;
+         total_size += hdr->size;
       }
 
-      if(ftr->magic != DEBUG_MEMORY_MAGIC) {
+      if (ftr->magic != DEBUG_MEMORY_MAGIC) {
          debug_printf("%s:%u:%s: buffer overflow %p\n",
                       hdr->file, hdr->line, hdr->function,
                       ptr);
@@ -340,9 +340,9 @@ debug_memory_end(unsigned long start_no)
       }
    }
 
-   if(total_size) {
+   if (total_size) {
       debug_printf("Total of %lu KB of system memory apparently leaked\n",
-		   (unsigned long) (total_size + 1023)/1024);
+                   (unsigned long) (total_size + 1023)/1024);
    }
    else {
       debug_printf("No memory leaks detected.\n");

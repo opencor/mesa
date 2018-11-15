@@ -29,6 +29,7 @@
  */
 
 
+#include "errors.h"
 #include "glheader.h"
 #include "imports.h"
 #include "image.h"
@@ -37,6 +38,7 @@
 #include "texcompress.h"
 #include "texcompress_fxt1.h"
 #include "texstore.h"
+#include "mtypes.h"
 
 
 static void
@@ -662,7 +664,7 @@ fxt1_quantize_ALPHA1 (GLuint *cc,
            }
            sumL += sum;
        }
-
+       
        nn_comp--;
    }
 
@@ -737,7 +739,7 @@ fxt1_quantize_ALPHA1 (GLuint *cc,
          lolo <<= 2;
          lolo |= texel;
       }
-
+      
       cc[0] = lolo;
    }
 
@@ -1112,7 +1114,7 @@ fxt1_quantize_MIXED0 (GLuint *cc,
          }
          lolo = ~lolo;
       }
-
+      
       cc[0] = lolo;
    }
 

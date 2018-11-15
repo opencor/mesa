@@ -74,18 +74,25 @@ fd_draw(struct fd_batch *batch, struct fd_ringbuffer *ring,
 		OUT_RING(ring, 0);
 	}
 
-	OUT_PKT3(ring, CP_DRAW_INDX, idx_buffer ? 5 : 3);
-	OUT_RING(ring, 0x00000000);        /* viz query info. */
-	if (vismode == USE_VISIBILITY) {
-		/* leave vis mode blank for now, it will be patched up when
-		 * we know if we are binning or not
-		 */
-		OUT_RINGP(ring, DRAW(primtype, src_sel, idx_type, 0, instances),
-				&batch->draw_patches);
+	if (is_a20x(batch->ctx->screen)) {
+		OUT_PKT3(ring, CP_DRAW_INDX, idx_buffer ? 4 : 2);
+		OUT_RING(ring, 0x00000000);
+		OUT_RING(ring, DRAW_A20X(primtype, src_sel, idx_type, vismode, count));
 	} else {
-		OUT_RING(ring, DRAW(primtype, src_sel, idx_type, vismode, instances));
+		OUT_PKT3(ring, CP_DRAW_INDX, idx_buffer ? 5 : 3);
+		OUT_RING(ring, 0x00000000);        /* viz query info. */
+		if (vismode == USE_VISIBILITY) {
+			/* leave vis mode blank for now, it will be patched up when
+			 * we know if we are binning or not
+			 */
+			OUT_RINGP(ring, DRAW(primtype, src_sel, idx_type, 0, instances),
+					&batch->draw_patches);
+		} else {
+			OUT_RING(ring, DRAW(primtype, src_sel, idx_type, vismode, instances));
+		}
+		OUT_RING(ring, count);             /* NumIndices */
 	}
-	OUT_RING(ring, count);             /* NumIndices */
+
 	if (idx_buffer) {
 		OUT_RELOC(ring, fd_resource(idx_buffer)->bo, idx_offset, 0, 0);
 		OUT_RING (ring, idx_size);
@@ -115,22 +122,21 @@ static inline void
 fd_draw_emit(struct fd_batch *batch, struct fd_ringbuffer *ring,
 		enum pc_di_primtype primtype,
 		enum pc_di_vis_cull_mode vismode,
-		const struct pipe_draw_info *info)
+		const struct pipe_draw_info *info,
+		unsigned index_offset)
 {
 	struct pipe_resource *idx_buffer = NULL;
 	enum pc_di_index_size idx_type = INDEX_SIZE_IGN;
 	enum pc_di_src_sel src_sel;
 	uint32_t idx_size, idx_offset;
 
-	if (info->indexed) {
-		struct pipe_index_buffer *idx = &batch->ctx->indexbuf;
+	if (info->index_size) {
+		assert(!info->has_user_indices);
 
-		assert(!idx->user_buffer);
-
-		idx_buffer = idx->buffer;
-		idx_type = size2indextype(idx->index_size);
-		idx_size = idx->index_size * info->count;
-		idx_offset = idx->offset + (info->start * idx->index_size);
+		idx_buffer = info->index.resource;
+		idx_type = size2indextype(info->index_size);
+		idx_size = info->index_size * info->count;
+		idx_offset = index_offset + info->start * info->index_size;
 		src_sel = DI_SRC_SEL_DMA;
 	} else {
 		idx_buffer = NULL;

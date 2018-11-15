@@ -88,8 +88,15 @@ isl_lower_storage_image_format(const struct gen_device_info *devinfo,
    case ISL_FORMAT_R32G32B32A32_FLOAT:
    case ISL_FORMAT_R32_UINT:
    case ISL_FORMAT_R32_SINT:
-   case ISL_FORMAT_R32_FLOAT:
       return format;
+
+   /* The Skylake PRM's "Surface Formats" section says:
+    *
+    *   "The surface format for the typed atomic integer operations must
+    *    be R32_UINT or R32_SINT."
+    */
+   case ISL_FORMAT_R32_FLOAT:
+      return ISL_FORMAT_R32_UINT;
 
    /* From HSW to BDW the only 64bpp format supported for typed access is
     * RGBA_UINT16.  IVB falls back to untyped.
@@ -154,32 +161,36 @@ isl_lower_storage_image_format(const struct gen_device_info *devinfo,
    /* No normalized fixed-point formats are supported by the hardware. */
    case ISL_FORMAT_R16G16B16A16_UNORM:
    case ISL_FORMAT_R16G16B16A16_SNORM:
-      return (devinfo->gen >= 8 || devinfo->is_haswell ?
+      return (devinfo->gen >= 11 ? format :
+              devinfo->gen >= 8 || devinfo->is_haswell ?
               ISL_FORMAT_R16G16B16A16_UINT :
               ISL_FORMAT_R32G32_UINT);
 
    case ISL_FORMAT_R8G8B8A8_UNORM:
    case ISL_FORMAT_R8G8B8A8_SNORM:
-      return (devinfo->gen >= 8 || devinfo->is_haswell ?
+      return (devinfo->gen >= 11 ? format :
+              devinfo->gen >= 8 || devinfo->is_haswell ?
               ISL_FORMAT_R8G8B8A8_UINT : ISL_FORMAT_R32_UINT);
 
    case ISL_FORMAT_R16G16_UNORM:
    case ISL_FORMAT_R16G16_SNORM:
-      return (devinfo->gen >= 8 || devinfo->is_haswell ?
+      return (devinfo->gen >= 11 ? format :
+              devinfo->gen >= 8 || devinfo->is_haswell ?
               ISL_FORMAT_R16G16_UINT : ISL_FORMAT_R32_UINT);
 
    case ISL_FORMAT_R8G8_UNORM:
    case ISL_FORMAT_R8G8_SNORM:
-      return (devinfo->gen >= 8 || devinfo->is_haswell ?
+      return (devinfo->gen >= 11 ? format :
+              devinfo->gen >= 8 || devinfo->is_haswell ?
               ISL_FORMAT_R8G8_UINT : ISL_FORMAT_R16_UINT);
 
    case ISL_FORMAT_R16_UNORM:
    case ISL_FORMAT_R16_SNORM:
-      return ISL_FORMAT_R16_UINT;
+      return (devinfo->gen >= 11 ? format : ISL_FORMAT_R16_UINT);
 
    case ISL_FORMAT_R8_UNORM:
    case ISL_FORMAT_R8_SNORM:
-      return ISL_FORMAT_R8_UINT;
+      return (devinfo->gen >= 11 ? format : ISL_FORMAT_R8_UINT);
 
    default:
       assert(!"Unknown image format");
@@ -226,8 +237,12 @@ isl_surf_fill_image_param(const struct isl_device *dev,
                        view->base_array_layer;
    }
 
-   isl_surf_get_image_offset_el(surf, view->base_level, view->base_array_layer,
-                                0, &param->offset[0],  &param->offset[1]);
+   isl_surf_get_image_offset_el(surf, view->base_level,
+                                surf->dim == ISL_SURF_DIM_3D ?
+                                   0 : view->base_array_layer,
+                                surf->dim == ISL_SURF_DIM_3D ?
+                                   view->base_array_layer : 0,
+                                &param->offset[0],  &param->offset[1]);
 
    const int cpp = isl_format_get_layout(surf->format)->bpb / 8;
    param->stride[0] = cpp;
@@ -301,6 +316,6 @@ isl_buffer_fill_image_param(const struct isl_device *dev,
 {
    *param = image_param_defaults;
 
-   param->stride[0] = isl_format_layouts[format].bpb / 8;
+   param->stride[0] = isl_format_get_layout(format)->bpb / 8;
    param->size[0] = size / param->stride[0];
 }

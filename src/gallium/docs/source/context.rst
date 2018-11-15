@@ -53,8 +53,6 @@ buffers, surfaces) are bound to the driver.
 
 * ``set_vertex_buffers``
 
-* ``set_index_buffer``
-
 
 Non-CSO State
 ^^^^^^^^^^^^^
@@ -66,7 +64,13 @@ objects. They all follow simple, one-method binding calls, e.g.
 * ``set_stencil_ref`` sets the stencil front and back reference values
   which are used as comparison values in stencil test.
 * ``set_blend_color``
-* ``set_sample_mask``
+* ``set_sample_mask``  sets the per-context multisample sample mask.  Note
+  that this takes effect even if multisampling is not explicitly enabled if
+  the frambuffer surface(s) are multisampled.  Also, this mask is AND-ed
+  with the optional fragment shader sample mask output (when emitted).
+* ``set_sample_locations`` sets the sample locations used for rasterization.
+  ```get_sample_position``` still returns the default locations. When NULL,
+  the default locations are used.
 * ``set_min_samples`` sets the minimum number of samples that must be run.
 * ``set_clip_state``
 * ``set_polygon_stipple``
@@ -101,6 +105,14 @@ objects. They all follow simple, one-method binding calls, e.g.
   various debug messages, eventually reported via KHR_debug and
   similar mechanisms.
 
+Samplers
+^^^^^^^^
+
+pipe_sampler_state objects control how textures are sampled (coordinate
+wrap modes, interpolation modes, etc).  Note that samplers are not used
+for texture buffer objects.  That is, pipe_context::bind_sampler_views()
+will not bind a sampler if the corresponding sampler view refers to a
+PIPE_BUFFER resource.
 
 Sampler Views
 ^^^^^^^^^^^^^
@@ -112,7 +124,7 @@ If texture format is different than template format, it is said the texture
 is being cast to another format. Casting can be done only between compatible
 formats, that is formats that have matching component order and sizes.
 
-Swizzle fields specify they way in which fetched texel components are placed
+Swizzle fields specify the way in which fetched texel components are placed
 in the result register. For example, ``swizzle_r`` specifies what is going to be
 placed in first component of result register.
 
@@ -138,6 +150,14 @@ to the array index which is used for sampling.
 
 * ``sampler_view_destroy`` destroys a sampler view and releases its reference
   to associated texture.
+
+Hardware Atomic buffers
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Buffers containing hw atomics are required to support the feature
+on some drivers.
+
+Drivers that require this need to fill the ``set_hw_atomic_buffers`` method.
 
 Shader Resources
 ^^^^^^^^^^^^^^^^
@@ -253,6 +273,17 @@ format.
 multi-byte element value starting at offset bytes from resource start, going
 for size bytes. It is guaranteed that size % clear_value_size == 0.
 
+Evaluating Depth Buffers
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+``evaluate_depth_buffer`` is a hint to decompress the current depth buffer
+assuming the current sample locations to avoid problems that could arise when
+using programmable sample locations.
+
+If a depth buffer is rendered with different sample location state than
+what is current at the time of reading the depth buffer, the values may differ
+because depth buffer compression can depend the sample locations.
+
 
 Uploading
 ^^^^^^^^^
@@ -290,8 +321,8 @@ the mode of the primitive and the vertices to be fetched, in the range between
 Every instance with instanceID in the range between ``start_instance`` and
 ``start_instance``+``instance_count``-1, inclusive, will be drawn.
 
-If there is an index buffer bound, and ``indexed`` field is true, all vertex
-indices will be looked up in the index buffer.
+If  ``index_size`` != 0, all vertex indices will be looked up from the index
+buffer.
 
 In indexed draw, ``min_index`` and ``max_index`` respectively provide a lower
 and upper bound of the indices contained in the index buffer inside the range
@@ -388,6 +419,12 @@ value of FALSE for cases where COUNTER would result in 0 and TRUE
 for all other cases.
 This query can be used with ``render_condition``.
 
+In cases where a conservative approximation of an occlusion query is enough,
+``PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE`` should be used. It behaves
+like ``PIPE_QUERY_OCCLUSION_PREDICATE``, except that it may return TRUE in
+additional, implementation-dependent cases.
+This query can be used with ``render_condition``.
+
 ``PIPE_QUERY_TIME_ELAPSED`` returns the amount of time, in nanoseconds,
 the context takes to perform operations.
 The result is an unsigned 64-bit integer.
@@ -422,9 +459,17 @@ XXX the 2nd value is equivalent to ``PIPE_QUERY_PRIMITIVES_GENERATED`` but it is
 unclear if it should be increased if stream output is not active.
 
 ``PIPE_QUERY_SO_OVERFLOW_PREDICATE`` returns a boolean value indicating
-whether the stream output targets have overflowed as a result of the
+whether a selected stream output target has overflowed as a result of the
 commands issued between ``begin_query`` and ``end_query``.
-This query can be used with ``render_condition``.
+This query can be used with ``render_condition``. The output stream is
+selected by the stream number passed to ``create_query``.
+
+``PIPE_QUERY_SO_OVERFLOW_ANY_PREDICATE`` returns a boolean value indicating
+whether any stream output target has overflowed as a result of the commands
+issued between ``begin_query`` and ``end_query``. This query can be used
+with ``render_condition``, and its result is the logical OR of multiple
+``PIPE_QUERY_SO_OVERFLOW_PREDICATE`` queries, one for each stream output
+target.
 
 ``PIPE_QUERY_GPU_FINISHED`` returns a boolean value indicating whether
 all commands issued before ``end_query`` have completed. However, this
@@ -501,6 +546,29 @@ and the context is still unflushed, and the ctx parameter of fence_finish is
 equal to the context where the fence was created, fence_finish will flush
 the context.
 
+PIPE_FLUSH_ASYNC: The flush is allowed to be asynchronous. Unlike
+``PIPE_FLUSH_DEFERRED``, the driver must still ensure that the returned fence
+will finish in finite time. However, subsequent operations in other contexts of
+the same screen are no longer guaranteed to happen after the flush. Drivers
+which use this flag must implement pipe_context::fence_server_sync.
+
+PIPE_FLUSH_HINT_FINISH: Hints to the driver that the caller will immediately
+wait for the returned fence.
+
+Additional flags may be set together with ``PIPE_FLUSH_DEFERRED`` for even
+finer-grained fences. Note that as a general rule, GPU caches may not have been
+flushed yet when these fences are signaled. Drivers are free to ignore these
+flags and create normal fences instead. At most one of the following flags can
+be specified:
+
+PIPE_FLUSH_TOP_OF_PIPE: The fence should be signaled as soon as the next
+command is ready to start executing at the top of the pipeline, before any of
+its data is actually read (including indirect draw parameters).
+
+PIPE_FLUSH_BOTTOM_OF_PIPE: The fence should be signaled as soon as the previous
+command has finished executing on the GPU entirely (but data written by the
+command may still be in caches and inaccessible to the CPU).
+
 
 ``flush_resource``
 
@@ -513,7 +581,38 @@ by a single pipe_screen and is not shared with another process.
 (i.e. you shouldn't use it to flush caches explicitly if you want to e.g.
 use the resource for texturing)
 
+Fences
+^^^^^^
 
+``pipe_fence_handle``, and related methods, are used to synchronize
+execution between multiple parties. Examples include CPU <-> GPU synchronization,
+renderer <-> windowing system, multiple external APIs, etc.
+
+A ``pipe_fence_handle`` can either be 'one time use' or 're-usable'. A 'one time use'
+fence behaves like a traditional GPU fence. Once it reaches the signaled state it
+is forever considered to be signaled.
+
+Once a re-usable ``pipe_fence_handle`` becomes signaled, it can be reset
+back into an unsignaled state. The ``pipe_fence_handle`` will be reset to
+the unsignaled state by performing a wait operation on said object, i.e.
+``fence_server_sync``. As a corollary to this behaviour, a re-usable
+``pipe_fence_handle`` can only have one waiter.
+
+This behaviour is useful in producer <-> consumer chains. It helps avoid
+unecessarily sharing a new ``pipe_fence_handle`` each time a new frame is
+ready. Instead, the fences are exchanged once ahead of time, and access is synchronized
+through GPU signaling instead of direct producer <-> consumer communication.
+
+``fence_server_sync`` inserts a wait command into the GPU's command stream.
+
+``fence_server_signal`` inserts a signal command into the GPU's command stream.
+
+There are no guarantees that the wait/signal commands will be flushed when
+calling ``fence_server_sync`` or ``fence_server_signal``. An explicit
+call to ``flush`` is required to make sure the commands are emitted to the GPU.
+
+The Gallium implementation may implicitly ``flush`` the command stream during a
+``fence_server_sync`` or ``fence_server_signal`` call if necessary.
 
 Resource Busy Queries
 ^^^^^^^^^^^^^^^^^^^^^
@@ -758,6 +857,26 @@ notifications are single-shot, i.e. subsequent calls to
   since the last call or since the last notification by callback.
 * ``set_device_reset_callback`` sets a callback which will be called when
   a device reset is detected. The callback is only called synchronously.
+
+Bindless
+^^^^^^^^
+
+If PIPE_CAP_BINDLESS_TEXTURE is TRUE, the following ``pipe_context`` functions
+are used to create/delete bindless handles, and to make them resident in the
+current context when they are going to be used by shaders.
+
+* ``create_texture_handle`` creates a 64-bit unsigned integer texture handle
+  that is going to be directly used in shaders.
+* ``delete_texture_handle`` deletes a 64-bit unsigned integer texture handle.
+* ``make_texture_handle_resident`` makes a 64-bit unsigned texture handle
+  resident in the current context to be accessible by shaders for texture
+  mapping.
+* ``create_image_handle`` creates a 64-bit unsigned integer image handle that
+  is going to be directly used in shaders.
+* ``delete_image_handle`` deletes a 64-bit unsigned integer image handle.
+* ``make_image_handle_resident`` makes a 64-bit unsigned integer image handle
+  resident in the current context to be accessible by shaders for image loads,
+  stores and atomic operations.
 
 Using several contexts
 ----------------------

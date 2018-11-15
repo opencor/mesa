@@ -37,10 +37,10 @@
 #define LOOP_UNROLL_LIMIT 26
 
 /* Prepare this loop for unrolling by first converting to lcssa and then
- * converting the phis from the loops first block and the block that follows
- * the loop into regs.  Partially converting out of SSA allows us to unroll
- * the loop without having to keep track of and update phis along the way
- * which gets tricky and doesn't add much value over conveting to regs.
+ * converting the phis from the top level of the loop body to regs.
+ * Partially converting out of SSA allows us to unroll the loop without having
+ * to keep track of and update phis along the way which gets tricky and
+ * doesn't add much value over converting to regs.
  *
  * The loop may have a continue instruction at the end of the loop which does
  * nothing.  Once we're out of SSA, we can safely delete it so we don't have
@@ -49,15 +49,25 @@
 static void
 loop_prepare_for_unroll(nir_loop *loop)
 {
+   nir_rematerialize_derefs_in_use_blocks_impl(
+      nir_cf_node_get_function(&loop->cf_node));
+
    nir_convert_loop_to_lcssa(loop);
 
-   nir_lower_phis_to_regs_block(nir_loop_first_block(loop));
+   /* Lower phis at the top level of the loop body */
+   foreach_list_typed_safe(nir_cf_node, node, node, &loop->body) {
+      if (nir_cf_node_block == node->type) {
+         nir_lower_phis_to_regs_block(nir_cf_node_as_block(node));
+      }
+   }
 
+   /* Lower phis after the loop */
    nir_block *block_after_loop =
       nir_cf_node_as_block(nir_cf_node_next(&loop->cf_node));
 
    nir_lower_phis_to_regs_block(block_after_loop);
 
+   /* Remove continue if its the last instruction in the loop */
    nir_instr *last_instr = nir_block_last_instr(nir_loop_last_block(loop));
    if (last_instr && last_instr->type == nir_instr_type_jump) {
       assert(nir_instr_as_jump(last_instr)->type == nir_jump_continue);
@@ -523,14 +533,14 @@ process_loops(nir_shader *sh, nir_cf_node *cf_node, bool *innermost_loop)
          if (num_lt == 2) {
             bool limiting_term_second = true;
             nir_loop_terminator *terminator =
-               list_last_entry(&loop->info->loop_terminator_list,
+               list_first_entry(&loop->info->loop_terminator_list,
                                 nir_loop_terminator, loop_terminator_link);
 
 
             if (terminator->nif == loop->info->limiting_terminator->nif) {
                limiting_term_second = false;
                terminator =
-                  list_first_entry(&loop->info->loop_terminator_list,
+                  list_last_entry(&loop->info->loop_terminator_list,
                                   nir_loop_terminator, loop_terminator_link);
             }
 
@@ -571,6 +581,10 @@ nir_opt_loop_unroll_impl(nir_function_impl *impl,
    return progress;
 }
 
+/**
+ * indirect_mask specifies which type of indirectly accessed variables
+ * should force loop unrolling.
+ */
 bool
 nir_opt_loop_unroll(nir_shader *shader, nir_variable_mode indirect_mask)
 {

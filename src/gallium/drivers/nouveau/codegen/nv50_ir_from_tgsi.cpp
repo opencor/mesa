@@ -20,6 +20,7 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "tgsi/tgsi_build.h"
 #include "tgsi/tgsi_dump.h"
 #include "tgsi/tgsi_scan.h"
 #include "tgsi/tgsi_util.h"
@@ -163,6 +164,12 @@ public:
          return SrcRegister(fdr->Indirect);
       }
 
+      struct tgsi_full_src_register asSrc()
+      {
+         assert(fdr);
+         return tgsi_full_src_register_from_dst(fdr);
+      }
+
       int getArrayId() const
       {
          if (isIndirect(0))
@@ -215,6 +222,15 @@ public:
    nv50_ir::CondCode getSetCond() const;
 
    nv50_ir::TexInstruction::Target getTexture(const Source *, int s) const;
+
+   const nv50_ir::TexInstruction::ImgFormatDesc *getImageFormat() const {
+      return &nv50_ir::TexInstruction::formatTable[
+            translateImgFormat(insn->Memory.Format)];
+   }
+
+   nv50_ir::TexTarget getImageTarget() const {
+      return translateTexture(insn->Memory.Texture);
+   }
 
    nv50_ir::CacheMode getCacheMode() const {
       if (!insn->Instruction.Memory)
@@ -277,7 +293,6 @@ unsigned int Instruction::srcMask(unsigned int s) const
    case TGSI_OPCODE_DP3:
       return 0x7;
    case TGSI_OPCODE_DP4:
-   case TGSI_OPCODE_DPH:
    case TGSI_OPCODE_KILL_IF: /* WriteMask ignored */
       return 0xf;
    case TGSI_OPCODE_DST:
@@ -289,7 +304,6 @@ unsigned int Instruction::srcMask(unsigned int s) const
    case TGSI_OPCODE_POW:
    case TGSI_OPCODE_RCP:
    case TGSI_OPCODE_RSQ:
-   case TGSI_OPCODE_SCS:
       return 0x1;
    case TGSI_OPCODE_IF:
    case TGSI_OPCODE_UIF:
@@ -305,6 +319,8 @@ unsigned int Instruction::srcMask(unsigned int s) const
    case TGSI_OPCODE_TXD:
    case TGSI_OPCODE_TXL:
    case TGSI_OPCODE_TXP:
+   case TGSI_OPCODE_TXF:
+   case TGSI_OPCODE_TG4:
    case TGSI_OPCODE_TEX_LZ:
    case TGSI_OPCODE_TXF_LZ:
    case TGSI_OPCODE_LODQ:
@@ -343,14 +359,8 @@ unsigned int Instruction::srcMask(unsigned int s) const
       }
    }
       return mask;
-   case TGSI_OPCODE_XPD:
-   {
-      unsigned int x = 0;
-      if (mask & 1) x |= 0x6;
-      if (mask & 2) x |= 0x5;
-      if (mask & 4) x |= 0x3;
-      return x;
-   }
+   case TGSI_OPCODE_TXQ:
+      return 1;
    case TGSI_OPCODE_D2I:
    case TGSI_OPCODE_D2U:
    case TGSI_OPCODE_D2F:
@@ -616,7 +626,6 @@ nv50_ir::DataType Instruction::inferSrcType() const
    case TGSI_OPCODE_ISHR:
    case TGSI_OPCODE_ISLT:
    case TGSI_OPCODE_ISSG:
-   case TGSI_OPCODE_SAD: // not sure about SAD, but no one has a float version
    case TGSI_OPCODE_MOD:
    case TGSI_OPCODE_UARL:
    case TGSI_OPCODE_ATOMIMIN:
@@ -841,7 +850,6 @@ static nv50_ir::operation translateOpcode(uint opcode)
    NV50_IR_OPCODE_CASE(OR, OR);
    NV50_IR_OPCODE_CASE(MOD, MOD);
    NV50_IR_OPCODE_CASE(XOR, XOR);
-   NV50_IR_OPCODE_CASE(SAD, SAD);
    NV50_IR_OPCODE_CASE(TXF, TXF);
    NV50_IR_OPCODE_CASE(TXF_LZ, TXF);
    NV50_IR_OPCODE_CASE(TXQ, TXQ);
@@ -992,9 +1000,6 @@ static nv50_ir::operation translateOpcode(uint opcode)
 static uint16_t opcodeToSubOp(uint opcode)
 {
    switch (opcode) {
-   case TGSI_OPCODE_LFENCE:   return NV50_IR_SUBOP_MEMBAR(L, GL);
-   case TGSI_OPCODE_SFENCE:   return NV50_IR_SUBOP_MEMBAR(S, GL);
-   case TGSI_OPCODE_MFENCE:   return NV50_IR_SUBOP_MEMBAR(M, GL);
    case TGSI_OPCODE_ATOMUADD: return NV50_IR_SUBOP_ATOM_ADD;
    case TGSI_OPCODE_ATOMXCHG: return NV50_IR_SUBOP_ATOM_EXCH;
    case TGSI_OPCODE_ATOMCAS:  return NV50_IR_SUBOP_ATOM_CAS;
@@ -1075,14 +1080,6 @@ public:
    std::vector<Resource> resources;
    */
 
-   struct Image {
-      uint8_t target; // TGSI_TEXTURE_*
-      bool raw;
-      uint8_t slot;
-      uint16_t format; // PIPE_FORMAT_*
-   };
-   std::vector<Image> images;
-
    struct MemoryFile {
       uint8_t mem_type; // TGSI_MEMORY_TYPE_*
    };
@@ -1136,7 +1133,6 @@ bool Source::scanSource()
 
    textureViews.resize(scan.file_max[TGSI_FILE_SAMPLER_VIEW] + 1);
    //resources.resize(scan.file_max[TGSI_FILE_RESOURCE] + 1);
-   images.resize(scan.file_max[TGSI_FILE_IMAGE] + 1);
    tempArrayId.resize(scan.file_max[TGSI_FILE_TEMPORARY] + 1);
    memoryFiles.resize(scan.file_max[TGSI_FILE_MEMORY] + 1);
 
@@ -1276,6 +1272,9 @@ void Source::scanProperty(const struct tgsi_full_property *prop)
       break;
    case TGSI_PROPERTY_FS_EARLY_DEPTH_STENCIL:
       info->prop.fp.earlyFragTests = prop->u[0].Data;
+      break;
+   case TGSI_PROPERTY_FS_POST_DEPTH_COVERAGE:
+      info->prop.fp.postDepthCoverage = prop->u[0].Data;
       break;
    case TGSI_PROPERTY_MUL_ZERO_WINS:
       info->io.mul_zero_wins = prop->u[0].Data;
@@ -1466,14 +1465,6 @@ bool Source::scanDeclaration(const struct tgsi_full_declaration *decl)
       }
       break;
 */
-   case TGSI_FILE_IMAGE:
-      for (i = first; i <= last; ++i) {
-         images[i].target = decl->Image.Resource;
-         images[i].raw = decl->Image.Raw;
-         images[i].format = decl->Image.Format;
-         images[i].slot = i;
-      }
-      break;
    case TGSI_FILE_SAMPLER_VIEW:
       for (i = first; i <= last; ++i)
          textureViews[i].target = decl->SamplerView.Resource;
@@ -1495,6 +1486,7 @@ bool Source::scanDeclaration(const struct tgsi_full_declaration *decl)
    case TGSI_FILE_IMMEDIATE:
    case TGSI_FILE_SAMPLER:
    case TGSI_FILE_BUFFER:
+   case TGSI_FILE_IMAGE:
       break;
    default:
       ERROR("unhandled TGSI_FILE %d\n", decl->Declaration.File);
@@ -1518,13 +1510,6 @@ void Source::scanInstructionSrc(const Instruction& insn,
       if (src.isIndirect(0))
          indirectTempArrays.insert(src.getArrayId());
    } else
-   if (src.getFile() == TGSI_FILE_BUFFER ||
-       src.getFile() == TGSI_FILE_IMAGE ||
-       (src.getFile() == TGSI_FILE_MEMORY &&
-        memoryFiles[src.getIndex(0)].mem_type == TGSI_MEMORY_TYPE_GLOBAL)) {
-      info->io.globalAccess |= (insn.getOpcode() == TGSI_OPCODE_LOAD) ?
-         0x1 : 0x2;
-   } else
    if (src.getFile() == TGSI_FILE_OUTPUT) {
       if (src.isIndirect(0)) {
          // We don't know which one is accessed, just mark everything for
@@ -1534,6 +1519,10 @@ void Source::scanInstructionSrc(const Instruction& insn,
       } else {
          info->out[src.getIndex(0)].oread = 1;
       }
+   }
+   if (src.getFile() == TGSI_FILE_SYSTEM_VALUE) {
+      if (info->sv[src.getIndex(0)].sn == TGSI_SEMANTIC_SAMPLEPOS)
+         info->prop.fp.readsSampleLocations = true;
    }
    if (src.getFile() != TGSI_FILE_INPUT)
       return;
@@ -1575,8 +1564,16 @@ bool Source::scanInstruction(const struct tgsi_full_instruction *inst)
    if (insn.getOpcode() == TGSI_OPCODE_FBFETCH)
       info->prop.fp.readsFramebuffer = true;
 
+   if (insn.getOpcode() == TGSI_OPCODE_INTERP_SAMPLE)
+      info->prop.fp.readsSampleLocations = true;
+
    if (insn.dstCount()) {
       Instruction::DstRegister dst = insn.getDst(0);
+
+      if (insn.getOpcode() == TGSI_OPCODE_STORE &&
+          dst.getFile() != TGSI_FILE_MEMORY) {
+         info->io.globalAccess |= 0x2;
+      }
 
       if (dst.getFile() == TGSI_FILE_OUTPUT) {
          if (dst.isIndirect(0))
@@ -1606,6 +1603,29 @@ bool Source::scanInstruction(const struct tgsi_full_instruction *inst)
          info->io.globalAccess |= 0x2;
       }
    }
+
+   if (insn.srcCount() && (
+             insn.getSrc(0).getFile() != TGSI_FILE_MEMORY ||
+             memoryFiles[insn.getSrc(0).getIndex(0)].mem_type ==
+             TGSI_MEMORY_TYPE_GLOBAL)) {
+      switch (insn.getOpcode()) {
+      case TGSI_OPCODE_ATOMUADD:
+      case TGSI_OPCODE_ATOMXCHG:
+      case TGSI_OPCODE_ATOMCAS:
+      case TGSI_OPCODE_ATOMAND:
+      case TGSI_OPCODE_ATOMOR:
+      case TGSI_OPCODE_ATOMXOR:
+      case TGSI_OPCODE_ATOMUMIN:
+      case TGSI_OPCODE_ATOMIMIN:
+      case TGSI_OPCODE_ATOMUMAX:
+      case TGSI_OPCODE_ATOMIMAX:
+      case TGSI_OPCODE_LOAD:
+         info->io.globalAccess |= (insn.getOpcode() == TGSI_OPCODE_LOAD) ?
+            0x1 : 0x2;
+         break;
+      }
+   }
+
 
    for (unsigned s = 0; s < insn.srcCount(); ++s)
       scanInstructionSrc(insn, insn.getSrc(s), insn.srcMask(s));
@@ -1663,6 +1683,7 @@ private:
    Value *getOutputBase(int s);
    DataArray *getArrayForFile(unsigned file, int idx);
    Value *fetchSrc(int s, int c);
+   Value *fetchDst(int d, int c);
    Value *acquireDst(int d, int c);
    void storeDst(int d, int c, Value *);
 
@@ -1697,7 +1718,7 @@ private:
    void handleUserClipPlanes();
 
    // Symbol *getResourceBase(int r);
-   void getImageCoords(std::vector<Value *>&, int r, int s);
+   void getImageCoords(std::vector<Value *>&, int s);
 
    void handleLOAD(Value *dst0[4]);
    void handleSTORE();
@@ -1971,6 +1992,47 @@ Converter::fetchSrc(int s, int c)
    return applySrcMod(res, s, c);
 }
 
+Value *
+Converter::fetchDst(int d, int c)
+{
+   Value *res;
+   Value *ptr = NULL, *dimRel = NULL;
+
+   tgsi::Instruction::DstRegister dst = tgsi.getDst(d);
+
+   if (dst.isIndirect(0))
+      ptr = fetchSrc(dst.getIndirect(0), 0, NULL);
+
+   if (dst.is2D()) {
+      switch (dst.getFile()) {
+      case TGSI_FILE_OUTPUT:
+         assert(0); // TODO
+         dimRel = NULL;
+         break;
+      case TGSI_FILE_INPUT:
+         assert(0); // TODO
+         dimRel = NULL;
+         break;
+      case TGSI_FILE_CONSTANT:
+         // on NVC0, this is valid and c{I+J}[k] == cI[(J << 16) + k]
+         if (dst.isIndirect(1))
+            dimRel = fetchSrc(dst.getIndirect(1), 0, 0);
+         break;
+      default:
+         break;
+      }
+   }
+
+   struct tgsi_full_src_register fsr = dst.asSrc();
+   tgsi::Instruction::SrcRegister src(&fsr);
+   res = fetchSrc(src, c, ptr);
+
+   if (dimRel)
+      res->getInsn()->setIndirect(0, 1, dimRel);
+
+   return res;
+}
+
 Converter::DataArray *
 Converter::getArrayForFile(unsigned file, int idx)
 {
@@ -2156,6 +2218,7 @@ Converter::storeDst(const tgsi::Instruction::DstRegister dst, int c,
          /* Save the viewport index into a scratch register so that it can be
             exported at EMIT time */
          if (info->out[idx].sn == TGSI_SEMANTIC_VIEWPORT_INDEX &&
+             prog->getType() == Program::TYPE_GEOMETRY &&
              viewport != NULL)
             mkOp1(OP_MOV, TYPE_U32, viewport, val);
          else
@@ -2219,6 +2282,16 @@ void
 Converter::setTexRS(TexInstruction *tex, unsigned int& s, int R, int S)
 {
    unsigned rIdx = 0, sIdx = 0;
+
+   if (R >= 0 && tgsi.getSrc(R).getFile() != TGSI_FILE_SAMPLER) {
+      // This is the bindless case. We have to get the actual value and pass
+      // it in. This will be the complete handle.
+      tex->tex.rIndirectSrc = s;
+      tex->setSrc(s++, fetchSrc(R, 0));
+      tex->setTexture(tgsi.getTexture(code, R), 0xff, 0x1f);
+      tex->tex.bindless = true;
+      return;
+   }
 
    if (R >= 0)
       rIdx = tgsi.getSrc(R).getIndex(0);
@@ -2593,24 +2666,11 @@ partitionLoadStore(uint8_t comp[2], uint8_t size[2], uint8_t mask)
    return n + 1;
 }
 
-static inline nv50_ir::TexTarget
-getImageTarget(const tgsi::Source *code, int r)
-{
-   return tgsi::translateTexture(code->images.at(r).target);
-}
-
-static inline const nv50_ir::TexInstruction::ImgFormatDesc *
-getImageFormat(const tgsi::Source *code, int r)
-{
-   return &nv50_ir::TexInstruction::formatTable[
-      tgsi::translateImgFormat(code->images.at(r).format)];
-}
-
 void
-Converter::getImageCoords(std::vector<Value *> &coords, int r, int s)
+Converter::getImageCoords(std::vector<Value *> &coords, int s)
 {
    TexInstruction::Target t =
-      TexInstruction::Target(getImageTarget(code, r));
+      TexInstruction::Target(tgsi.getImageTarget());
    const int arg = t.getDim() + (t.isArray() || t.isCube());
 
    for (int c = 0; c < arg; ++c)
@@ -2628,6 +2688,10 @@ Converter::handleLOAD(Value *dst0[4])
    const int r = tgsi.getSrc(0).getIndex(0);
    int c;
    std::vector<Value *> off, src, ldv, def;
+   Value *ind = NULL;
+
+   if (tgsi.getSrc(0).isIndirect(0))
+      ind = fetchSrc(tgsi.getSrc(0).getIndirect(0), 0, 0);
 
    switch (tgsi.getSrc(0).getFile()) {
    case TGSI_FILE_BUFFER:
@@ -2654,14 +2718,12 @@ Converter::handleLOAD(Value *dst0[4])
 
          Instruction *ld = mkLoad(TYPE_U32, dst0[c], sym, off);
          ld->cache = tgsi.getCacheMode();
-         if (tgsi.getSrc(0).isIndirect(0))
-            ld->setIndirect(0, 1, fetchSrc(tgsi.getSrc(0).getIndirect(0), 0, 0));
+         if (ind)
+            ld->setIndirect(0, 1, ind);
       }
       break;
-   case TGSI_FILE_IMAGE: {
-      assert(!code->images[r].raw);
-
-      getImageCoords(off, r, 1);
+   default: {
+      getImageCoords(off, 1);
       def.resize(4);
 
       for (c = 0; c < 4; ++c) {
@@ -2671,23 +2733,28 @@ Converter::handleLOAD(Value *dst0[4])
             def[c] = dst0[c];
       }
 
+      bool bindless = tgsi.getSrc(0).getFile() != TGSI_FILE_IMAGE;
+      if (bindless)
+         ind = fetchSrc(0, 0);
+
       TexInstruction *ld =
-         mkTex(OP_SULDP, getImageTarget(code, r), code->images[r].slot, 0,
-               def, off);
+         mkTex(OP_SULDP, tgsi.getImageTarget(), 0, 0, def, off);
       ld->tex.mask = tgsi.getDst(0).getMask();
-      ld->tex.format = getImageFormat(code, r);
+      ld->tex.format = tgsi.getImageFormat();
       ld->cache = tgsi.getCacheMode();
-      if (tgsi.getSrc(0).isIndirect(0))
-         ld->setIndirectR(fetchSrc(tgsi.getSrc(0).getIndirect(0), 0, NULL));
+      ld->tex.bindless = bindless;
+      if (!bindless)
+         ld->tex.r = r;
+      if (ind)
+         ld->setIndirectR(ind);
 
       FOR_EACH_DST_ENABLED_CHANNEL(0, c, tgsi)
          if (dst0[c] != def[c])
             mkMov(dst0[c], def[tgsi.getSrc(0).getSwizzle(c)]);
-      }
       break;
-   default:
-      assert(!"Unsupported srcFile for LOAD");
    }
+   }
+
 
 /* Keep this around for now as reference when adding img support
    getResourceCoords(off, r, 1);
@@ -2766,6 +2833,10 @@ Converter::handleSTORE()
    const int r = tgsi.getDst(0).getIndex(0);
    int c;
    std::vector<Value *> off, src, dummy;
+   Value *ind = NULL;
+
+   if (tgsi.getDst(0).isIndirect(0))
+      ind = fetchSrc(tgsi.getDst(0).getIndirect(0), 0, 0);
 
    switch (tgsi.getDst(0).getFile()) {
    case TGSI_FILE_BUFFER:
@@ -2788,31 +2859,34 @@ Converter::handleSTORE()
 
          Instruction *st = mkStore(OP_STORE, TYPE_U32, sym, off, fetchSrc(1, c));
          st->cache = tgsi.getCacheMode();
-         if (tgsi.getDst(0).isIndirect(0))
-            st->setIndirect(0, 1, fetchSrc(tgsi.getDst(0).getIndirect(0), 0, 0));
+         if (ind)
+            st->setIndirect(0, 1, ind);
       }
       break;
-   case TGSI_FILE_IMAGE: {
-      assert(!code->images[r].raw);
-
-      getImageCoords(off, r, 0);
+   default: {
+      getImageCoords(off, 0);
       src = off;
 
       FOR_EACH_DST_ENABLED_CHANNEL(0, c, tgsi)
          src.push_back(fetchSrc(1, c));
 
+      bool bindless = tgsi.getDst(0).getFile() != TGSI_FILE_IMAGE;
+      if (bindless)
+         ind = fetchDst(0, 0);
+
       TexInstruction *st =
-         mkTex(OP_SUSTP, getImageTarget(code, r), code->images[r].slot,
-               0, dummy, src);
+         mkTex(OP_SUSTP, tgsi.getImageTarget(), 0, 0, dummy, src);
       st->tex.mask = tgsi.getDst(0).getMask();
-      st->tex.format = getImageFormat(code, r);
+      st->tex.format = tgsi.getImageFormat();
       st->cache = tgsi.getCacheMode();
-      if (tgsi.getDst(0).isIndirect(0))
-         st->setIndirectR(fetchSrc(tgsi.getDst(0).getIndirect(0), 0, NULL));
-      }
+      st->tex.bindless = bindless;
+      if (!bindless)
+         st->tex.r = r;
+      if (ind)
+         st->setIndirectR(ind);
+
       break;
-   default:
-      assert(!"Unsupported dstFile for STORE");
+   }
    }
 
 /* Keep this around for now as reference when adding img support
@@ -2877,6 +2951,10 @@ Converter::handleATOM(Value *dst0[4], DataType ty, uint16_t subOp)
    std::vector<Value *> srcv;
    std::vector<Value *> defv;
    LValue *dst = getScratch();
+   Value *ind = NULL;
+
+   if (tgsi.getSrc(0).isIndirect(0))
+      ind = fetchSrc(tgsi.getSrc(0).getIndirect(0), 0, 0);
 
    switch (tgsi.getSrc(0).getFile()) {
    case TGSI_FILE_BUFFER:
@@ -2886,55 +2964,56 @@ Converter::handleATOM(Value *dst0[4], DataType ty, uint16_t subOp)
             continue;
 
          Instruction *insn;
-         Value *off = fetchSrc(1, c), *off2 = NULL;
+         Value *off = fetchSrc(1, c);
          Value *sym;
          if (tgsi.getSrc(1).getFile() == TGSI_FILE_IMMEDIATE)
             sym = makeSym(tgsi.getSrc(0).getFile(), r, -1, c,
                           tgsi.getSrc(1).getValueU32(c, info));
          else
             sym = makeSym(tgsi.getSrc(0).getFile(), r, -1, c, 0);
-         if (tgsi.getSrc(0).isIndirect(0))
-            off2 = fetchSrc(tgsi.getSrc(0).getIndirect(0), 0, 0);
          if (subOp == NV50_IR_SUBOP_ATOM_CAS)
             insn = mkOp3(OP_ATOM, ty, dst, sym, fetchSrc(2, c), fetchSrc(3, c));
          else
             insn = mkOp2(OP_ATOM, ty, dst, sym, fetchSrc(2, c));
          if (tgsi.getSrc(1).getFile() != TGSI_FILE_IMMEDIATE)
             insn->setIndirect(0, 0, off);
-         if (off2)
-            insn->setIndirect(0, 1, off2);
+         if (ind)
+            insn->setIndirect(0, 1, ind);
          insn->subOp = subOp;
       }
       for (int c = 0; c < 4; ++c)
          if (dst0[c])
             dst0[c] = dst; // not equal to rDst so handleInstruction will do mkMov
       break;
-   case TGSI_FILE_IMAGE: {
-      assert(!code->images[r].raw);
-
-      getImageCoords(srcv, r, 1);
+   default: {
+      getImageCoords(srcv, 1);
       defv.push_back(dst);
       srcv.push_back(fetchSrc(2, 0));
 
       if (subOp == NV50_IR_SUBOP_ATOM_CAS)
          srcv.push_back(fetchSrc(3, 0));
 
-      TexInstruction *tex = mkTex(OP_SUREDP, getImageTarget(code, r),
-                                  code->images[r].slot, 0, defv, srcv);
+      bool bindless = tgsi.getSrc(0).getFile() != TGSI_FILE_IMAGE;
+      if (bindless)
+         ind = fetchSrc(0, 0);
+
+      TexInstruction *tex = mkTex(OP_SUREDP, tgsi.getImageTarget(),
+                                  0, 0, defv, srcv);
       tex->subOp = subOp;
       tex->tex.mask = 1;
-      tex->tex.format = getImageFormat(code, r);
+      tex->tex.format = tgsi.getImageFormat();
       tex->setType(ty);
-      if (tgsi.getSrc(0).isIndirect(0))
-         tex->setIndirectR(fetchSrc(tgsi.getSrc(0).getIndirect(0), 0, NULL));
+      tex->tex.bindless = bindless;
+      if (!bindless)
+         tex->tex.r = r;
+      if (ind)
+         tex->setIndirectR(ind);
 
       for (int c = 0; c < 4; ++c)
          if (dst0[c])
             dst0[c] = dst; // not equal to rDst so handleInstruction will do mkMov
-      }
       break;
-   default:
-      assert(!"Unsupported srcFile for ATOM");
+   }
    }
 
 /* Keep this around for now as reference when adding img support
@@ -3012,10 +3091,11 @@ Converter::handleINTERP(Value *dst[4])
          assert(sym[c]);
          op = insn->op;
          mode = insn->ipa;
+         ptr = insn->getIndirect(0, 0);
       }
    } else {
       if (src.isIndirect(0))
-         ptr = fetchSrc(src.getIndirect(0), 0, NULL);
+         ptr = shiftAddress(fetchSrc(src.getIndirect(0), 0, NULL));
 
       // We can assume that the fixed index will point to an input of the same
       // interpolation type in case of an indirect.
@@ -3073,10 +3153,10 @@ Converter::handleINTERP(Value *dst[4])
       insn = mkOp1(op, TYPE_F32, dst[c], sym[c] ? sym[c] : srcToSym(src, c));
       if (op == OP_PINTERP)
          insn->setSrc(1, w);
-      if (ptr)
-         insn->setIndirect(0, 0, ptr);
       if (offset)
          insn->setSrc(op == OP_PINTERP ? 2 : 1, offset);
+      if (ptr)
+         insn->setIndirect(0, 0, ptr);
 
       insn->setInterpolate(mode);
    }
@@ -3137,7 +3217,7 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
 
    unsigned int mask = tgsi.dstCount() ? tgsi.getDst(0).getMask() : 0;
 
-   if (tgsi.dstCount()) {
+   if (tgsi.dstCount() && tgsi.getOpcode() != TGSI_OPCODE_STORE) {
       for (c = 0; c < 4; ++c) {
          rDst0[c] = acquireDst(0, c);
          dst0[c] = (useScratchDst && rDst0[c]) ? getScratch() : rDst0[c];
@@ -3175,11 +3255,11 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
          geni->subOp = tgsi::opcodeToSubOp(tgsi.getOpcode());
          if (op == OP_MUL && dstTy == TYPE_F32)
             geni->dnz = info->io.mul_zero_wins;
+         geni->precise = insn->Instruction.Precise;
       }
       break;
    case TGSI_OPCODE_MAD:
    case TGSI_OPCODE_UMAD:
-   case TGSI_OPCODE_SAD:
    case TGSI_OPCODE_FMA:
       FOR_EACH_DST_ENABLED_CHANNEL(0, c, tgsi) {
          src0 = fetchSrc(0, c);
@@ -3188,6 +3268,7 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
          geni = mkOp3(op, dstTy, dst0[c], src0, src1, src2);
          if (dstTy == TYPE_F32)
             geni->dnz = info->io.mul_zero_wins;
+         geni->precise = insn->Instruction.Precise;
       }
       break;
    case TGSI_OPCODE_MOV:
@@ -3253,19 +3334,6 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
          mkOp1(op, TYPE_F32, dst0[3], val0);
       }
       break;
-   case TGSI_OPCODE_SCS:
-      if (mask & 3) {
-         val0 = mkOp1v(OP_PRESIN, TYPE_F32, getSSA(), fetchSrc(0, 0));
-         if (dst0[0])
-            mkOp1(OP_COS, TYPE_F32, dst0[0], val0);
-         if (dst0[1])
-            mkOp1(OP_SIN, TYPE_F32, dst0[1], val0);
-      }
-      if (dst0[2])
-         loadImm(dst0[2], 0.0f);
-      if (dst0[3])
-         loadImm(dst0[3], 1.0f);
-      break;
    case TGSI_OPCODE_EXP:
       src0 = fetchSrc(0, 0);
       val0 = mkOp1v(OP_FLOOR, TYPE_F32, getSSA(), src0);
@@ -3307,13 +3375,6 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
       FOR_EACH_DST_ENABLED_CHANNEL(0, c, tgsi)
          mkMov(dst0[c], val0);
       break;
-   case TGSI_OPCODE_DPH:
-      val0 = buildDot(3);
-      src1 = fetchSrc(1, 3);
-      mkOp2(OP_ADD, TYPE_F32, val0, val0, src1);
-      FOR_EACH_DST_ENABLED_CHANNEL(0, c, tgsi)
-         mkMov(dst0[c], val0);
-      break;
    case TGSI_OPCODE_DST:
       if (dst0[0])
          loadImm(dst0[0], 1.0f);
@@ -3340,25 +3401,6 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
       break;
    case TGSI_OPCODE_LIT:
       handleLIT(dst0);
-      break;
-   case TGSI_OPCODE_XPD:
-      FOR_EACH_DST_ENABLED_CHANNEL(0, c, tgsi) {
-         if (c < 3) {
-            val0 = getSSA();
-            src0 = fetchSrc(1, (c + 1) % 3);
-            src1 = fetchSrc(0, (c + 2) % 3);
-            mkOp2(OP_MUL, TYPE_F32, val0, src0, src1)
-               ->dnz = info->io.mul_zero_wins;
-            mkOp1(OP_NEG, TYPE_F32, val0, val0);
-
-            src0 = fetchSrc(0, (c + 1) % 3);
-            src1 = fetchSrc(1, (c + 2) % 3);
-            mkOp3(OP_MAD, TYPE_F32, dst0[c], src0, src1, val0)
-               ->dnz = info->io.mul_zero_wins;
-         } else {
-            loadImm(dst0[c], 1.0f);
-         }
-      }
       break;
    case TGSI_OPCODE_ISSG:
    case TGSI_OPCODE_SSG:
@@ -3571,6 +3613,9 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
                                   info->out[info->io.viewportId].slot[0] * 4);
          mkStore(OP_EXPORT, TYPE_U32, vpSym, NULL, viewport);
       }
+      /* handle user clip planes for each emitted vertex */
+      if (info->io.genUserClip > 0)
+         handleUserClipPlanes();
       /* fallthrough */
    case TGSI_OPCODE_ENDPRIM:
    {
@@ -3745,7 +3790,9 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
       setPosition(epilogue, true);
       if (prog->getType() == Program::TYPE_FRAGMENT)
          exportOutputs();
-      if (info->io.genUserClip > 0)
+      if ((prog->getType() == Program::TYPE_VERTEX ||
+           prog->getType() == Program::TYPE_TESSELLATION_EVAL
+          ) && info->io.genUserClip > 0)
          handleUserClipPlanes();
       mkOp(OP_EXIT, TYPE_NONE, NULL)->terminator = 1;
    }
@@ -3765,13 +3812,6 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
       geni = mkOp2(OP_BAR, TYPE_U32, NULL, mkImm(0), mkImm(0));
       geni->fixed = 1;
       geni->subOp = NV50_IR_SUBOP_BAR_SYNC;
-      break;
-   case TGSI_OPCODE_MFENCE:
-   case TGSI_OPCODE_LFENCE:
-   case TGSI_OPCODE_SFENCE:
-      geni = mkOp(OP_MEMBAR, TYPE_NONE, NULL);
-      geni->fixed = 1;
-      geni->subOp = tgsi::opcodeToSubOp(tgsi.getOpcode());
       break;
    case TGSI_OPCODE_MEMBAR:
    {
@@ -3798,15 +3838,15 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
       break;
    case TGSI_OPCODE_RESQ:
       if (tgsi.getSrc(0).getFile() == TGSI_FILE_BUFFER) {
+         Value *ind = NULL;
+         if (tgsi.getSrc(0).isIndirect(0))
+            ind = fetchSrc(tgsi.getSrc(0).getIndirect(0), 0, 0);
          geni = mkOp1(OP_BUFQ, TYPE_U32, dst0[0],
                       makeSym(tgsi.getSrc(0).getFile(),
                               tgsi.getSrc(0).getIndex(0), -1, 0, 0));
-         if (tgsi.getSrc(0).isIndirect(0))
-            geni->setIndirect(0, 1,
-                              fetchSrc(tgsi.getSrc(0).getIndirect(0), 0, 0));
+         if (ind)
+            geni->setIndirect(0, 1, ind);
       } else {
-         assert(tgsi.getSrc(0).getFile() == TGSI_FILE_IMAGE);
-
          TexInstruction *texi = new_TexInstruction(func, OP_SUQ);
          for (int c = 0, d = 0; c < 4; ++c) {
             if (dst0[c]) {
@@ -3814,12 +3854,17 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
                texi->tex.mask |= 1 << c;
             }
          }
-         texi->tex.r = tgsi.getSrc(0).getIndex(0);
-         texi->tex.target = getImageTarget(code, texi->tex.r);
-         bb->insertTail(texi);
+         if (tgsi.getSrc(0).getFile() == TGSI_FILE_IMAGE) {
+            texi->tex.r = tgsi.getSrc(0).getIndex(0);
+            if (tgsi.getSrc(0).isIndirect(0))
+               texi->setIndirectR(fetchSrc(tgsi.getSrc(0).getIndirect(0), 0, NULL));
+         } else {
+            texi->tex.bindless = true;
+            texi->setIndirectR(fetchSrc(0, 0));
+         }
+         texi->tex.target = tgsi.getImageTarget();
 
-         if (tgsi.getSrc(0).isIndirect(0))
-            texi->setIndirectR(fetchSrc(tgsi.getSrc(0).getIndirect(0), 0, NULL));
+         bb->insertTail(texi);
       }
       break;
    case TGSI_OPCODE_IBFE:
@@ -4067,7 +4112,9 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
          tmp[0] = fetchSrc(0, c);
          tmp[1] = fetchSrc(0, c + 1);
          mkOp2(OP_MERGE, TYPE_U64, src0, tmp[0], tmp[1]);
-         src1 = fetchSrc(1, c / 2);
+         // Theoretically src1 is a 64-bit value but in practice only the low
+         // bits matter. The IR expects this to be a 32-bit value.
+         src1 = fetchSrc(1, c);
          mkOp2(op, dstTy, dst, src0, src1);
          mkSplit(&dst0[c], 4, dst);
          c++;
@@ -4172,7 +4219,7 @@ Converter::handleInstruction(const struct tgsi_full_instruction *insn)
       break;
    }
 
-   if (tgsi.dstCount()) {
+   if (tgsi.dstCount() && tgsi.getOpcode() != TGSI_OPCODE_STORE) {
       for (c = 0; c < 4; ++c) {
          if (!dst0[c])
             continue;

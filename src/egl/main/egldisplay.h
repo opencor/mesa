@@ -92,6 +92,7 @@ struct _egl_resource
 struct _egl_extensions
 {
    /* Please keep these sorted alphabetically. */
+   EGLBoolean ANDROID_blob_cache;
    EGLBoolean ANDROID_framebuffer_target;
    EGLBoolean ANDROID_image_native_buffer;
    EGLBoolean ANDROID_native_fence_sync;
@@ -102,11 +103,20 @@ struct _egl_extensions
    EGLBoolean EXT_buffer_age;
    EGLBoolean EXT_create_context_robustness;
    EGLBoolean EXT_image_dma_buf_import;
+   EGLBoolean EXT_image_dma_buf_import_modifiers;
+   EGLBoolean EXT_pixel_format_float;
    EGLBoolean EXT_swap_buffers_with_damage;
+
+   unsigned int IMG_context_priority;
+#define  __EGL_CONTEXT_PRIORITY_LOW_BIT    0
+#define  __EGL_CONTEXT_PRIORITY_MEDIUM_BIT 1
+#define  __EGL_CONTEXT_PRIORITY_HIGH_BIT   2
 
    EGLBoolean KHR_cl_event2;
    EGLBoolean KHR_config_attribs;
+   EGLBoolean KHR_context_flush_control;
    EGLBoolean KHR_create_context;
+   EGLBoolean KHR_create_context_no_error;
    EGLBoolean KHR_fence_sync;
    EGLBoolean KHR_get_all_proc_addresses;
    EGLBoolean KHR_gl_colorspace;
@@ -114,9 +124,11 @@ struct _egl_extensions
    EGLBoolean KHR_gl_texture_2D_image;
    EGLBoolean KHR_gl_texture_3D_image;
    EGLBoolean KHR_gl_texture_cubemap_image;
+   EGLBoolean KHR_image;
    EGLBoolean KHR_image_base;
    EGLBoolean KHR_image_pixmap;
    EGLBoolean KHR_no_config_context;
+   EGLBoolean KHR_partial_update;
    EGLBoolean KHR_reusable_sync;
    EGLBoolean KHR_surfaceless_context;
    EGLBoolean KHR_wait_sync;
@@ -149,8 +161,8 @@ struct _egl_display
 
    /* options that affect how the driver initializes the display */
    struct {
-      EGLBoolean TestOnly;    /**< Driver should not set fields when true */
-      EGLBoolean UseFallback; /**< Use fallback driver (sw or less features) */
+      EGLBoolean ForceSoftware; /**< Use software path only */
+      void *Platform;         /**< Platform-specific options */
    } Options;
 
    /* these fields are set by the driver during init */
@@ -164,13 +176,15 @@ struct _egl_display
    char ClientAPIsString[100];                     /**< EGL_CLIENT_APIS */
    char ExtensionsString[_EGL_MAX_EXTENSIONS_LEN]; /**< EGL_EXTENSIONS */
 
-   _EGLArray *Screens;
    _EGLArray *Configs;
 
    /* lists of resources */
    _EGLResource *ResourceLists[_EGL_NUM_RESOURCES];
 
    EGLLabelKHR Label;
+
+   EGLSetBlobFuncANDROID BlobCacheSet;
+   EGLGetBlobFuncANDROID BlobCacheGet;
 };
 
 
@@ -257,7 +271,7 @@ _eglIsResourceLinked(_EGLResource *res)
 
 #ifdef HAVE_X11_PLATFORM
 _EGLDisplay*
-_eglGetX11Display(Display *native_display, const EGLint *attrib_list);
+_eglGetX11Display(Display *native_display, const EGLAttrib *attrib_list);
 #endif
 
 #ifdef HAVE_DRM_PLATFORM
@@ -265,7 +279,7 @@ struct gbm_device;
 
 _EGLDisplay*
 _eglGetGbmDisplay(struct gbm_device *native_display,
-                  const EGLint *attrib_list);
+                  const EGLAttrib *attrib_list);
 #endif
 
 #ifdef HAVE_WAYLAND_PLATFORM
@@ -273,13 +287,13 @@ struct wl_display;
 
 _EGLDisplay*
 _eglGetWaylandDisplay(struct wl_display *native_display,
-                      const EGLint *attrib_list);
+                      const EGLAttrib *attrib_list);
 #endif
 
 #ifdef HAVE_SURFACELESS_PLATFORM
 _EGLDisplay*
 _eglGetSurfacelessDisplay(void *native_display,
-                          const EGLint *attrib_list);
+                          const EGLAttrib *attrib_list);
 #endif
 
 #ifdef __cplusplus

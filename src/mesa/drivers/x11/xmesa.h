@@ -1,18 +1,18 @@
 /*
  * Mesa 3-D graphics library
- *
+ * 
  * Copyright (C) 1999-2007  Brian Paul   All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
  * the rights to use, copy, modify, merge, publish, distribute, sublicense,
  * and/or sell copies of the Software, and to permit persons to whom the
  * Software is furnished to do so, subject to the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice shall be included
  * in all copies or substantial portions of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
@@ -83,14 +83,6 @@ extern "C" {
  */
 #define XMESA_VERSION 1
 #define XMESA_EXTENSIONS 2
-
-
-/*
- * Values passed to XMesaSetFXmode:
- */
-#define XMESA_FX_WINDOW       1
-#define XMESA_FX_FULLSCREEN   2
-
 
 
 typedef struct xmesa_context *XMesaContext;
@@ -241,6 +233,12 @@ extern XMesaBuffer XMesaGetCurrentReadBuffer( void );
 
 
 /*
+ * Return display of current context.
+ */
+extern Display *XMesaGetCurrentDisplay( void );
+
+
+/*
  * Swap the front and back buffers for the given buffer.  No action is
  * taken if the buffer is not double buffered.
  */
@@ -334,20 +332,6 @@ extern unsigned long XMesaDitherColor( XMesaContext xmesa,
 				       GLfloat green,
 				       GLfloat blue,
 				       GLfloat alpha );
-
-
-
-/*
- * 3Dfx Glide driver only!
- * Set 3Dfx/Glide full-screen or window rendering mode.
- * Input:  mode - either XMESA_FX_WINDOW (window rendering mode) or
- *                XMESA_FX_FULLSCREEN (full-screen rendering mode)
- * Return:  GL_TRUE if success
- *          GL_FALSE if invalid mode or if not using 3Dfx driver
- *
- * New in Mesa 2.6.
- */
-extern GLboolean XMesaSetFXmode( GLint mode );
 
 
 

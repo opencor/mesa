@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include "main/glheader.h"
@@ -184,11 +184,12 @@ src_vector(struct i915_fragment_program *p,
        */
    case PROGRAM_CONSTANT:
    case PROGRAM_STATE_VAR:
-   case PROGRAM_UNIFORM:
-      src = i915_emit_param4fv(p,
-	 &program->Parameters->ParameterValues[source->Index][0].f);
+   case PROGRAM_UNIFORM: {
+      struct gl_program_parameter_list *params = program->Parameters;
+      unsigned offset = params->ParameterValueOffset[source->Index];
+      src = i915_emit_param4fv(p, &params->ParameterValues[offset].f);
       break;
-
+   }
    default:
       i915_program_error(p, "Bad source->File: %d", source->File);
       return 0;
@@ -308,8 +309,8 @@ do {									\
 #define EMIT_2ARG_ARITH( OP ) EMIT_ARITH( OP, 2 )
 #define EMIT_3ARG_ARITH( OP ) EMIT_ARITH( OP, 3 )
 
-/*
- * TODO: consider moving this into core
+/* 
+ * TODO: consider moving this into core 
  */
 static bool calc_live_regs( struct i915_fragment_program *p )
 {
@@ -317,13 +318,13 @@ static bool calc_live_regs( struct i915_fragment_program *p )
     GLuint regsUsed = ~((1 << I915_MAX_TEMPORARY) - 1);
     uint8_t live_components[I915_MAX_TEMPORARY] = { 0, };
     GLint i;
-
+   
     for (i = program->arb.NumInstructions - 1; i >= 0; i--) {
         struct prog_instruction *inst = &program->arb.Instructions[i];
         int opArgs = _mesa_num_inst_src_regs(inst->Opcode);
         int a;
 
-        /* Register is written to: unmark as live for this and preceeding ops */
+        /* Register is written to: unmark as live for this and preceeding ops */ 
         if (inst->DstReg.File == PROGRAM_TEMPORARY) {
 	    if (inst->DstReg.Index >= I915_MAX_TEMPORARY)
 	       return false;
@@ -334,7 +335,7 @@ static bool calc_live_regs( struct i915_fragment_program *p )
         }
 
         for (a = 0; a < opArgs; a++) {
-            /* Register is read from: mark as live for this and preceeding ops */
+            /* Register is read from: mark as live for this and preceeding ops */ 
             if (inst->SrcReg[a].File == PROGRAM_TEMPORARY) {
                 unsigned c;
 
@@ -358,7 +359,7 @@ static bool calc_live_regs( struct i915_fragment_program *p )
     return true;
 }
 
-static GLuint get_live_regs( struct i915_fragment_program *p,
+static GLuint get_live_regs( struct i915_fragment_program *p, 
                              const struct prog_instruction *inst )
 {
     const struct gl_program *program = &p->FragProg;
@@ -366,14 +367,14 @@ static GLuint get_live_regs( struct i915_fragment_program *p,
 
     return p->usedRegs[nr];
 }
-
+ 
 
 /* Possible concerns:
  *
  * SIN, COS -- could use another taylor step?
  * LIT      -- results seem a little different to sw mesa
  * LOG      -- different to mesa on negative numbers, but this is conformant.
- *
+ * 
  * Parse failures -- Mesa doesn't currently give a good indication
  * internally whether a particular program string parsed or not.  This
  * can lead to confusion -- hopefully we cope with it ok now.
@@ -650,10 +651,10 @@ upload_program(struct i915_fragment_program *p)
 
          /* b*a + c*(1-a)
           *
-          * b*a + c - ca
+          * b*a + c - ca 
           *
-          * tmp = b*a + c,
-          * result = (-c)*a + tmp
+          * tmp = b*a + c, 
+          * result = (-c)*a + tmp 
           */
          i915_emit_arith(p, A0_MAD, tmp,
                          flags & A0_DEST_CHANNEL_ALL, 0, src1, src0, src2);
@@ -731,7 +732,7 @@ upload_program(struct i915_fragment_program *p)
          src0 = src_vector(p, &inst->SrcReg[0], program);
          tmp = i915_get_utemp(p);
 
-         /*
+         /* 
           * t0.xy = MUL x.xx11, x.x1111  ; x^2, x, 1, 1
           * t0 = MUL t0.xyxy t0.xx11 ; x^4, x^3, x^2, x
           * t1 = MUL t0.xyyw t0.yz11    ; x^7 x^5 x^3 x
@@ -1063,7 +1064,7 @@ check_wpos(struct i915_fragment_program *p)
    GLint i;
    unsigned unit = 0;
 
-   p->wpos_tex = -1;
+   p->wpos_tex = I915_WPOS_TEX_INVALID;
 
    if ((inputs & VARYING_BIT_POS) == 0)
       return;
@@ -1238,6 +1239,7 @@ i915ValidateFragmentProgram(struct i915_context *i915)
    const GLbitfield64 inputsRead = p->FragProg.info.inputs_read;
    GLuint s4 = i915->state.Ctx[I915_CTXREG_LIS4] & ~S4_VFMT_MASK;
    GLuint s2 = S2_TEXCOORD_NONE;
+   GLuint s3 = 0;
    int i, offset = 0;
 
    /* Important:
@@ -1252,12 +1254,10 @@ i915ValidateFragmentProgram(struct i915_context *i915)
    intel->coloroffset = 0;
    intel->specoffset = 0;
 
-   if (inputsRead & VARYING_BITS_TEX_ANY || p->wpos_tex != -1) {
-      EMIT_ATTR(_TNL_ATTRIB_POS, EMIT_4F_VIEWPORT, S4_VFMT_XYZW, 16);
-   }
-   else {
-      EMIT_ATTR(_TNL_ATTRIB_POS, EMIT_3F_VIEWPORT, S4_VFMT_XYZ, 12);
-   }
+   /* Always emit W to get consistent perspective
+    * correct interpolation of primary/secondary colors.
+    */
+   EMIT_ATTR(_TNL_ATTRIB_POS, EMIT_4F_VIEWPORT, S4_VFMT_XYZW, 16);
 
    /* Handle gl_PointSize builtin var here */
    if (ctx->Point._Attenuated || ctx->VertexProgram.PointSizeEnabled)
@@ -1303,6 +1303,7 @@ i915ValidateFragmentProgram(struct i915_context *i915)
           */
          s2 &= ~S2_TEXCOORD_FMT(i, S2_TEXCOORD_FMT0_MASK);
          s2 |= S2_TEXCOORD_FMT(i, SZ_TO_HW(wpos_size));
+         s3 |= S3_TEXCOORD_PERSPECTIVE_DISABLE(i);
 
          intel->wpos_offset = offset;
          EMIT_PAD(wpos_size);
@@ -1310,6 +1311,7 @@ i915ValidateFragmentProgram(struct i915_context *i915)
    }
 
    if (s2 != i915->state.Ctx[I915_CTXREG_LIS2] ||
+       s3 != i915->state.Ctx[I915_CTXREG_LIS3] ||
        s4 != i915->state.Ctx[I915_CTXREG_LIS4]) {
       I915_STATECHANGE(i915, I915_UPLOAD_CTX);
 
@@ -1328,6 +1330,7 @@ i915ValidateFragmentProgram(struct i915_context *i915)
       intel->vertex_size >>= 2;
 
       i915->state.Ctx[I915_CTXREG_LIS2] = s2;
+      i915->state.Ctx[I915_CTXREG_LIS3] = s3;
       i915->state.Ctx[I915_CTXREG_LIS4] = s4;
 
       assert(intel->vtbl.check_vertex_size(intel, intel->vertex_size));

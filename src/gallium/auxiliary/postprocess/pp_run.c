@@ -238,11 +238,11 @@ pp_tgsi_to_state(struct pipe_context *pipe, const char *text, bool isvs,
    struct pipe_shader_state state;
    struct tgsi_token *tokens = NULL;
    void *ret_state = NULL;
-
+ 
    /*
     * Allocate temporary token storage. State creation will duplicate
     * tokens so we must free them on exit.
-    */
+    */ 
    tokens = tgsi_alloc_tokens(PP_MAX_TOKENS);
 
    if (!tokens) {

@@ -35,11 +35,11 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "main/glheader.h"
 #include "main/imports.h"
-#include "main/api_arrayelt.h"
 #include "main/enums.h"
 #include "main/light.h"
 #include "main/framebuffer.h"
 #include "main/fbobject.h"
+#include "main/state.h"
 #include "main/stencil.h"
 #include "main/viewport.h"
 
@@ -688,10 +688,10 @@ static void r200ColorMask( struct gl_context *ctx,
    if (!rrb)
      return;
    mask = radeonPackColor( rrb->cpp,
-			   ctx->Color.ColorMask[0][RCOMP],
-			   ctx->Color.ColorMask[0][GCOMP],
-			   ctx->Color.ColorMask[0][BCOMP],
-			   ctx->Color.ColorMask[0][ACOMP] );
+			   GET_COLORMASK_BIT(ctx->Color.ColorMask, 0, 0)*0xFF,
+			   GET_COLORMASK_BIT(ctx->Color.ColorMask, 0, 1)*0xFF,
+			   GET_COLORMASK_BIT(ctx->Color.ColorMask, 0, 2)*0xFF,
+			   GET_COLORMASK_BIT(ctx->Color.ColorMask, 0, 3)*0xFF );
 
 
    if (!(r && g && b && a))
@@ -1626,35 +1626,14 @@ static void r200RenderMode( struct gl_context *ctx, GLenum mode )
    FALLBACK( rmesa, R200_FALLBACK_RENDER_MODE, (mode != GL_RENDER) );
 }
 
-
-static GLuint r200_rop_tab[] = {
-   R200_ROP_CLEAR,
-   R200_ROP_AND,
-   R200_ROP_AND_REVERSE,
-   R200_ROP_COPY,
-   R200_ROP_AND_INVERTED,
-   R200_ROP_NOOP,
-   R200_ROP_XOR,
-   R200_ROP_OR,
-   R200_ROP_NOR,
-   R200_ROP_EQUIV,
-   R200_ROP_INVERT,
-   R200_ROP_OR_REVERSE,
-   R200_ROP_COPY_INVERTED,
-   R200_ROP_OR_INVERTED,
-   R200_ROP_NAND,
-   R200_ROP_SET,
-};
-
-static void r200LogicOpCode( struct gl_context *ctx, GLenum opcode )
+static void r200LogicOpCode(struct gl_context *ctx, enum gl_logicop_mode opcode)
 {
    r200ContextPtr rmesa = R200_CONTEXT(ctx);
-   GLuint rop = (GLuint)opcode - GL_CLEAR;
 
-   assert( rop < 16 );
+   assert((unsigned) opcode <= 15);
 
    R200_STATECHANGE( rmesa, msk );
-   rmesa->hw.msk.cmd[MSK_RB3D_ROPCNTL] = r200_rop_tab[rop];
+   rmesa->hw.msk.cmd[MSK_RB3D_ROPCNTL] = opcode;
 }
 
 /* =============================================================
@@ -2266,7 +2245,7 @@ GLboolean r200ValidateState( struct gl_context *ctx )
 	_NEW_MODELVIEW|_NEW_PROJECTION|_NEW_TRANSFORM|
 	_NEW_LIGHT|_NEW_TEXTURE|_NEW_TEXTURE_MATRIX|
 	_NEW_FOG|_NEW_POINT|_NEW_TRACK_MATRIX)) {
-      if (ctx->VertexProgram._Enabled) {
+      if (_mesa_arb_vertex_program_enabled(ctx)) {
 	 r200SetupVertexProg( ctx );
       }
       else TCL_FALLBACK(ctx, R200_TCL_FALLBACK_VERTEX_PROGRAM, 0);
@@ -2277,15 +2256,18 @@ GLboolean r200ValidateState( struct gl_context *ctx )
 }
 
 
-static void r200InvalidateState( struct gl_context *ctx, GLuint new_state )
+static void r200InvalidateState(struct gl_context *ctx)
 {
+   GLuint new_state = ctx->NewState;
+
    r200ContextPtr rmesa = R200_CONTEXT(ctx);
+
+   if (new_state & (_NEW_SCISSOR | _NEW_BUFFERS | _NEW_VIEWPORT))
+      _mesa_update_draw_buffer_bounds(ctx, ctx->DrawBuffer);
 
    _swrast_InvalidateState( ctx, new_state );
    _swsetup_InvalidateState( ctx, new_state );
-   _vbo_InvalidateState( ctx, new_state );
    _tnl_InvalidateState( ctx, new_state );
-   _ae_invalidate_state( ctx, new_state );
    R200_CONTEXT(ctx)->radeon.NewGLState |= new_state;
 
    if (new_state & _NEW_PROGRAM)
@@ -2326,7 +2308,8 @@ static void r200WrapRunPipeline( struct gl_context *ctx )
       if (!r200ValidateState( ctx ))
 	 FALLBACK(rmesa, RADEON_FALLBACK_TEXTURE, GL_TRUE);
 
-   has_material = !ctx->VertexProgram._Enabled && ctx->Light.Enabled && check_material( ctx );
+   has_material = !_mesa_arb_vertex_program_enabled(ctx) &&
+                  ctx->Light.Enabled && check_material( ctx );
 
    if (has_material) {
       TCL_FALLBACK( ctx, R200_TCL_FALLBACK_MATERIAL, GL_TRUE );

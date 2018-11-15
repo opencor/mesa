@@ -28,6 +28,7 @@
 #include "main/glheader.h"
 #include "main/imports.h"
 #include "main/macros.h"
+#include "main/state.h"
 #include "tnl/tnl.h"
 #include "tnl/t_context.h"
 #include "tnl/t_pipeline.h"
@@ -59,7 +60,7 @@ _swsetup_CreateContext( struct gl_context *ctx )
    swsetup->NewState = ~0;
    _swsetup_trifuncs_init( ctx );
 
-   _tnl_init_vertices( ctx, ctx->Const.MaxArrayLockSize + 12,
+   _tnl_init_vertices( ctx, ctx->Const.MaxArrayLockSize + 12, 
 		       sizeof(SWvertex) );
 
 
@@ -113,7 +114,7 @@ setup_vertex_format(struct gl_context *ctx)
    TNLcontext *tnl = TNL_CONTEXT(ctx);
    SScontext *swsetup = SWSETUP_CONTEXT(ctx);
    GLboolean intColors = !ctx->FragmentProgram._Current
-                      && !ctx->ATIFragmentShader._Enabled
+                      && !_mesa_ati_fragment_shader_enabled(ctx)
                       && ctx->RenderMode == GL_RENDER
                       && CHAN_TYPE != GL_FLOAT;
 
@@ -262,7 +263,7 @@ _swsetup_Wakeup( struct gl_context *ctx )
 /**
  * Populate a swrast SWvertex from an attrib-style vertex.
  */
-void
+void 
 _swsetup_Translate( struct gl_context *ctx, const void *vertex, SWvertex *dest )
 {
    TNLcontext *tnl = TNL_CONTEXT(ctx);

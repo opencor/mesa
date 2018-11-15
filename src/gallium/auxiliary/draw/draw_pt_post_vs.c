@@ -209,7 +209,7 @@ void draw_pt_post_vs_prepare( struct pt_post_vs *pvs,
          DO_VIEWPORT | DO_EDGEFLAG):
       pvs->run = do_cliptest_xy_fullz_user_viewport_edgeflag;
       break;
-
+      
    default:
       pvs->run = do_cliptest_generic;
       break;

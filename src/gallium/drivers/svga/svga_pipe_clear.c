@@ -117,7 +117,7 @@ ints_fit_in_floats(const union pipe_color_union *color)
 
 
 static enum pipe_error
-try_clear(struct svga_context *svga,
+try_clear(struct svga_context *svga, 
           unsigned buffers,
           const union pipe_color_union *color,
           double depth,
@@ -220,7 +220,7 @@ try_clear(struct svga_context *svga,
    if (restore_viewport) {
       ret = SVGA3D_SetViewport(svga->swc, &svga->state.hw_clear.viewport);
    }
-
+   
    return ret;
 }
 
@@ -422,6 +422,7 @@ svga_clear_texture(struct pipe_context *pipe,
              pipe->screen->is_format_supported(pipe->screen, rtv->format,
                                                rtv->texture->target,
                                                rtv->texture->nr_samples,
+                                               rtv->texture->nr_storage_samples,
                                                PIPE_BIND_RENDER_TARGET)) {
             /* clear with quad drawing */
             util_blitter_save_framebuffer(svga->blitter,
@@ -504,44 +505,6 @@ svga_blitter_clear_render_target(struct svga_context *svga,
                                     dstx, dsty, width, height);
 }
 
-/**
- * \brief Toggle conditional rendering if already enabled
- *
- * \param svga[in]  The svga context
- * \param render_condition_enabled[in]  Whether to ignore requests to turn
- * conditional rendering off
- * \param on[in]  Whether to turn conditional rendering on or off
- */
-static void
-svga_toggle_render_condition(struct svga_context *svga,
-                             boolean render_condition_enabled,
-                             boolean on)
-{
-   SVGA3dQueryId query_id;
-   enum pipe_error ret;
-
-   if (render_condition_enabled ||
-       svga->pred.query_id == SVGA3D_INVALID_ID) {
-      return;
-   }
-
-   /*
-    * If we get here, it means that the system supports
-    * conditional rendering since svga->pred.query_id has already been
-    * modified for this context and thus support has already been
-    * verified.
-    */
-   query_id = on ? svga->pred.query_id : SVGA3D_INVALID_ID;
-
-   ret = SVGA3D_vgpu10_SetPredication(svga->swc, query_id,
-                                      (uint32) svga->pred.cond);
-   if (ret == PIPE_ERROR_OUT_OF_MEMORY) {
-      svga_context_flush(svga, NULL);
-      ret = SVGA3D_vgpu10_SetPredication(svga->swc, query_id,
-                                         (uint32) svga->pred.cond);
-      assert(ret == PIPE_OK);
-   }
-}
 
 /**
  * \brief Clear render target pipe callback
@@ -573,13 +536,13 @@ svga_clear_render_target(struct pipe_context *pipe,
                                         height);
     } else {
        enum pipe_error ret;
-
+       
        ret = svga_try_clear_render_target(svga, dst, color);
        if (ret == PIPE_ERROR_OUT_OF_MEMORY) {
           svga_context_flush( svga, NULL );
           ret = svga_try_clear_render_target(svga, dst, color);
        }
-
+       
        assert (ret == PIPE_OK);
     }
     svga_toggle_render_condition(svga, render_condition_enabled, TRUE);

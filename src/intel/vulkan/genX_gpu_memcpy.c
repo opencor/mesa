@@ -36,7 +36,7 @@
 /**
  * Returns the greatest common divisor of a and b that is a power of two.
  */
-static inline uint64_t
+static uint64_t
 gcd_pow2_u64(uint64_t a, uint64_t b)
 {
    assert(a > 0 || b > 0);
@@ -52,10 +52,72 @@ gcd_pow2_u64(uint64_t a, uint64_t b)
 }
 
 void
-genX(cmd_buffer_gpu_memcpy)(struct anv_cmd_buffer *cmd_buffer,
-                            struct anv_bo *dst, uint32_t dst_offset,
-                            struct anv_bo *src, uint32_t src_offset,
-                            uint32_t size)
+genX(cmd_buffer_mi_memcpy)(struct anv_cmd_buffer *cmd_buffer,
+                           struct anv_bo *dst, uint32_t dst_offset,
+                           struct anv_bo *src, uint32_t src_offset,
+                           uint32_t size)
+{
+   /* This memcpy operates in units of dwords. */
+   assert(size % 4 == 0);
+   assert(dst_offset % 4 == 0);
+   assert(src_offset % 4 == 0);
+
+#if GEN_GEN == 7
+   /* On gen7, the combination of commands used here(MI_LOAD_REGISTER_MEM
+    * and MI_STORE_REGISTER_MEM) can cause GPU hangs if any rendering is
+    * in-flight when they are issued even if the memory touched is not
+    * currently active for rendering.  The weird bit is that it is not the
+    * MI_LOAD/STORE_REGISTER_MEM commands which hang but rather the in-flight
+    * rendering hangs such that the next stalling command after the
+    * MI_LOAD/STORE_REGISTER_MEM commands will catch the hang.
+    *
+    * It is unclear exactly why this hang occurs.  Both MI commands come with
+    * warnings about the 3D pipeline but that doesn't seem to fully explain
+    * it.  My (Jason's) best theory is that it has something to do with the
+    * fact that we're using a GPU state register as our temporary and that
+    * something with reading/writing it is causing problems.
+    *
+    * In order to work around this issue, we emit a PIPE_CONTROL with the
+    * command streamer stall bit set.
+    */
+   cmd_buffer->state.pending_pipe_bits |= ANV_PIPE_CS_STALL_BIT;
+   genX(cmd_buffer_apply_pipe_flushes)(cmd_buffer);
+#endif
+
+   for (uint32_t i = 0; i < size; i += 4) {
+      const struct anv_address src_addr =
+         (struct anv_address) { src, src_offset + i};
+      const struct anv_address dst_addr =
+         (struct anv_address) { dst, dst_offset + i};
+#if GEN_GEN >= 8
+      anv_batch_emit(&cmd_buffer->batch, GENX(MI_COPY_MEM_MEM), cp) {
+         cp.DestinationMemoryAddress = dst_addr;
+         cp.SourceMemoryAddress = src_addr;
+      }
+#else
+      /* IVB does not have a general purpose register for command streamer
+       * commands. Therefore, we use an alternate temporary register.
+       */
+#define TEMP_REG 0x2440 /* GEN7_3DPRIM_BASE_VERTEX */
+      anv_batch_emit(&cmd_buffer->batch, GENX(MI_LOAD_REGISTER_MEM), load) {
+         load.RegisterAddress = TEMP_REG;
+         load.MemoryAddress = src_addr;
+      }
+      anv_batch_emit(&cmd_buffer->batch, GENX(MI_STORE_REGISTER_MEM), store) {
+         store.RegisterAddress = TEMP_REG;
+         store.MemoryAddress = dst_addr;
+      }
+#undef TEMP_REG
+#endif
+   }
+   return;
+}
+
+void
+genX(cmd_buffer_so_memcpy)(struct anv_cmd_buffer *cmd_buffer,
+                           struct anv_bo *dst, uint32_t dst_offset,
+                           struct anv_bo *src, uint32_t src_offset,
+                           uint32_t size)
 {
    if (size == 0)
       return;
@@ -96,11 +158,10 @@ genX(cmd_buffer_gpu_memcpy)(struct anv_cmd_buffer *cmd_buffer,
          .AddressModifyEnable = true,
          .BufferStartingAddress = { src, src_offset },
          .BufferPitch = bs,
+         .VertexBufferMOCS = anv_mocs_for_bo(cmd_buffer->device, src),
 #if (GEN_GEN >= 8)
-         .MemoryObjectControlState = GENX(MOCS),
          .BufferSize = size,
 #else
-         .VertexBufferMemoryObjectControlState = GENX(MOCS),
          .EndAddress = { src, src_offset + size - 1 },
 #endif
       });
@@ -157,7 +218,7 @@ genX(cmd_buffer_gpu_memcpy)(struct anv_cmd_buffer *cmd_buffer,
 
    anv_batch_emit(&cmd_buffer->batch, GENX(3DSTATE_SO_BUFFER), sob) {
       sob.SOBufferIndex = 0;
-      sob.SOBufferObjectControlState = GENX(MOCS);
+      sob.SOBufferMOCS = anv_mocs_for_bo(cmd_buffer->device, dst),
       sob.SurfaceBaseAddress = (struct anv_address) { dst, dst_offset };
 
 #if GEN_GEN >= 8
@@ -232,5 +293,5 @@ genX(cmd_buffer_gpu_memcpy)(struct anv_cmd_buffer *cmd_buffer,
       prim.BaseVertexLocation       = 0;
    }
 
-   cmd_buffer->state.dirty |= ANV_CMD_DIRTY_PIPELINE;
+   cmd_buffer->state.gfx.dirty |= ANV_CMD_DIRTY_PIPELINE;
 }

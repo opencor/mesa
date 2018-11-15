@@ -105,7 +105,7 @@ pp_init(struct pipe_context *pipe, const unsigned int *enabled,
          if (!pp_filters[i].init(ppq, curpos, enabled[i])) {
             pp_debug("Initialization for filter %u failed.\n", i);
             goto error;
-         }
+         }           
 
          curpos++;
       }
@@ -121,7 +121,7 @@ pp_init(struct pipe_context *pipe, const unsigned int *enabled,
       ppq->shaders[i][0] = ppq->p->passvs;
 
    pp_debug("Queue successfully allocated. %u filter(s).\n", curpos);
-
+   
    return ppq;
 
  error:
@@ -161,7 +161,7 @@ pp_free_fbos(struct pp_queue_t *ppq)
    ppq->fbos_init = false;
 }
 
-/**
+/** 
  * Free the pp queue. Called on context termination and failure in
  * pp_init.
  */
@@ -201,7 +201,7 @@ pp_free(struct pp_queue_t *ppq)
                assert(ppq);
                assert(ppq->p);
                assert(ppq->p->pipe);
-
+ 
                if (j >= pp_filters[filter].verts) {
                   assert(ppq->p->pipe->delete_fs_state);
                   ppq->p->pipe->delete_fs_state(ppq->p->pipe,
@@ -230,7 +230,7 @@ pp_free(struct pp_queue_t *ppq)
    FREE(ppq->filters);
    FREE(ppq->shaders);
    FREE(ppq->pp_queue);
-
+  
    FREE(ppq);
 
    pp_debug("Queue taken down.\n");
@@ -279,7 +279,7 @@ pp_init_fbos(struct pp_queue_t *ppq, unsigned int w,
    tmp_res.bind = PIPE_BIND_RENDER_TARGET;
 
    if (!p->screen->is_format_supported(p->screen, tmp_res.format,
-                                       tmp_res.target, 1, tmp_res.bind))
+                                       tmp_res.target, 1, 1, tmp_res.bind))
       pp_debug("Temp buffers' format fail\n");
 
    for (i = 0; i < ppq->n_tmp; i++) {
@@ -305,12 +305,12 @@ pp_init_fbos(struct pp_queue_t *ppq, unsigned int w,
    tmp_res.format = p->surf.format = PIPE_FORMAT_S8_UINT_Z24_UNORM;
 
    if (!p->screen->is_format_supported(p->screen, tmp_res.format,
-                                       tmp_res.target, 1, tmp_res.bind)) {
+                                       tmp_res.target, 1, 1, tmp_res.bind)) {
 
       tmp_res.format = p->surf.format = PIPE_FORMAT_Z24_UNORM_S8_UINT;
 
       if (!p->screen->is_format_supported(p->screen, tmp_res.format,
-                                          tmp_res.target, 1, tmp_res.bind))
+                                          tmp_res.target, 1, 1, tmp_res.bind))
          pp_debug("Temp Sbuffer format fail\n");
    }
 

@@ -27,7 +27,7 @@
 
 /**
  * General purpose hash table.
- *
+ *  
  * @author José Fonseca <jfonseca@vmware.com>
  */
 
@@ -42,7 +42,7 @@
 extern "C" {
 #endif
 
-
+   
 /**
  * Generic purpose hash table.
  */
@@ -51,7 +51,7 @@ struct util_hash_table;
 
 /**
  * Create an hash table.
- *
+ * 
  * @param hash hash function
  * @param compare should return 0 for two equal keys.
  */
@@ -84,6 +84,11 @@ util_hash_table_foreach(struct util_hash_table *ht,
                         enum pipe_error (*callback)
                         (void *key, void *value, void *data),
                         void *data);
+
+
+size_t
+util_hash_table_count(struct util_hash_table *ht);
+
 
 void
 util_hash_table_destroy(struct util_hash_table *ht);

@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include "util/u_debug.h"
@@ -51,7 +51,7 @@ tgsi_parse_init(
 
 void
 tgsi_parse_free(
-   struct tgsi_parse_context *ctx )
+   UNUSED struct tgsi_parse_context *ctx )
 {
 }
 
@@ -59,8 +59,12 @@ boolean
 tgsi_parse_end_of_tokens(
    struct tgsi_parse_context *ctx )
 {
-   return ctx->Position >=
-      ctx->FullHeader.Header.HeaderSize + ctx->FullHeader.Header.BodySize;
+   /* All values involved are unsigned, but the sum will be promoted to
+    * a signed value (at least on 64 bit). To capture a possible overflow
+    * make it a signed comparison.
+    */
+   return (int)ctx->Position >=
+	 ctx->FullHeader.Header.HeaderSize + ctx->FullHeader.Header.BodySize;
 }
 
 
@@ -310,7 +314,7 @@ tgsi_dump_tokens(const struct tgsi_token *tokens)
    const unsigned *dwords = (const unsigned *)tokens;
    int nr = tgsi_num_tokens(tokens);
    int i;
-
+   
    STATIC_ASSERT(sizeof(*tokens) == sizeof(unsigned));
 
    debug_printf("const unsigned tokens[%d] = {\n", nr);

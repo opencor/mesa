@@ -55,7 +55,9 @@ ARCHRAST_CXX_SOURCES := \
 COMMON_CXX_SOURCES := \
 	rasterizer/common/formats.cpp \
 	rasterizer/common/formats.h \
+	rasterizer/common/intrin.h \
 	rasterizer/common/isa.hpp \
+	rasterizer/common/os.cpp \
 	rasterizer/common/os.h \
 	rasterizer/common/rdtsc_buckets.cpp \
 	rasterizer/common/rdtsc_buckets.h \
@@ -63,6 +65,27 @@ COMMON_CXX_SOURCES := \
 	rasterizer/common/rdtsc_buckets_shared.h \
 	rasterizer/common/simd16intrin.h \
 	rasterizer/common/simdintrin.h \
+	rasterizer/common/simdlib.hpp \
+	rasterizer/common/simdlib_128_avx.inl \
+	rasterizer/common/simdlib_128_avx2.inl \
+	rasterizer/common/simdlib_128_avx512.inl \
+	rasterizer/common/simdlib_128_avx512_core.inl \
+	rasterizer/common/simdlib_128_avx512_knights.inl \
+	rasterizer/common/simdlib_256_avx.inl \
+	rasterizer/common/simdlib_256_avx2.inl \
+	rasterizer/common/simdlib_256_avx512.inl \
+	rasterizer/common/simdlib_256_avx512_core.inl \
+	rasterizer/common/simdlib_256_avx512_knights.inl \
+	rasterizer/common/simdlib_512_avx512.inl \
+	rasterizer/common/simdlib_512_avx512_core.inl \
+	rasterizer/common/simdlib_512_avx512_knights.inl \
+	rasterizer/common/simdlib_512_avx512_masks.inl \
+	rasterizer/common/simdlib_512_avx512_masks_core.inl \
+	rasterizer/common/simdlib_512_avx512_masks_knights.inl \
+	rasterizer/common/simdlib_512_emu.inl \
+	rasterizer/common/simdlib_512_emu_masks.inl \
+	rasterizer/common/simdlib_interface.hpp \
+	rasterizer/common/simdlib_types.hpp \
 	rasterizer/common/swr_assert.cpp \
 	rasterizer/common/swr_assert.h
 
@@ -71,8 +94,13 @@ CORE_CXX_SOURCES := \
 	rasterizer/core/api.h \
 	rasterizer/core/arena.h \
 	rasterizer/core/backend.cpp \
+	rasterizer/core/backend_clear.cpp \
+	rasterizer/core/backend_sample.cpp \
+	rasterizer/core/backend_singlesample.cpp \
 	rasterizer/core/backend.h \
+	rasterizer/core/backend_impl.h \
 	rasterizer/core/binner.cpp \
+	rasterizer/core/binner.h \
 	rasterizer/core/blend.h \
 	rasterizer/core/clip.cpp \
 	rasterizer/core/clip.h \
@@ -83,25 +111,28 @@ CORE_CXX_SOURCES := \
 	rasterizer/core/format_conversion.h \
 	rasterizer/core/format_traits.h \
 	rasterizer/core/format_types.h \
+	rasterizer/core/format_utils.h \
 	rasterizer/core/frontend.cpp \
 	rasterizer/core/frontend.h \
 	rasterizer/core/knobs.h \
 	rasterizer/core/knobs_init.h \
-	rasterizer/core/multisample.cpp \
 	rasterizer/core/multisample.h \
 	rasterizer/core/pa_avx.cpp \
 	rasterizer/core/pa.h \
 	rasterizer/core/rasterizer.cpp \
 	rasterizer/core/rasterizer.h \
+	rasterizer/core/rasterizer_impl.h \
 	rasterizer/core/rdtsc_core.cpp \
 	rasterizer/core/rdtsc_core.h \
 	rasterizer/core/ringbuffer.h \
 	rasterizer/core/state.h \
+	rasterizer/core/state_funcs.h \
 	rasterizer/core/tessellator.h \
 	rasterizer/core/threads.cpp \
 	rasterizer/core/threads.h \
 	rasterizer/core/tilemgr.cpp \
 	rasterizer/core/tilemgr.h \
+	rasterizer/core/tileset.h \
 	rasterizer/core/utils.h
 
 JITTER_CXX_SOURCES := \
@@ -110,15 +141,23 @@ JITTER_CXX_SOURCES := \
 	rasterizer/jitter/builder.cpp \
 	rasterizer/jitter/builder.h \
 	rasterizer/jitter/builder_math.h \
+	rasterizer/jitter/builder_mem.cpp \
+	rasterizer/jitter/builder_mem.h \
+	rasterizer/jitter/builder_gfx_mem.cpp \
+	rasterizer/jitter/builder_gfx_mem.h \
 	rasterizer/jitter/builder_misc.cpp \
 	rasterizer/jitter/builder_misc.h \
 	rasterizer/jitter/fetch_jit.cpp \
 	rasterizer/jitter/fetch_jit.h \
 	rasterizer/jitter/jit_api.h \
+	rasterizer/jitter/jit_pch.hpp \
 	rasterizer/jitter/JitManager.cpp \
 	rasterizer/jitter/JitManager.h \
 	rasterizer/jitter/streamout_jit.cpp \
-	rasterizer/jitter/streamout_jit.h
+	rasterizer/jitter/streamout_jit.h \
+	rasterizer/jitter/shader_lib/DebugOutput.cpp \
+	rasterizer/jitter/functionpasses/passes.h \
+	rasterizer/jitter/functionpasses/lower_x86.cpp
 
 MEMORY_CXX_SOURCES := \
 	rasterizer/memory/ClearTile.cpp \
@@ -138,4 +177,6 @@ MEMORY_CXX_SOURCES := \
 	rasterizer/memory/StoreTile_TileY2.cpp \
 	rasterizer/memory/StoreTile_TileY.cpp \
 	rasterizer/memory/TilingFunctions.h \
-	rasterizer/memory/tilingtraits.h
+	rasterizer/memory/tilingtraits.h \
+	rasterizer/memory/InitMemory.cpp \
+	rasterizer/memory/InitMemory.h

@@ -82,8 +82,8 @@ _mesa_Frustum( GLdouble left, GLdouble right,
    }
 
    _math_matrix_frustum( ctx->CurrentStack->Top,
-                         (GLfloat) left, (GLfloat) right,
-			 (GLfloat) bottom, (GLfloat) top,
+                         (GLfloat) left, (GLfloat) right, 
+			 (GLfloat) bottom, (GLfloat) top, 
 			 (GLfloat) nearval, (GLfloat) farval );
    ctx->NewState |= ctx->CurrentStack->DirtyFlag;
 }
@@ -127,8 +127,8 @@ _mesa_Ortho( GLdouble left, GLdouble right,
    }
 
    _math_matrix_ortho( ctx->CurrentStack->Top,
-                       (GLfloat) left, (GLfloat) right,
-		       (GLfloat) bottom, (GLfloat) top,
+                       (GLfloat) left, (GLfloat) right, 
+		       (GLfloat) bottom, (GLfloat) top, 
 		       (GLfloat) nearval, (GLfloat) farval );
    ctx->NewState |= ctx->CurrentStack->DirtyFlag;
 }
@@ -216,7 +216,7 @@ _mesa_MatrixMode( GLenum mode )
  * Push the current matrix stack.
  *
  * \sa glPushMatrix().
- *
+ * 
  * Verifies the current matrix stack is not full, and duplicates the top-most
  * matrix in the stack.
  * Marks __struct gl_contextRec::NewState with the stack dirty flag.
@@ -273,7 +273,7 @@ _mesa_PushMatrix( void )
  * Pop the current matrix stack.
  *
  * \sa glPopMatrix().
- *
+ * 
  * Flushes the vertices, verifies the current matrix stack is not empty, and
  * moves the stack head down.
  * Marks __struct gl_contextRec::NewState with the dirty stack flag.
@@ -468,7 +468,7 @@ _mesa_Translatef( GLfloat x, GLfloat y, GLfloat z )
    ctx->NewState |= ctx->CurrentStack->DirtyFlag;
 }
 
-
+ 
 void GLAPIENTRY
 _mesa_LoadMatrixd( const GLdouble *m )
 {
@@ -566,7 +566,7 @@ _mesa_MultTransposeMatrixd( const GLdouble *m )
  *
  * Calls _math_matrix_analyse() with the top-matrix of the projection matrix
  * stack, and recomputes user clip positions if necessary.
- *
+ * 
  * \note This routine references __struct gl_contextRec::Tranform attribute
  * values to compute userclip positions in clip space, but is only called on
  * _NEW_PROJECTION.  The _mesa_ClipPlane() function keeps these values up to
@@ -652,7 +652,7 @@ void _mesa_update_modelview_project( struct gl_context *ctx, GLuint new_state )
  * \param stack matrix stack.
  * \param maxDepth maximum stack depth.
  * \param dirtyFlag dirty flag.
- *
+ * 
  * Allocates an array of \p maxDepth elements for the matrix stack and calls
  * _math_matrix_ctr() for each element to initialize it.
  */
@@ -676,9 +676,9 @@ init_matrix_stack( struct gl_matrix_stack *stack,
 
 /**
  * Free matrix stack.
- *
+ * 
  * \param stack matrix stack.
- *
+ * 
  * Calls _math_matrix_dtr() for each element of the matrix stack and
  * frees the array.
  */
@@ -734,7 +734,7 @@ void _mesa_init_matrix( struct gl_context * ctx )
 
 /**
  * Free the context matrix data.
- *
+ * 
  * \param ctx GL context.
  *
  * Frees each of the matrix stacks and the combined modelview-projection
@@ -756,7 +756,7 @@ void _mesa_free_matrix_data( struct gl_context *ctx )
 }
 
 
-/**
+/** 
  * Initialize the context transform attribute group.
  *
  * \param ctx GL context.

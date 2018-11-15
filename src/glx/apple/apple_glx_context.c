@@ -1,6 +1,6 @@
-/*
+/* 
  Copyright (c) 2008, 2009 Apple Inc.
-
+ 
  Permission is hereby granted, free of charge, to any person
  obtaining a copy of this software and associated documentation files
  (the "Software"), to deal in the Software without restriction,
@@ -8,10 +8,10 @@
  publish, distribute, sublicense, and/or sell copies of the Software,
  and to permit persons to whom the Software is furnished to do so,
  subject to the following conditions:
-
+ 
  The above copyright notice and this permission notice shall be
  included in all copies or substantial portions of the Software.
-
+ 
  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -20,7 +20,7 @@
  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  DEALINGS IN THE SOFTWARE.
-
+ 
  Except as contained in this notice, the name(s) of the above
  copyright holders shall not be used in advertising or otherwise to
  promote the sale, use or other dealings in this Software without
@@ -55,10 +55,12 @@
 #include "apple_cgl.h"
 #include "apple_glx_drawable.h"
 
+#include "util/debug.h"
+
 static pthread_mutex_t context_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /*
- * This should be locked on creation and destruction of the
+ * This should be locked on creation and destruction of the 
  * apple_glx_contexts.
  *
  * It's also locked when the surface_notify_handler is searching
@@ -114,7 +116,7 @@ is_context_valid(struct apple_glx_context *ac)
    return false;
 }
 
-/* This creates an apple_private_context struct.
+/* This creates an apple_private_context struct.  
  *
  * It's typically called to save the struct in a GLXContext.
  *
@@ -181,7 +183,7 @@ apple_glx_create_context(void **ptr, Display * dpy, int screen,
          *x11errorptr = false;
       }
 
-      if (getenv("LIBGL_DIAGNOSTIC"))
+      if (env_var_as_boolean("LIBGL_DIAGNOSTIC", false))
          fprintf(stderr, "error: %s\n", apple_cgl.error_string(error));
 
       return true;
@@ -251,8 +253,8 @@ apple_glx_destroy_context(void **ptr, Display * dpy)
 
    /*
     * This potentially causes surface_notify_handler to be called in
-    * apple_glx.c...
-    * We can NOT have a lock held at this point.  It would result in
+    * apple_glx.c... 
+    * We can NOT have a lock held at this point.  It would result in 
     * an abort due to an attempted deadlock.  This is why we earlier
     * removed the ac pointer from the double-linked list.
     */
@@ -367,7 +369,7 @@ apple_glx_make_current_context(Display * dpy, void *oldptr, void *ptr,
 
    /*
     * Try to destroy the old drawable, so long as the new one
-    * isn't the old.
+    * isn't the old. 
     */
    if (ac->drawable && !same_drawable) {
       ac->drawable->destroy(ac->drawable);
@@ -381,20 +383,20 @@ apple_glx_make_current_context(Display * dpy, void *oldptr, void *ptr,
       /* The drawable is referenced once by apple_glx_surface_create. */
 
       /*
-       * FIXME: We actually need 2 references to prevent premature surface
-       * destruction.  The problem is that the surface gets destroyed in
+       * FIXME: We actually need 2 references to prevent premature surface 
+       * destruction.  The problem is that the surface gets destroyed in 
        * the case of the context being reused for another window, and
        * we then lose the surface contents.  Wait for destruction of a
        * window to destroy a surface.
        *
        * Note: this may leave around surfaces we don't want around, if
-       * say we are using X for raster drawing after OpenGL rendering,
+       * say we are using X for raster drawing after OpenGL rendering, 
        * but it will be compatible with the old libGL's behavior.
        *
        * Someday the X11 and OpenGL rendering must be unified at some
-       * layer.  I suspect we can do that via shared memory and
+       * layer.  I suspect we can do that via shared memory and 
        * multiple threads in the X server (1 for each context created
-       * by a client).  This would also allow users to render from
+       * by a client).  This would also allow users to render from 
        * multiple clients to the same OpenGL surface.  In fact it could
        * all be OpenGL.
        *
@@ -416,9 +418,9 @@ apple_glx_make_current_context(Display * dpy, void *oldptr, void *ptr,
       }
    }
 
-   /*
+   /* 
     * Avoid this costly path if this is the same drawable and the
-    * context is already current.
+    * context is already current. 
     */
 
    if (same_drawable && ac->is_current) {
@@ -502,7 +504,7 @@ apple_glx_copy_context(void *currentptr, void *srcptr, void *destptr,
       return true;
    }
 
-   /*
+   /* 
     * If srcptr is the current context then we should do an implicit glFlush.
     */
    if (currentptr == srcptr)
@@ -520,8 +522,8 @@ apple_glx_copy_context(void *currentptr, void *srcptr, void *destptr,
    return false;
 }
 
-/*
- * The value returned is the total number of contexts set to update.
+/* 
+ * The value returned is the total number of contexts set to update. 
  * It's meant for debugging/introspection.
  */
 int
@@ -596,9 +598,9 @@ apple_glx_context_update(Display * dpy, void *ptr)
 
          ac->drawable = NULL;
 
-         /*
-          * This will destroy the surface drawable if there are
-          * no references to it.
+         /* 
+          * This will destroy the surface drawable if there are 
+          * no references to it.  
           * It also subtracts 1 from the reference_count.
           * If there are references to it, then it's probably made
           * current in another context.

@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2011 The Chromium OS authors.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include "i915_reg.h"
@@ -85,7 +85,6 @@ static const struct {
    [ TGSI_OPCODE_DP2     ] = { false,   true,   TGSI_SWIZZLE_ONE,  1,  2 },
    [ TGSI_OPCODE_DP3     ] = { false,   true,   TGSI_SWIZZLE_ONE,  1,  2 },
    [ TGSI_OPCODE_DP4     ] = { false,   true,   TGSI_SWIZZLE_ONE,  1,  2 },
-   [ TGSI_OPCODE_DPH     ] = { false,  false,                  0,  1,  2 },
    [ TGSI_OPCODE_DST     ] = { false,  false,                  0,  1,  2 },
    [ TGSI_OPCODE_END     ] = { false,  false,                  0,  0,  0 },
    [ TGSI_OPCODE_EX2     ] = { false,  false,                  0,  1,  1 },
@@ -106,7 +105,6 @@ static const struct {
    [ TGSI_OPCODE_RCP     ] = { false,  false,                  0,  1,  1 },
    [ TGSI_OPCODE_RET     ] = { false,  false,                  0,  0,  0 },
    [ TGSI_OPCODE_RSQ     ] = { false,  false,                  0,  1,  1 },
-   [ TGSI_OPCODE_SCS     ] = { false,  false,                  0,  1,  1 },
    [ TGSI_OPCODE_SEQ     ] = { false,  false,                  0,  1,  2 },
    [ TGSI_OPCODE_SGE     ] = { false,  false,                  0,  1,  2 },
    [ TGSI_OPCODE_SGT     ] = { false,  false,                  0,  1,  2 },
@@ -119,7 +117,6 @@ static const struct {
    [ TGSI_OPCODE_TRUNC   ] = { false,  false,                  0,  1,  1 },
    [ TGSI_OPCODE_TXB     ] = {  true,  false,                  0,  1,  2 },
    [ TGSI_OPCODE_TXP     ] = {  true,  false,                  0,  1,  2 },
-   [ TGSI_OPCODE_XPD     ] = { false,  false,                  0,  1,  2 },
 };
 
 static boolean op_has_dst(unsigned opcode)

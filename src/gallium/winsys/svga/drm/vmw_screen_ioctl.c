@@ -70,6 +70,11 @@ vmw_region_size(struct vmw_region *region)
    return region->size;
 }
 
+#if defined(__DragonFly__) || defined(__FreeBSD__) || \
+    defined(__NetBSD__) || defined(__OpenBSD__)
+#define ERESTART EINTR
+#endif
+
 uint32
 vmw_ioctl_context_create(struct vmw_winsys_screen *vws)
 {
@@ -219,7 +224,7 @@ vmw_ioctl_gb_surface_create(struct vmw_winsys_screen *vws,
    req->format = (uint32_t) format;
    if (usage & SVGA_SURFACE_USAGE_SHARED)
       req->drm_surface_flags |= drm_vmw_surface_flag_shareable;
-   req->drm_surface_flags |= drm_vmw_surface_flag_create_buffer;
+   req->drm_surface_flags |= drm_vmw_surface_flag_create_buffer; 
    req->base_size.width = size.width;
    req->base_size.height = size.height;
    req->base_size.depth = size.depth;
@@ -285,13 +290,13 @@ vmw_ioctl_surface_req(const struct vmw_winsys_screen *vws,
    int ret;
 
    switch(whandle->type) {
-   case DRM_API_HANDLE_TYPE_SHARED:
-   case DRM_API_HANDLE_TYPE_KMS:
+   case WINSYS_HANDLE_TYPE_SHARED:
+   case WINSYS_HANDLE_TYPE_KMS:
       *needs_unref = FALSE;
       req->handle_type = DRM_VMW_HANDLE_LEGACY;
       req->sid = whandle->handle;
       break;
-   case DRM_API_HANDLE_TYPE_FD:
+   case WINSYS_HANDLE_TYPE_FD:
       if (!vws->ioctl.have_drm_2_6) {
          uint32_t handle;
 
@@ -408,8 +413,9 @@ vmw_ioctl_surface_destroy(struct vmw_winsys_screen *vws, uint32 sid)
 
 void
 vmw_ioctl_command(struct vmw_winsys_screen *vws, int32_t cid,
-		  uint32_t throttle_us, void *commands, uint32_t size,
-		  struct pipe_fence_handle **pfence)
+                  uint32_t throttle_us, void *commands, uint32_t size,
+                  struct pipe_fence_handle **pfence, int32_t imported_fence_fd,
+                  uint32_t flags)
 {
    struct drm_vmw_execbuf_arg arg;
    struct drm_vmw_fence_rep rep;
@@ -439,6 +445,14 @@ vmw_ioctl_command(struct vmw_winsys_screen *vws, int32_t cid,
    memset(&arg, 0, sizeof(arg));
    memset(&rep, 0, sizeof(rep));
 
+   if (flags & SVGA_HINT_FLAG_EXPORT_FENCE_FD) {
+      arg.flags |= DRM_VMW_EXECBUF_FLAG_EXPORT_FENCE_FD;
+   }
+
+   if (imported_fence_fd != -1) {
+      arg.flags |= DRM_VMW_EXECBUF_FLAG_IMPORT_FENCE_FD;
+   }
+
    rep.error = -EFAULT;
    if (pfence)
       arg.fence_rep = (unsigned long)&rep;
@@ -447,6 +461,10 @@ vmw_ioctl_command(struct vmw_winsys_screen *vws, int32_t cid,
    arg.throttle_us = throttle_us;
    arg.version = vws->ioctl.drm_execbuf_version;
    arg.context_handle = (vws->base.have_vgpu10 ? cid : SVGA3D_INVALID_ID);
+
+   /* Older DRM module requires this to be zero */
+   if (vws->base.have_fence_fd)
+      arg.imported_fence_fd = imported_fence_fd;
 
    /* In DRM_VMW_EXECBUF_VERSION 1, the drm_vmw_execbuf_arg structure ends with
     * the flags field. The structure size sent to drmCommandWrite must match
@@ -474,15 +492,20 @@ vmw_ioctl_command(struct vmw_winsys_screen *vws, int32_t cid,
          vmw_fences_signal(vws->fence_ops, rep.passed_seqno, rep.seqno,
                            TRUE);
 
-	 *pfence = vmw_fence_create(vws->fence_ops, rep.handle,
-				    rep.seqno, rep.mask);
-	 if (*pfence == NULL) {
-	    /*
-	     * Fence creation failed. Need to sync.
-	     */
-	    (void) vmw_ioctl_fence_finish(vws, rep.handle, rep.mask);
-	    vmw_ioctl_fence_unref(vws, rep.handle);
-	 }
+         /* Older DRM module will set this to zero, but -1 is the proper FD
+          * to use for no Fence FD support */
+         if (!vws->base.have_fence_fd)
+            rep.fd = -1;
+
+         *pfence = vmw_fence_create(vws->fence_ops, rep.handle,
+                                    rep.seqno, rep.mask, rep.fd);
+         if (*pfence == NULL) {
+            /*
+             * Fence creation failed. Need to sync.
+             */
+            (void) vmw_ioctl_fence_finish(vws, rep.handle, rep.mask);
+            vmw_ioctl_fence_unref(vws, rep.handle);
+         }
       }
    }
 }
@@ -660,7 +683,7 @@ vmw_ioctl_fence_unref(struct vmw_winsys_screen *vws,
 {
    struct drm_vmw_fence_arg arg;
    int ret;
-
+   
    memset(&arg, 0, sizeof(arg));
    arg.handle = handle;
 
@@ -731,7 +754,7 @@ vmw_ioctl_fence_finish(struct vmw_winsys_screen *vws,
 
    if (ret != 0)
       vmw_error("%s Failed\n", __FUNCTION__);
-
+   
    return 0;
 }
 
@@ -901,7 +924,7 @@ vmw_ioctl_init(struct vmw_winsys_screen *vws)
    else
       vws->base.have_gb_objects =
          !!(gp_arg.value & (uint64_t) SVGA_CAP_GBOBJECTS);
-
+   
    if (vws->base.have_gb_objects && !drm_gb_capable)
       goto out_no_3d;
 
@@ -915,7 +938,7 @@ vmw_ioctl_init(struct vmw_winsys_screen *vws)
          size = SVGA_FIFO_3D_CAPS_SIZE * sizeof(uint32_t);
       else
          size = gp_arg.value;
-
+   
       if (vws->base.have_gb_objects)
          vws->ioctl.num_cap_3d = size / sizeof(uint32_t);
       else
@@ -996,13 +1019,13 @@ vmw_ioctl_init(struct vmw_winsys_screen *vws)
       goto out_no_3d;
    }
 
-   vws->ioctl.cap_3d = calloc(vws->ioctl.num_cap_3d,
+   vws->ioctl.cap_3d = calloc(vws->ioctl.num_cap_3d, 
 			      sizeof(*vws->ioctl.cap_3d));
    if (!vws->ioctl.cap_3d) {
       debug_printf("Failed alloc fifo 3D caps buffer.\n");
       goto out_no_caparray;
    }
-
+      
    memset(&cap_arg, 0, sizeof(cap_arg));
    cap_arg.buffer = (uint64_t) (unsigned long) (cap_buffer);
    cap_arg.max_size = size;
@@ -1031,6 +1054,10 @@ vmw_ioctl_init(struct vmw_winsys_screen *vws)
       */
       vws->base.have_generate_mipmap_cmd = TRUE;
       vws->base.have_set_predication_cmd = TRUE;
+   }
+
+   if (version->version_major == 2 && version->version_minor >= 14) {
+      vws->base.have_fence_fd = TRUE;
    }
 
    free(cap_buffer);

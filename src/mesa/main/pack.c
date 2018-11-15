@@ -42,6 +42,7 @@
 #endif
 
 
+#include "errors.h"
 #include "glheader.h"
 #include "enums.h"
 #include "image.h"
@@ -460,8 +461,7 @@ extract_uint_indexes(GLuint n, GLuint indexes[],
          break;
 
       default:
-         _mesa_problem(NULL, "bad srcType in extract_uint_indexes");
-         return;
+         unreachable("bad srcType in extract_uint_indexes");
    }
 }
 
@@ -585,7 +585,7 @@ _mesa_unpack_stencil_span( struct gl_context *ctx, GLuint n,
             }
             break;
          default:
-            _mesa_problem(ctx, "bad dstType in _mesa_unpack_stencil_span");
+            unreachable("bad dstType in _mesa_unpack_stencil_span");
       }
 
       free(indexes);
@@ -732,7 +732,7 @@ _mesa_pack_stencil_span( struct gl_context *ctx, GLuint n,
       }
       break;
    default:
-      _mesa_problem(ctx, "bad type in _mesa_pack_index_span");
+      unreachable("bad type in _mesa_pack_index_span");
    }
 
    free(stencil);
@@ -1123,8 +1123,7 @@ _mesa_pack_depth_span( struct gl_context *ctx, GLuint n, GLvoid *dest,
       }
       break;
    default:
-      _mesa_problem(ctx, "bad type in _mesa_pack_depth_span (%s)",
-                    _mesa_enum_to_string(dstType));
+      unreachable("bad type in _mesa_pack_depth_span()");
    }
 
    free(depthCopy);
@@ -1264,7 +1263,7 @@ _mesa_unpack_image( GLuint dimensions,
                   for (i = 0; i < width; i++) {
                      if (*s & srcMask) {
                         *d |= dstMask;
-                     }
+                     }      
                      if (srcMask == 128) {
                         srcMask = 1;
                         s++;
@@ -1306,7 +1305,7 @@ _mesa_unpack_image( GLuint dimensions,
                      }
                      else {
                         dstMask = dstMask >> 1;
-                     }
+                     }      
                   }
                }
             }

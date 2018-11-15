@@ -31,7 +31,7 @@
  * between a DRI driver and driver loader.  Currently, the most common driver
  * loader is the XFree86 libGL.so.  However, other loaders do exist, and in
  * the future the server-side libglx.a will also be a loader.
- *
+ * 
  * \author Kevin E. Martin <kevin@precisioninsight.com>
  * \author Ian Romanick <idr@us.ibm.com>
  * \author Kristian Høgsberg <krh@redhat.com>
@@ -47,6 +47,8 @@ typedef unsigned int drm_context_t;
 typedef unsigned int drm_drawable_t;
 typedef struct drm_clip_rect drm_clip_rect_t;
 #endif
+
+#include <stdint.h>
 
 /**
  * \name DRI interface structures
@@ -80,7 +82,7 @@ typedef struct __DRI2flushExtensionRec	__DRI2flushExtension;
 typedef struct __DRI2throttleExtensionRec	__DRI2throttleExtension;
 typedef struct __DRI2fenceExtensionRec          __DRI2fenceExtension;
 typedef struct __DRI2interopExtensionRec	__DRI2interopExtension;
-
+typedef struct __DRI2blobExtensionRec           __DRI2blobExtension;
 
 typedef struct __DRIimageLoaderExtensionRec     __DRIimageLoaderExtension;
 typedef struct __DRIimageDriverExtensionRec     __DRIimageDriverExtension;
@@ -158,14 +160,14 @@ struct __DRIframeTrackingExtensionRec {
 
     /**
      * Enable or disable frame usage tracking.
-     *
+     * 
      * \since Internal API version 20030317.
      */
     int (*frameTracking)(__DRIdrawable *drawable, GLboolean enable);
 
     /**
      * Retrieve frame usage information.
-     *
+     * 
      * \since Internal API version 20030317.
      */
     int (*queryFrameTracking)(__DRIdrawable *drawable,
@@ -232,7 +234,7 @@ struct __DRItexBufferExtensionRec {
 
     /**
      * Method to override base texture image with the contents of a
-     * __DRIdrawable.
+     * __DRIdrawable. 
      *
      * For GLX_EXT_texture_from_pixmap with AIGLX.  Deprecated in favor of
      * setTexBuffer2 in version 2 of this interface
@@ -334,6 +336,30 @@ struct __DRI2throttleExtensionRec {
 		    enum __DRI2throttleReason reason);
 };
 
+/**
+ * Extension for EGL_ANDROID_blob_cache
+ */
+
+#define __DRI2_BLOB "DRI2_Blob"
+#define __DRI2_BLOB_VERSION 1
+
+typedef void
+(*__DRIblobCacheSet) (const void *key, signed long keySize,
+                      const void *value, signed long valueSize);
+
+typedef signed long
+(*__DRIblobCacheGet) (const void *key, signed long keySize,
+                      void *value, signed long valueSize);
+
+struct __DRI2blobExtensionRec {
+   __DRIextension base;
+
+   /**
+    * Set cache functions for setting and getting cache entries.
+    */
+   void (*set_cache_funcs) (__DRIscreen *screen,
+                            __DRIblobCacheSet set, __DRIblobCacheGet get);
+};
 
 /**
  * Extension for fences / synchronization objects.
@@ -342,7 +368,7 @@ struct __DRI2throttleExtensionRec {
 #define __DRI2_FENCE "DRI2_Fence"
 #define __DRI2_FENCE_VERSION 2
 
-#define __DRI2_FENCE_TIMEOUT_INFINITE     0xffffffffffffffffllu
+#define __DRI2_FENCE_TIMEOUT_INFINITE     0xffffffffffffffffull
 
 #define __DRI2_FENCE_FLAG_FLUSH_COMMANDS  (1 << 0)
 
@@ -515,7 +541,7 @@ struct __DRIsystemTimeExtensionRec {
 
     /**
      * Get the media stream counter (MSC) rate.
-     *
+     * 
      * Matching the definition in GLX_OML_sync_control, this function returns
      * the rate of the "media stream counter".  In practical terms, this is
      * the frame refresh rate of the display.
@@ -563,7 +589,7 @@ struct __DRIdamageExtensionRec {
  * SWRast Loader extension.
  */
 #define __DRI_SWRAST_LOADER "DRI_SWRastLoader"
-#define __DRI_SWRAST_LOADER_VERSION 3
+#define __DRI_SWRAST_LOADER_VERSION 4
 struct __DRIswrastLoaderExtensionRec {
     __DRIextension base;
 
@@ -605,6 +631,24 @@ struct __DRIswrastLoaderExtensionRec {
    void (*getImage2)(__DRIdrawable *readable,
 		     int x, int y, int width, int height, int stride,
 		     char *data, void *loaderPrivate);
+
+    /**
+     * Put shm image to drawable
+     *
+     * \since 4
+     */
+    void (*putImageShm)(__DRIdrawable *drawable, int op,
+                        int x, int y, int width, int height, int stride,
+                        int shmid, char *shmaddr, unsigned offset,
+                        void *loaderPrivate);
+    /**
+     * Get shm image from readable
+     *
+     * \since 4
+     */
+    void (*getImageShm)(__DRIdrawable *readable,
+                        int x, int y, int width, int height,
+                        int shmid, void *loaderPrivate);
 };
 
 /**
@@ -702,9 +746,10 @@ struct __DRIuseInvalidateExtensionRec {
 #define __DRI_ATTRIB_BIND_TO_TEXTURE_TARGETS	46
 #define __DRI_ATTRIB_YINVERTED			47
 #define __DRI_ATTRIB_FRAMEBUFFER_SRGB_CAPABLE	48
+#define __DRI_ATTRIB_MAX			(__DRI_ATTRIB_FRAMEBUFFER_SRGB_CAPABLE + 1)
 
 /* __DRI_ATTRIB_RENDER_TYPE */
-#define __DRI_ATTRIB_RGBA_BIT			0x01
+#define __DRI_ATTRIB_RGBA_BIT			0x01	
 #define __DRI_ATTRIB_COLOR_INDEX_BIT		0x02
 #define __DRI_ATTRIB_LUMINANCE_BIT		0x04
 #define __DRI_ATTRIB_FLOAT_BIT			0x08
@@ -723,11 +768,26 @@ struct __DRIuseInvalidateExtensionRec {
 #define __DRI_ATTRIB_TEXTURE_2D_BIT		0x02
 #define __DRI_ATTRIB_TEXTURE_RECTANGLE_BIT	0x04
 
+/* __DRI_ATTRIB_SWAP_METHOD */
+/* Note that with the exception of __DRI_ATTRIB_SWAP_NONE, we need to define
+ * the same tokens as GLX. This is because old and current X servers will
+ * transmit the driconf value grabbed from the AIGLX driver untranslated as
+ * the GLX fbconfig value. __DRI_ATTRIB_SWAP_NONE is only used by dri drivers
+ * to signal to the dri core that the driconfig is single-buffer.
+ */
+#define __DRI_ATTRIB_SWAP_NONE                  0x0000
+#define __DRI_ATTRIB_SWAP_EXCHANGE              0x8061
+#define __DRI_ATTRIB_SWAP_COPY                  0x8062
+#define __DRI_ATTRIB_SWAP_UNDEFINED             0x8063
+
 /**
  * This extension defines the core DRI functionality.
+ *
+ * Version >= 2 indicates that getConfigAttrib with __DRI_ATTRIB_SWAP_METHOD
+ * returns a reliable value.
  */
 #define __DRI_CORE "DRI_Core"
-#define __DRI_CORE_VERSION 1
+#define __DRI_CORE_VERSION 2
 
 struct __DRIcoreExtensionRec {
     __DRIextension base;
@@ -780,7 +840,7 @@ struct __DRIcoreExtensionRec {
 /**
  * Stored version of some component (i.e., server-side DRI module, kernel-side
  * DRM, etc.).
- *
+ * 
  * \todo
  * There are several data structures that explicitly store a major version,
  * minor version, and patch level.  These structures should be modified to
@@ -795,7 +855,7 @@ struct __DRIversionRec {
 /**
  * Framebuffer information record.  Used by libGL to communicate information
  * about the framebuffer to the driver's \c __driCreateNewScreen function.
- *
+ * 
  * In XFree86, most of this information is derrived from data returned by
  * calling \c XF86DRIGetDeviceInfo.
  *
@@ -836,7 +896,7 @@ struct __DRIlegacyExtensionRec {
 				    const __DRIversion *dri_version,
 				    const __DRIversion *drm_version,
 				    const __DRIframebuffer *frame_buffer,
-				    void *pSAREA, int fd,
+				    void *pSAREA, int fd, 
 				    const __DRIextension **extensions,
 				    const __DRIconfig ***driver_configs,
 				    void *loaderPrivate);
@@ -966,7 +1026,15 @@ struct __DRIbufferRec {
 };
 
 #define __DRI_DRI2_LOADER "DRI_DRI2Loader"
-#define __DRI_DRI2_LOADER_VERSION 3
+#define __DRI_DRI2_LOADER_VERSION 4
+
+enum dri_loader_cap {
+   /* Whether the loader handles RGBA channel ordering correctly. If not,
+    * only BGRA ordering can be exposed.
+    */
+   DRI_LOADER_CAP_RGBA_ORDERING,
+};
+
 struct __DRIdri2LoaderExtensionRec {
     __DRIextension base;
 
@@ -1016,6 +1084,18 @@ struct __DRIdri2LoaderExtensionRec {
 					 int *width, int *height,
 					 unsigned int *attachments, int count,
 					 int *out_count, void *loaderPrivate);
+
+    /**
+     * Return a loader capability value. If the loader doesn't know the enum,
+     * it will return 0.
+     *
+     * \param loaderPrivate The last parameter of createNewScreen or
+     *                      createNewScreen2.
+     * \param cap           See the enum.
+     *
+     * \since 4
+     */
+    unsigned (*getCapability)(void *loaderPrivate, enum dri_loader_cap cap);
 };
 
 /**
@@ -1049,11 +1129,33 @@ struct __DRIdri2LoaderExtensionRec {
 #define __DRI_CTX_FLAG_ROBUST_BUFFER_ACCESS	0x00000004
 
 /**
+ * \requires __DRI2_NO_ERROR.
+ *
+ */
+#define __DRI_CTX_FLAG_NO_ERROR			0x00000008
+
+/**
  * \name Context reset strategies.
  */
 /*@{*/
 #define __DRI_CTX_RESET_NO_NOTIFICATION		0
 #define __DRI_CTX_RESET_LOSE_CONTEXT		1
+/*@}*/
+
+#define __DRI_CTX_ATTRIB_PRIORITY		4
+
+#define __DRI_CTX_PRIORITY_LOW			0
+#define __DRI_CTX_PRIORITY_MEDIUM		1
+#define __DRI_CTX_PRIORITY_HIGH			2
+
+/**
+ * \name Context release behaviors.
+ */
+/*@{*/
+#define __DRI_CTX_ATTRIB_RELEASE_BEHAVIOR	5
+
+#define __DRI_CTX_RELEASE_BEHAVIOR_NONE         0
+#define __DRI_CTX_RELEASE_BEHAVIOR_FLUSH        1
 /*@}*/
 
 /**
@@ -1136,7 +1238,7 @@ struct __DRIdri2ExtensionRec {
  * extensions.
  */
 #define __DRI_IMAGE "DRI_IMAGE"
-#define __DRI_IMAGE_VERSION 14
+#define __DRI_IMAGE_VERSION 17
 
 /**
  * These formats correspond to the similarly named MESA_FORMAT_*
@@ -1148,7 +1250,7 @@ struct __DRIdri2ExtensionRec {
  * by the driver (YUV planar formats) but serve as a base image for
  * creating sub-images for the different planes within the image.
  *
- * R8, GR88 and NONE should not be used with createImageFormName or
+ * R8, GR88 and NONE should not be used with createImageFromName or
  * createImage, and are returned by query from sub images created with
  * createImageFromNames (NONE, see above) and fromPlane (R8 & GR88).
  */
@@ -1166,10 +1268,14 @@ struct __DRIdri2ExtensionRec {
 #define __DRI_IMAGE_FORMAT_ARGB1555     0x100c
 #define __DRI_IMAGE_FORMAT_R16          0x100d
 #define __DRI_IMAGE_FORMAT_GR1616       0x100e
+#define __DRI_IMAGE_FORMAT_YUYV         0x100f
+#define __DRI_IMAGE_FORMAT_XBGR2101010  0x1010
+#define __DRI_IMAGE_FORMAT_ABGR2101010  0x1011
+#define __DRI_IMAGE_FORMAT_SABGR8       0x1012
 
 #define __DRI_IMAGE_USE_SHARE		0x0001
 #define __DRI_IMAGE_USE_SCANOUT		0x0002
-#define __DRI_IMAGE_USE_CURSOR		0x0004 /* Depricated */
+#define __DRI_IMAGE_USE_CURSOR		0x0004 /* Deprecated */
 #define __DRI_IMAGE_USE_LINEAR		0x0008
 /* The buffer will only be read by an external process after SwapBuffers,
  * in contrary to gbm buffers, front buffers and fake front buffers, which
@@ -1201,7 +1307,16 @@ struct __DRIdri2ExtensionRec {
 #define __DRI_IMAGE_FOURCC_XRGB8888	0x34325258
 #define __DRI_IMAGE_FOURCC_ABGR8888	0x34324241
 #define __DRI_IMAGE_FOURCC_XBGR8888	0x34324258
-#define __DRI_IMAGE_FOURCC_SARGB8888    0x83324258
+#define __DRI_IMAGE_FOURCC_SARGB8888	0x83324258
+#define __DRI_IMAGE_FOURCC_SABGR8888	0x84324258
+#define __DRI_IMAGE_FOURCC_ARGB2101010	0x30335241
+#define __DRI_IMAGE_FOURCC_XRGB2101010	0x30335258
+#define __DRI_IMAGE_FOURCC_ABGR2101010	0x30334241
+#define __DRI_IMAGE_FOURCC_XBGR2101010	0x30334258
+#define __DRI_IMAGE_FOURCC_RGBA1010102	0x30334152
+#define __DRI_IMAGE_FOURCC_RGBX1010102	0x30335852
+#define __DRI_IMAGE_FOURCC_BGRA1010102	0x30334142
+#define __DRI_IMAGE_FOURCC_BGRX1010102	0x30335842
 #define __DRI_IMAGE_FOURCC_YUV410	0x39565559
 #define __DRI_IMAGE_FOURCC_YUV411	0x31315559
 #define __DRI_IMAGE_FOURCC_YUV420	0x32315559
@@ -1210,6 +1325,7 @@ struct __DRIdri2ExtensionRec {
 #define __DRI_IMAGE_FOURCC_NV12		0x3231564e
 #define __DRI_IMAGE_FOURCC_NV16		0x3631564e
 #define __DRI_IMAGE_FOURCC_YUYV		0x56595559
+#define __DRI_IMAGE_FOURCC_UYVY		0x59565955
 
 #define __DRI_IMAGE_FOURCC_YVU410	0x39555659
 #define __DRI_IMAGE_FOURCC_YVU411	0x31315659
@@ -1223,7 +1339,7 @@ struct __DRIdri2ExtensionRec {
  * RGB and RGBA are may be usable directly as images but its still
  * recommended to call fromPlanar with plane == 0.
  *
- * Y_U_V, Y_UV and Y_XUXV all requires call to fromPlanar to create
+ * Y_U_V, Y_UV,Y_XUXV and Y_UXVX all requires call to fromPlanar to create
  * usable sub-images, sampling from images return raw YUV data and
  * color conversion needs to be done in the shader.
  *
@@ -1235,6 +1351,7 @@ struct __DRIdri2ExtensionRec {
 #define __DRI_IMAGE_COMPONENTS_Y_U_V	0x3003
 #define __DRI_IMAGE_COMPONENTS_Y_UV	0x3004
 #define __DRI_IMAGE_COMPONENTS_Y_XUXV	0x3005
+#define __DRI_IMAGE_COMPONENTS_Y_UXVX	0x3008
 #define __DRI_IMAGE_COMPONENTS_R	0x3006
 #define __DRI_IMAGE_COMPONENTS_RG	0x3007
 
@@ -1314,6 +1431,13 @@ enum __DRIChromaSiting {
 #define __BLIT_FLAG_FLUSH		0x0001
 #define __BLIT_FLAG_FINISH		0x0002
 
+/**
+ * queryDmaBufFormatModifierAttribs attributes
+ */
+
+/* Available in version 16 */
+#define __DRI_IMAGE_FORMAT_MODIFIER_ATTRIB_PLANE_COUNT   0x0001
+
 typedef struct __DRIimageRec          __DRIimage;
 typedef struct __DRIimageExtensionRec __DRIimageExtension;
 struct __DRIimageExtensionRec {
@@ -1324,6 +1448,7 @@ struct __DRIimageExtensionRec {
 				       int name, int pitch,
 				       void *loaderPrivate);
 
+    /* Deprecated since version 17; see createImageFromRenderbuffer2 */
     __DRIimage *(*createImageFromRenderbuffer)(__DRIcontext *context,
 					       int renderbuffer,
 					       void *loaderPrivate);
@@ -1493,6 +1618,101 @@ struct __DRIimageExtensionRec {
                                            const uint64_t *modifiers,
                                            const unsigned int modifier_count,
                                            void *loaderPrivate);
+
+   /*
+    * Like createImageFromDmaBufs, but takes also format modifiers.
+    *
+    * For EGL_EXT_image_dma_buf_import_modifiers.
+    *
+    * \since 15
+    */
+   __DRIimage *(*createImageFromDmaBufs2)(__DRIscreen *screen,
+                                          int width, int height, int fourcc,
+                                          uint64_t modifier,
+                                          int *fds, int num_fds,
+                                          int *strides, int *offsets,
+                                          enum __DRIYUVColorSpace color_space,
+                                          enum __DRISampleRange sample_range,
+                                          enum __DRIChromaSiting horiz_siting,
+                                          enum __DRIChromaSiting vert_siting,
+                                          unsigned *error,
+                                          void *loaderPrivate);
+
+   /*
+    * dmabuf format query to support EGL_EXT_image_dma_buf_import_modifiers.
+    *
+    * \param max      Maximum number of formats that can be accomodated into
+    *                 \param formats. If zero, no formats are returned -
+    *                 instead, the driver returns the total number of
+    *                 supported dmabuf formats in \param count.
+    * \param formats  Buffer to fill formats into.
+    * \param count    Count of formats returned, or, total number of
+    *                 supported formats in case \param max is zero.
+    *
+    * Returns true on success.
+    *
+    * \since 15
+    */
+   GLboolean (*queryDmaBufFormats)(__DRIscreen *screen, int max,
+                                   int *formats, int *count);
+
+   /*
+    * dmabuf format modifier query for a given format to support
+    * EGL_EXT_image_dma_buf_import_modifiers.
+    *
+    * \param fourcc    The format to query modifiers for. If this format
+    *                  is not supported by the driver, return false.
+    * \param max       Maximum number of modifiers that can be accomodated in
+    *                  \param modifiers. If zero, no modifiers are returned -
+    *                  instead, the driver returns the total number of
+    *                  modifiers for \param format in \param count.
+    * \param modifiers Buffer to fill modifiers into.
+    * \param count     Count of the modifiers returned, or, total number of
+    *                  supported modifiers for \param fourcc in case
+    *                  \param max is zero.
+    *
+    * Returns true upon success.
+    *
+    * \since 15
+    */
+   GLboolean (*queryDmaBufModifiers)(__DRIscreen *screen, int fourcc,
+                                     int max, uint64_t *modifiers,
+                                     unsigned int *external_only,
+                                     int *count);
+
+   /**
+    * dmabuf format modifier attribute query for a given format and modifier.
+    *
+    * \param fourcc    The format to query. If this format is not supported by
+    *                  the driver, return false.
+    * \param modifier  The modifier to query. If this format+modifier is not
+    *                  supported by the driver, return false.
+    * \param attrib    The __DRI_IMAGE_FORMAT_MODIFIER_ATTRIB to query.
+    * \param value     A pointer to where to store the result of the query.
+    *
+    * Returns true upon success.
+    *
+    * \since 16
+    */
+   GLboolean (*queryDmaBufFormatModifierAttribs)(__DRIscreen *screen,
+                                                 uint32_t fourcc, uint64_t modifier,
+                                                 int attrib, uint64_t *value);
+
+   /**
+    * Create a DRI image from the given renderbuffer.
+    *
+    * \param context       the current DRI context
+    * \param renderbuffer  the GL name of the renderbuffer
+    * \param loaderPrivate for callbacks into the loader related to the image
+    * \param error         will be set to one of __DRI_IMAGE_ERROR_xxx
+    * \return the newly created image on success, or NULL otherwise
+    *
+    * \since 17
+    */
+    __DRIimage *(*createImageFromRenderbuffer2)(__DRIcontext *context,
+                                                int renderbuffer,
+                                                void *loaderPrivate,
+                                                unsigned *error);
 };
 
 
@@ -1548,17 +1768,61 @@ struct __DRIrobustnessExtensionRec {
 };
 
 /**
+ * No-error context driver extension.
+ *
+ * Existence of this extension means the driver can accept the
+ * __DRI_CTX_FLAG_NO_ERROR flag.
+ */
+#define __DRI2_NO_ERROR "DRI_NoError"
+#define __DRI2_NO_ERROR_VERSION 1
+
+typedef struct __DRInoErrorExtensionRec {
+   __DRIextension base;
+} __DRInoErrorExtension;
+
+/*
+ * Flush control driver extension.
+ *
+ * Existence of this extension means the driver can accept the
+ * \c __DRI_CTX_ATTRIB_RELEASE_BEHAVIOR attribute in
+ * \c __DRIdri2ExtensionRec::createContextAttribs.
+ */
+#define __DRI2_FLUSH_CONTROL "DRI_FlushControl"
+#define __DRI2_FLUSH_CONTROL_VERSION 1
+
+typedef struct __DRI2flushControlExtensionRec __DRI2flushControlExtension;
+struct __DRI2flushControlExtensionRec {
+   __DRIextension base;
+};
+
+/**
  * DRI config options extension.
  *
  * This extension provides the XML string containing driver options for use by
  * the loader in supporting the driconf application.
+ *
+ * v2:
+ * - Add the getXml getter function which allows the driver more flexibility in
+ *   how the XML is provided.
+ * - Deprecate the direct xml pointer. It is only provided as a fallback for
+ *   older versions of libGL and must not be used by clients that are aware of
+ *   the newer version. Future driver versions may set it to NULL.
  */
 #define __DRI_CONFIG_OPTIONS "DRI_ConfigOptions"
-#define __DRI_CONFIG_OPTIONS_VERSION 1
+#define __DRI_CONFIG_OPTIONS_VERSION 2
 
 typedef struct __DRIconfigOptionsExtensionRec {
    __DRIextension base;
-   const char *xml;
+   const char *xml; /**< deprecated since v2, use getXml instead */
+
+   /**
+    * Get an XML string that describes available driver options for use by a
+    * config application.
+    *
+    * The returned string must be heap-allocated. The caller is responsible for
+    * freeing it.
+    */
+   char *(*getXml)(const char *driver_name);
 } __DRIconfigOptionsExtension;
 
 /**
@@ -1604,6 +1868,14 @@ typedef struct __DRIDriverVtableExtensionRec {
  */
 #define __DRI2_RENDERER_HAS_FRAMEBUFFER_SRGB                  0x000c
 
+/* Bitmaks of supported/available context priorities - must match
+ * __EGL_CONTEXT_PRIORITY_LOW_BIT et al
+ */
+#define __DRI2_RENDERER_HAS_CONTEXT_PRIORITY                  0x000d
+#define   __DRI2_RENDERER_HAS_CONTEXT_PRIORITY_LOW            (1 << 0)
+#define   __DRI2_RENDERER_HAS_CONTEXT_PRIORITY_MEDIUM         (1 << 1)
+#define   __DRI2_RENDERER_HAS_CONTEXT_PRIORITY_HIGH           (1 << 2)
+
 typedef struct __DRI2rendererQueryExtensionRec __DRI2rendererQueryExtension;
 struct __DRI2rendererQueryExtensionRec {
    __DRIextension base;
@@ -1628,7 +1900,7 @@ struct __DRIimageList {
 };
 
 #define __DRI_IMAGE_LOADER "DRI_IMAGE_LOADER"
-#define __DRI_IMAGE_LOADER_VERSION 1
+#define __DRI_IMAGE_LOADER_VERSION 3
 
 struct __DRIimageLoaderExtensionRec {
     __DRIextension base;
@@ -1664,6 +1936,28 @@ struct __DRIimageLoaderExtensionRec {
      *                       into __DRIdri2ExtensionRec::createNewDrawable
      */
     void (*flushFrontBuffer)(__DRIdrawable *driDrawable, void *loaderPrivate);
+
+    /**
+     * Return a loader capability value. If the loader doesn't know the enum,
+     * it will return 0.
+     *
+     * \since 2
+     */
+    unsigned (*getCapability)(void *loaderPrivate, enum dri_loader_cap cap);
+
+    /**
+     * Flush swap buffers
+     *
+     * Make sure any outstanding swap buffers have been submitted to the
+     * device.
+     *
+     * \param driDrawable    Drawable whose swaps need to be flushed
+     * \param loaderPrivate  Loader's private data that was previously passed
+     *                       into __DRIdri2ExtensionRec::createNewDrawable
+     *
+     * \since 3
+     */
+    void (*flushSwapBuffers)(__DRIdrawable *driDrawable, void *loaderPrivate);
 };
 
 /**
@@ -1720,6 +2014,19 @@ struct __DRIbackgroundCallableExtensionRec {
     * operations (e.g. it should just set a thread-local variable).
     */
    void (*setBackgroundContext)(void *loaderPrivate);
+
+   /**
+    * Indicate that it is multithread safe to use glthread.  For GLX/EGL
+    * platforms using Xlib, that involves calling XInitThreads, before
+    * opening an X display.
+    *
+    * Note: only supported if extension version is at least 2.
+    *
+    * \param loaderPrivate is the value that was passed to to the driver when
+    * the context was created.  This can be used by the loader to identify
+    * which context any callbacks are associated with.
+    */
+   GLboolean (*isThreadSafe)(void *loaderPrivate);
 };
 
 #endif

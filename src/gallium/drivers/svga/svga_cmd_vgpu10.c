@@ -537,6 +537,7 @@ SVGA3D_vgpu10_Draw(struct svga_winsys_context *swc,
 
    swc->hints |= SVGA_HINT_FLAG_CAN_PRE_FLUSH;
    swc->commit(swc);
+   swc->num_draw_commands++;
    return PIPE_OK;
 }
 
@@ -553,6 +554,7 @@ SVGA3D_vgpu10_DrawIndexed(struct svga_winsys_context *swc,
 
    swc->hints |= SVGA_HINT_FLAG_CAN_PRE_FLUSH;
    swc->commit(swc);
+   swc->num_draw_commands++;
    return PIPE_OK;
 }
 
@@ -570,6 +572,7 @@ SVGA3D_vgpu10_DrawInstanced(struct svga_winsys_context *swc,
 
    swc->hints |= SVGA_HINT_FLAG_CAN_PRE_FLUSH;
    swc->commit(swc);
+   swc->num_draw_commands++;
    return PIPE_OK;
 }
 
@@ -590,6 +593,7 @@ SVGA3D_vgpu10_DrawIndexedInstanced(struct svga_winsys_context *swc,
 
    swc->hints |= SVGA_HINT_FLAG_CAN_PRE_FLUSH;
    swc->commit(swc);
+   swc->num_draw_commands++;
    return PIPE_OK;
 }
 
@@ -600,6 +604,7 @@ SVGA3D_vgpu10_DrawAuto(struct svga_winsys_context *swc)
 
    swc->hints |= SVGA_HINT_FLAG_CAN_PRE_FLUSH;
    swc->commit(swc);
+   swc->num_draw_commands++;
    return PIPE_OK;
 }
 
@@ -1349,7 +1354,7 @@ SVGA3D_vgpu10_TransferFromBuffer(struct svga_winsys_context *swc,
                                  SVGA3dBox *dstBox)
 {
    SVGA3dCmdDXTransferFromBuffer *cmd;
-
+ 
    cmd = SVGA3D_FIFOReserve(swc, SVGA_3D_CMD_DX_TRANSFER_FROM_BUFFER,
                             sizeof(SVGA3dCmdDXTransferFromBuffer), 2);
 
@@ -1363,7 +1368,7 @@ SVGA3D_vgpu10_TransferFromBuffer(struct svga_winsys_context *swc,
    cmd->srcSlicePitch = srcSlicePitch;
    cmd->destSubResource = dstSubResource;
    cmd->destBox = *dstBox;
-
+ 
    swc->commit(swc);
    return PIPE_OK;
 }

@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2008 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include "util/u_debug.h"
@@ -313,7 +313,7 @@ iter_instruction(
    uint i;
 
    if (inst->Instruction.Opcode == TGSI_OPCODE_END) {
-      if (ctx->index_of_END != ~0) {
+      if (ctx->index_of_END != ~0u) {
          report_error( ctx, "Too many END instructions" );
       }
       ctx->index_of_END = ctx->num_instructions;
@@ -326,10 +326,12 @@ iter_instruction(
    }
 
    if (info->num_dst != inst->Instruction.NumDstRegs) {
-      report_error( ctx, "%s: Invalid number of destination operands, should be %u", info->mnemonic, info->num_dst );
+      report_error( ctx, "%s: Invalid number of destination operands, should be %u",
+                    tgsi_get_opcode_name(inst->Instruction.Opcode), info->num_dst );
    }
    if (info->num_src != inst->Instruction.NumSrcRegs) {
-      report_error( ctx, "%s: Invalid number of source operands, should be %u", info->mnemonic, info->num_src );
+      report_error( ctx, "%s: Invalid number of source operands, should be %u",
+                    tgsi_get_opcode_name(inst->Instruction.Opcode), info->num_src );
    }
 
    /* Check destination and source registers' validity.
@@ -512,7 +514,7 @@ epilog(
 
    /* There must be an END instruction somewhere.
     */
-   if (ctx->index_of_END == ~0) {
+   if (ctx->index_of_END == ~0u) {
       report_error( ctx, "Missing END instruction" );
    }
 

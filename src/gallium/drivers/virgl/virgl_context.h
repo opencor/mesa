@@ -58,7 +58,6 @@ struct virgl_context {
 
    struct slab_child_pool texture_transfer_pool;
 
-   struct pipe_index_buffer index_buffer;
    struct u_upload_mgr *uploader;
 
    struct pipe_vertex_buffer vertex_buffer[PIPE_MAX_ATTRIBS];
@@ -69,6 +68,9 @@ struct virgl_context {
    unsigned num_so_targets;
 
    struct pipe_resource *ubos[PIPE_SHADER_TYPES][PIPE_MAX_CONSTANT_BUFFERS];
+
+   struct pipe_resource *ssbos[PIPE_SHADER_TYPES][PIPE_MAX_SHADER_BUFFERS];
+   struct pipe_resource *images[PIPE_SHADER_TYPES][PIPE_MAX_SHADER_BUFFERS];
    int num_transfers;
    int num_draws;
    struct list_head to_flush_bufs;
@@ -110,6 +112,6 @@ void virgl_transfer_inline_write(struct pipe_context *ctx,
                                 unsigned stride,
                                 unsigned layer_stride);
 
-struct tgsi_token *virgl_tgsi_transform(const struct tgsi_token *tokens_in);
+struct tgsi_token *virgl_tgsi_transform(struct virgl_context *vctx, const struct tgsi_token *tokens_in);
 
 #endif

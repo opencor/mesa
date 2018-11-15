@@ -1,8 +1,8 @@
  /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #ifndef I915_CONTEXT_H
@@ -141,7 +141,7 @@ struct i915_fragment_shader
 struct i915_cache_context;
 
 /* Use to calculate differences between state emitted to hardware and
- * current driver-calculated state.
+ * current driver-calculated state.  
  */
 struct i915_state
 {
@@ -249,7 +249,6 @@ struct i915_context {
    struct pipe_sampler_view *fragment_sampler_views[PIPE_MAX_SAMPLERS];
    struct pipe_sampler_view *vertex_sampler_views[PIPE_MAX_SAMPLERS];
    struct pipe_viewport_state viewport;
-   struct pipe_index_buffer index_buffer;
 
    unsigned dirty;
 
@@ -347,13 +346,13 @@ void i915_set_flush_dirty(struct i915_context *i915, unsigned flush)
 
 
 /***********************************************************************
- * i915_prim_emit.c:
+ * i915_prim_emit.c: 
  */
 struct draw_stage *i915_draw_render_stage( struct i915_context *i915 );
 
 
 /***********************************************************************
- * i915_prim_vbuf.c:
+ * i915_prim_vbuf.c: 
  */
 struct draw_stage *i915_draw_vbuf_stage( struct i915_context *i915 );
 
@@ -367,14 +366,14 @@ void i915_cleanup_vertex_sampling(struct i915_context *i915);
 
 
 /***********************************************************************
- * i915_state_emit.c:
+ * i915_state_emit.c: 
  */
 void i915_emit_hardware_state(struct i915_context *i915 );
 
 
 
 /***********************************************************************
- * i915_clear.c:
+ * i915_clear.c: 
  */
 void i915_clear_blitter(struct pipe_context *pipe, unsigned buffers,
                         const union pipe_color_union *color,
@@ -389,7 +388,7 @@ void i915_clear_emit(struct pipe_context *pipe, unsigned buffers,
 
 
 /***********************************************************************
- *
+ * 
  */
 void i915_init_state_functions( struct i915_context *i915 );
 void i915_init_flush_functions( struct i915_context *i915 );

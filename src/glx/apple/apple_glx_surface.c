@@ -1,6 +1,6 @@
 /*
  Copyright (c) 2009 Apple Inc.
-
+ 
  Permission is hereby granted, free of charge, to any person
  obtaining a copy of this software and associated documentation files
  (the "Software"), to deal in the Software without restriction,
@@ -8,10 +8,10 @@
  publish, distribute, sublicense, and/or sell copies of the Software,
  and to permit persons to whom the Software is furnished to do so,
  subject to the following conditions:
-
+ 
  The above copyright notice and this permission notice shall be
  included in all copies or substantial portions of the Software.
-
+ 
  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -20,7 +20,7 @@
  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  DEALINGS IN THE SOFTWARE.
-
+ 
  Except as contained in this notice, the name(s) of the above
  copyright holders shall not be used in advertising or otherwise to
  promote the sale, use or other dealings in this Software without
@@ -77,7 +77,7 @@ surface_make_current(struct apple_glx_context *ac,
 
 
    if (!ac->made_current) {
-      /*
+      /* 
        * The first time a new context is made current the glViewport
        * and glScissor should be updated.
        */
@@ -104,9 +104,9 @@ surface_destroy(Display * dpy, struct apple_glx_drawable *d)
       fprintf(stderr, "xp_destroy_surface error: %d\n", (int) error);
    }
 
-   /*
+   /* 
     * Check if this surface destroy came from the surface being destroyed
-    * on the server.  If s->pending_destroy is true, then it did, and
+    * on the server.  If s->pending_destroy is true, then it did, and 
     * we don't want to try to destroy the surface on the server.
     */
    if (!s->pending_destroy) {
@@ -189,7 +189,7 @@ apple_glx_surface_create(Display * dpy, int screen,
  * All surfaces are reference counted, and surfaces are only created
  * when the window is made current.  When all contexts no longer reference
  * a surface drawable the apple_glx_drawable gets destroyed, and thus
- * its surface is destroyed.
+ * its surface is destroyed.  
  *
  * However we can make the destruction occur a bit sooner by setting
  * pending_destroy, which is then checked for in glViewport by
@@ -207,9 +207,9 @@ apple_glx_surface_destroy(unsigned int uid)
       d->types.surface.pending_destroy = true;
       d->release(d);
 
-      /*
+      /* 
        * We release 2 references to the surface.  One was acquired by
-       * the find, and the other was leftover from a context, or
+       * the find, and the other was leftover from a context, or 
        * the surface being displayed, so the destroy() will decrease it
        * once more.
        *

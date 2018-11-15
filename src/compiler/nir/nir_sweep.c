@@ -118,10 +118,6 @@ sweep_impl(nir_shader *nir, nir_function_impl *impl)
 {
    ralloc_steal(nir, impl);
 
-   ralloc_steal(nir, impl->params);
-   for (unsigned i = 0; i < impl->num_params; i++)
-      ralloc_steal(nir, impl->params[i]);
-   ralloc_steal(nir, impl->return_var);
    steal_list(nir, nir_variable, &impl->locals);
    steal_list(nir, nir_register, &impl->registers);
 
@@ -150,20 +146,12 @@ nir_sweep(nir_shader *nir)
 {
    void *rubbish = ralloc_context(NULL);
 
-   /* The shader may not own shader_info so check first */
-   bool steal_info = false;
-   if (nir == ralloc_parent(nir->info))
-      steal_info = true;
-
    /* First, move ownership of all the memory to a temporary context; assume dead. */
    ralloc_adopt(rubbish, nir);
 
-   if (steal_info)
-      ralloc_steal(nir, nir->info);
-
-   ralloc_steal(nir, (char *)nir->info->name);
-   if (nir->info->label)
-      ralloc_steal(nir, (char *)nir->info->label);
+   ralloc_steal(nir, (char *)nir->info.name);
+   if (nir->info.label)
+      ralloc_steal(nir, (char *)nir->info.label);
 
    /* Variables and registers are not dead.  Steal them back. */
    steal_list(nir, nir_variable, &nir->uniforms);
@@ -178,6 +166,8 @@ nir_sweep(nir_shader *nir)
    foreach_list_typed(nir_function, func, node, &nir->functions) {
       sweep_function(nir, func);
    }
+
+   ralloc_steal(nir, nir->constant_data);
 
    /* Free everything we didn't steal back. */
    ralloc_free(rubbish);

@@ -31,11 +31,14 @@
 
 #include <GL/internal/dri_interface.h>
 
+#include "isl/isl.h"
 #include "dri_util.h"
 #include "brw_bufmgr.h"
-#include "common/gen_device_info.h"
+#include "dev/gen_device_info.h"
 #include "i915_drm.h"
-#include "xmlconfig.h"
+#include "util/xmlconfig.h"
+
+#include "isl/isl.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,6 +62,8 @@ struct intel_screen
 
    int hw_has_timestamp;
 
+   struct isl_device isl_dev;
+
    /**
     * Does the kernel support context reset notifications?
     */
@@ -74,6 +79,9 @@ struct intel_screen
 #define KERNEL_ALLOWS_MI_MATH_AND_LRR               (1<<2)
 #define KERNEL_ALLOWS_HSW_SCRATCH1_AND_ROW_CHICKEN3 (1<<3)
 #define KERNEL_ALLOWS_COMPUTE_DISPATCH              (1<<4)
+#define KERNEL_ALLOWS_EXEC_CAPTURE                  (1<<5)
+#define KERNEL_ALLOWS_EXEC_BATCH_FIRST              (1<<6)
+#define KERNEL_ALLOWS_CONTEXT_ISOLATION             (1<<7)
 
    struct brw_bufmgr *bufmgr;
 
@@ -106,6 +114,12 @@ struct intel_screen
     * Number of EUs reported by the I915_PARAM_EU_TOTAL parameter
     */
    int eu_total;
+
+   bool mesa_format_supports_texture[MESA_FORMAT_COUNT];
+   bool mesa_format_supports_render[MESA_FORMAT_COUNT];
+   enum isl_format mesa_to_isl_render_format[MESA_FORMAT_COUNT];
+
+   struct disk_cache *disk_cache;
 };
 
 extern void intelDestroyContext(__DRIcontext * driContextPriv);
@@ -124,6 +138,9 @@ double get_time(void);
 
 const int*
 intel_supported_msaa_modes(const struct intel_screen  *screen);
+
+int
+intel_device_get_revision(int fd);
 
 static inline bool
 can_do_pipelined_register_writes(const struct intel_screen *screen)
@@ -153,6 +170,12 @@ static inline bool
 can_do_predicate_writes(const struct intel_screen *screen)
 {
    return screen->kernel_features & KERNEL_ALLOWS_PREDICATE_WRITES;
+}
+
+static inline bool
+can_do_exec_capture(const struct intel_screen *screen)
+{
+   return screen->kernel_features & KERNEL_ALLOWS_EXEC_CAPTURE;
 }
 
 #ifdef __cplusplus

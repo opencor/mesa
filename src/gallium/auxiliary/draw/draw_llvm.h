@@ -172,7 +172,7 @@ enum {
    lp_build_struct_get(_gallivm, _ptr, 0, "stride")
 
 #define draw_jit_vbuffer_offset(_gallivm, _ptr)         \
-   lp_build_struct_get(_gallivm, _ptr, 1, "buffer_offset")
+   lp_build_struct_get(_gallivm, _ptr, 2, "buffer_offset")
 
 enum {
    DRAW_JIT_DVBUFFER_MAP = 0,
@@ -209,7 +209,7 @@ struct draw_gs_jit_context
     * DRAW_JIT_CTX_SAMPLERS positions in the struct */
    struct draw_jit_texture textures[PIPE_MAX_SHADER_SAMPLER_VIEWS];
    struct draw_jit_sampler samplers[PIPE_MAX_SAMPLERS];
-
+   
    int **prim_lengths;
    int *emitted_vertices;
    int *emitted_prims;

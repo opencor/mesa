@@ -91,7 +91,7 @@ Additions to the EGL 1.4 Specification:
                                            struct wl_display *display);
 
     To unbind a server side wl_display from an EGLDisplay, call
-
+    
         EGLBoolean eglUnbindWaylandDisplayWL(EGLDisplay dpy,
                                              struct wl_display *display);
 

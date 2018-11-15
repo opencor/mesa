@@ -19,11 +19,11 @@
 * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 * IN THE SOFTWARE.
-*
+* 
 * @file LoadTile.cpp
-*
+* 
 * @brief Functionality for Load
-*
+* 
 ******************************************************************************/
 #include "LoadTile.h"
 
@@ -53,7 +53,8 @@ static std::mutex sBucketMutex;
 /// @param renderTargetIndex - Index to src render target
 /// @param x, y - Coordinates to raster tile.
 /// @param pDstHotTile - Pointer to Hot Tile
-void LoadHotTile(
+void SwrLoadHotTile(
+    HANDLE hWorkerPrivateData,
     const SWR_SURFACE_STATE *pSrcSurface,
     SWR_FORMAT dstFormat,
     SWR_RENDERTARGET_ATTACHMENT renderTargetIndex,

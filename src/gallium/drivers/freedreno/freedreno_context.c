@@ -27,6 +27,7 @@
  */
 
 #include "freedreno_context.h"
+#include "freedreno_blitter.h"
 #include "freedreno_draw.h"
 #include "freedreno_fence.h"
 #include "freedreno_program.h"
@@ -40,31 +41,50 @@
 #include "util/u_upload_mgr.h"
 
 static void
-fd_context_flush(struct pipe_context *pctx, struct pipe_fence_handle **fence,
+fd_context_flush(struct pipe_context *pctx, struct pipe_fence_handle **fencep,
 		unsigned flags)
 {
 	struct fd_context *ctx = fd_context(pctx);
+	struct pipe_fence_handle *fence = NULL;
+
+	DBG("%p: flush: flags=%x\n", ctx->batch, flags);
+
+	/* Take a ref to the batch's fence (batch can be unref'd when flushed: */
+	fd_fence_ref(pctx->screen, &fence, ctx->batch->fence);
 
 	if (flags & PIPE_FLUSH_FENCE_FD)
 		ctx->batch->needs_out_fence_fd = true;
 
 	if (!ctx->screen->reorder) {
-		fd_batch_flush(ctx->batch, true);
+		fd_batch_flush(ctx->batch, true, false);
+	} else if (flags & PIPE_FLUSH_DEFERRED) {
+		fd_bc_flush_deferred(&ctx->screen->batch_cache, ctx);
 	} else {
 		fd_bc_flush(&ctx->screen->batch_cache, ctx);
 	}
 
-	if (fence) {
-		/* if there hasn't been any rendering submitted yet, we might not
-		 * have actually created a fence
-		 */
-		if (!ctx->last_fence || ctx->batch->needs_out_fence_fd) {
-			ctx->batch->needs_flush = true;
-			fd_gmem_render_noop(ctx->batch);
-			fd_batch_reset(ctx->batch);
-		}
-		fd_fence_ref(pctx->screen, fence, ctx->last_fence);
-	}
+	if (fencep)
+		fd_fence_ref(pctx->screen, fencep, fence);
+
+	fd_fence_ref(pctx->screen, &fence, NULL);
+}
+
+static void
+fd_texture_barrier(struct pipe_context *pctx, unsigned flags)
+{
+	/* On devices that could sample from GMEM we could possibly do better.
+	 * Or if we knew that we were doing GMEM bypass we could just emit a
+	 * cache flush, perhaps?  But we don't know if future draws would cause
+	 * us to use GMEM, and a flush in bypass isn't the end of the world.
+	 */
+	fd_context_flush(pctx, NULL, 0);
+}
+
+static void
+fd_memory_barrier(struct pipe_context *pctx, unsigned flags)
+{
+	fd_context_flush(pctx, NULL, 0);
+	/* TODO do we need to check for persistently mapped buffers and fd_bo_cpu_prep()?? */
 }
 
 /**
@@ -80,6 +100,8 @@ fd_emit_string_marker(struct pipe_context *pctx, const char *string, int len)
 
 	if (!ctx->batch)
 		return;
+
+	ctx->batch->needs_flush = true;
 
 	ring = ctx->batch->draw;
 
@@ -118,10 +140,7 @@ fd_context_destroy(struct pipe_context *pctx)
 	fd_batch_reference(&ctx->batch, NULL);  /* unref current batch */
 	fd_bc_invalidate_context(ctx);
 
-	fd_fence_ref(pctx->screen, &ctx->last_fence, NULL);
-
 	fd_prog_fini(pctx);
-	fd_hw_query_fini(pctx);
 
 	if (ctx->blitter)
 		util_blitter_destroy(ctx->blitter);
@@ -137,19 +156,21 @@ fd_context_destroy(struct pipe_context *pctx)
 
 	slab_destroy_child(&ctx->transfer_pool);
 
-	for (i = 0; i < ARRAY_SIZE(ctx->pipe); i++) {
-		struct fd_vsc_pipe *pipe = &ctx->pipe[i];
+	for (i = 0; i < ARRAY_SIZE(ctx->vsc_pipe); i++) {
+		struct fd_vsc_pipe *pipe = &ctx->vsc_pipe[i];
 		if (!pipe->bo)
 			break;
 		fd_bo_del(pipe->bo);
 	}
 
 	fd_device_del(ctx->dev);
+	fd_pipe_del(ctx->pipe);
 
 	if (fd_mesa_debug & (FD_DBG_BSTAT | FD_DBG_MSGS)) {
-		printf("batch_total=%u, batch_sysmem=%u, batch_gmem=%u, batch_restore=%u\n",
+		printf("batch_total=%u, batch_sysmem=%u, batch_gmem=%u, batch_nondraw=%u, batch_restore=%u\n",
 			(uint32_t)ctx->stats.batch_total, (uint32_t)ctx->stats.batch_sysmem,
-			(uint32_t)ctx->stats.batch_gmem, (uint32_t)ctx->stats.batch_restore);
+			(uint32_t)ctx->stats.batch_gmem, (uint32_t)ctx->stats.batch_nondraw,
+			(uint32_t)ctx->stats.batch_restore);
 	}
 
 	FREE(ctx);
@@ -211,7 +232,7 @@ fd_context_setup_common_vbos(struct fd_context *ctx)
 			}});
 	ctx->solid_vbuf_state.vertexbuf.count = 1;
 	ctx->solid_vbuf_state.vertexbuf.vb[0].stride = 12;
-	ctx->solid_vbuf_state.vertexbuf.vb[0].buffer = ctx->solid_vbuf;
+	ctx->solid_vbuf_state.vertexbuf.vb[0].buffer.resource = ctx->solid_vbuf;
 
 	/* setup blit_vbuf_state: */
 	ctx->blit_vbuf_state.vtx = pctx->create_vertex_elements_state(
@@ -226,9 +247,9 @@ fd_context_setup_common_vbos(struct fd_context *ctx)
 			}});
 	ctx->blit_vbuf_state.vertexbuf.count = 2;
 	ctx->blit_vbuf_state.vertexbuf.vb[0].stride = 8;
-	ctx->blit_vbuf_state.vertexbuf.vb[0].buffer = ctx->blit_texcoord_vbuf;
+	ctx->blit_vbuf_state.vertexbuf.vb[0].buffer.resource = ctx->blit_texcoord_vbuf;
 	ctx->blit_vbuf_state.vertexbuf.vb[1].stride = 12;
-	ctx->blit_vbuf_state.vertexbuf.vb[1].buffer = ctx->solid_vbuf;
+	ctx->blit_vbuf_state.vertexbuf.vb[1].buffer.resource = ctx->solid_vbuf;
 }
 
 void
@@ -245,13 +266,23 @@ fd_context_cleanup_common_vbos(struct fd_context *ctx)
 
 struct pipe_context *
 fd_context_init(struct fd_context *ctx, struct pipe_screen *pscreen,
-		const uint8_t *primtypes, void *priv)
+		const uint8_t *primtypes, void *priv, unsigned flags)
 {
 	struct fd_screen *screen = fd_screen(pscreen);
 	struct pipe_context *pctx;
+	unsigned prio = 1;
 	int i;
 
+	/* lower numerical value == higher priority: */
+	if (fd_mesa_debug & FD_DBG_HIPRIO)
+		prio = 0;
+	else if (flags & PIPE_CONTEXT_HIGH_PRIORITY)
+		prio = 0;
+	else if (flags & PIPE_CONTEXT_LOW_PRIORITY)
+		prio = 2;
+
 	ctx->screen = screen;
+	ctx->pipe = fd_pipe_new2(screen->dev, FD_PIPE_3D, prio);
 
 	ctx->primtypes = primtypes;
 	ctx->primtype_mask = 0;
@@ -272,28 +303,26 @@ fd_context_init(struct fd_context *ctx, struct pipe_screen *pscreen,
 	pctx->set_debug_callback = fd_set_debug_callback;
 	pctx->create_fence_fd = fd_create_fence_fd;
 	pctx->fence_server_sync = fd_fence_server_sync;
+	pctx->texture_barrier = fd_texture_barrier;
+	pctx->memory_barrier = fd_memory_barrier;
 
 	pctx->stream_uploader = u_upload_create_default(pctx);
 	if (!pctx->stream_uploader)
 		goto fail;
 	pctx->const_uploader = pctx->stream_uploader;
 
-	/* TODO what about compute?  Ideally it creates it's own independent
-	 * batches per compute job (since it isn't using tiling, so no point
-	 * in getting involved with the re-ordering madness)..
-	 */
-	if (!screen->reorder) {
-		ctx->batch = fd_bc_alloc_batch(&screen->batch_cache, ctx);
-	}
+	ctx->batch = fd_bc_alloc_batch(&screen->batch_cache, ctx);
 
 	slab_create_child(&ctx->transfer_pool, &screen->transfer_pool);
+
+	if (!ctx->blit)
+		ctx->blit = fd_blitter_blit;
 
 	fd_draw_init(pctx);
 	fd_resource_context_init(pctx);
 	fd_query_context_init(pctx);
 	fd_texture_init(pctx);
 	fd_state_init(pctx);
-	fd_hw_query_init(pctx);
 
 	ctx->blitter = util_blitter_create(pctx);
 	if (!ctx->blitter)
@@ -302,6 +331,9 @@ fd_context_init(struct fd_context *ctx, struct pipe_screen *pscreen,
 	ctx->primconvert = util_primconvert_create(pctx, ctx->primtype_mask);
 	if (!ctx->primconvert)
 		goto fail;
+
+	list_inithead(&ctx->hw_active_queries);
+	list_inithead(&ctx->acc_active_queries);
 
 	return pctx;
 

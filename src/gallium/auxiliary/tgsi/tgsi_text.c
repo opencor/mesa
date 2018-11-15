@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2008 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include "util/u_debug.h"
@@ -211,7 +211,7 @@ static boolean parse_int( const char **pcur, int *val )
 static boolean parse_identifier( const char **pcur, char *ret, size_t len )
 {
    const char *cur = *pcur;
-   int i = 0;
+   size_t i = 0;
    if (is_alpha_underscore( cur )) {
       ret[i++] = *cur++;
       while (is_alpha_underscore( cur ) || is_digit( cur )) {
@@ -866,7 +866,7 @@ parse_optional_swizzle(
 
    eat_opt_white( &cur );
    if (*cur == '.') {
-      uint i;
+      int i;
 
       cur++;
       eat_opt_white( &cur );
@@ -999,24 +999,34 @@ parse_texoffset_operand(
 static boolean
 match_inst(const char **pcur,
            unsigned *saturate,
+           unsigned *precise,
            const struct tgsi_opcode_info *info)
 {
    const char *cur = *pcur;
+   const char *mnemonic = tgsi_get_opcode_name(info->opcode);
 
    /* simple case: the whole string matches the instruction name */
-   if (str_match_nocase_whole(&cur, info->mnemonic)) {
+   if (str_match_nocase_whole(&cur, mnemonic)) {
       *pcur = cur;
       *saturate = 0;
+      *precise = 0;
       return TRUE;
    }
 
-   if (str_match_no_case(&cur, info->mnemonic)) {
+   if (str_match_no_case(&cur, mnemonic)) {
       /* the instruction has a suffix, figure it out */
-      if (str_match_nocase_whole(&cur, "_SAT")) {
+      if (str_match_no_case(&cur, "_SAT")) {
          *pcur = cur;
          *saturate = 1;
-         return TRUE;
       }
+
+      if (str_match_no_case(&cur, "_PRECISE")) {
+         *pcur = cur;
+         *precise = 1;
+      }
+
+      if (!is_digit_alpha_underscore(cur))
+         return TRUE;
    }
 
    return FALSE;
@@ -1027,8 +1037,9 @@ parse_instruction(
    struct translate_ctx *ctx,
    boolean has_label )
 {
-   uint i;
+   int i;
    uint saturate = 0;
+   uint precise = 0;
    const struct tgsi_opcode_info *info;
    struct tgsi_full_instruction inst;
    const char *cur;
@@ -1043,7 +1054,7 @@ parse_instruction(
       cur = ctx->cur;
 
       info = tgsi_get_opcode_info( i );
-      if (match_inst(&cur, &saturate, info)) {
+      if (match_inst(&cur, &saturate, &precise, info)) {
          if (info->num_dst + info->num_src + info->is_tex == 0) {
             ctx->cur = cur;
             break;
@@ -1064,6 +1075,7 @@ parse_instruction(
 
    inst.Instruction.Opcode = i;
    inst.Instruction.Saturate = saturate;
+   inst.Instruction.Precise = precise;
    inst.Instruction.NumDstRegs = info->num_dst;
    inst.Instruction.NumSrcRegs = info->num_src;
 
@@ -1574,10 +1586,6 @@ static boolean parse_declaration( struct translate_ctx *ctx )
             break;
          }
       }
-      if (i == TGSI_INTERPOLATE_COUNT) {
-         report_error( ctx, "Expected semantic or interpolate attribute" );
-         return FALSE;
-      }
    }
 
    cur = ctx->cur;
@@ -1594,6 +1602,20 @@ static boolean parse_declaration( struct translate_ctx *ctx )
             ctx->cur = cur;
             break;
          }
+      }
+   }
+
+   cur = ctx->cur;
+   eat_opt_white( &cur );
+   if (*cur == ',' && !is_vs_input) {
+      cur++;
+      eat_opt_white( &cur );
+      if (str_match_nocase_whole( &cur, tgsi_invariant_name )) {
+         decl.Declaration.Invariant = 1;
+         ctx->cur = cur;
+      } else {
+         report_error( ctx, "Expected semantic, interpolate attribute, or invariant ");
+         return FALSE;
       }
    }
 
@@ -1614,7 +1636,7 @@ static boolean parse_immediate( struct translate_ctx *ctx )
 {
    struct tgsi_full_immediate imm;
    uint advance;
-   int type;
+   uint type;
 
    if (*ctx->cur == '[') {
       uint uindex;

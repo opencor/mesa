@@ -94,12 +94,17 @@ struct etna_shader_variant {
    /* unknown input property (XX_INPUT_COUNT, field UNK8) */
    uint32_t input_count_unk8;
 
+   /* shader is larger than GPU instruction limit, thus needs icache */
+   bool needs_icache;
+
    /* shader variants form a linked list */
    struct etna_shader_variant *next;
 
    /* replicated here to avoid passing extra ptrs everywhere */
    struct etna_shader *shader;
    struct etna_shader_key key;
+
+   struct etna_bo *bo; /* cached code memory bo handle (for icache) */
 };
 
 struct etna_varying {
@@ -113,6 +118,7 @@ struct etna_shader_link_info {
    /* each PS input is annotated with the VS output reg */
    unsigned num_varyings;
    struct etna_varying varyings[ETNA_NUM_INPUTS];
+   int pcoord_varying_comp_ofs;
 };
 
 bool

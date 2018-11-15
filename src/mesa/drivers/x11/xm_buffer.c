@@ -31,6 +31,7 @@
 
 #include "glxheader.h"
 #include "xmesaP.h"
+#include "main/errors.h"
 #include "main/imports.h"
 #include "main/formats.h"
 #include "main/framebuffer.h"
@@ -41,7 +42,7 @@
 #define XMESA_RENDERBUFFER 0x1234
 
 
-#if defined(USE_XSHM)
+#if defined(USE_XSHM) 
 static volatile int mesaXErrorFlag = 0;
 
 /**
@@ -174,7 +175,7 @@ alloc_back_buffer(XMesaBuffer b, GLuint width, GLuint height)
    if (b->db_mode == BACK_XIMAGE) {
       /* Deallocate the old backxrb->ximage, if any */
       if (b->backxrb->ximage) {
-#if defined(USE_XSHM)
+#if defined(USE_XSHM) 
 	 if (b->shm) {
 	    XShmDetach(b->xm_visual->display, &b->shminfo);
 	    XDestroyImage(b->backxrb->ximage);
@@ -393,7 +394,7 @@ xmesa_delete_framebuffer(struct gl_framebuffer *fb)
    if (fb->Visual.doubleBufferMode) {
       /* free back ximage/pixmap/shmregion */
       if (b->backxrb->ximage) {
-#if defined(USE_XSHM)
+#if defined(USE_XSHM) 
          if (b->shm) {
             XShmDetach( b->display, &b->shminfo );
             XDestroyImage( b->backxrb->ximage );
@@ -422,7 +423,8 @@ xmesa_MapRenderbuffer(struct gl_context *ctx,
                       struct gl_renderbuffer *rb,
                       GLuint x, GLuint y, GLuint w, GLuint h,
                       GLbitfield mode,
-                      GLubyte **mapOut, GLint *rowStrideOut)
+                      GLubyte **mapOut, GLint *rowStrideOut,
+                      bool flip_y)
 {
    struct xmesa_renderbuffer *xrb = xmesa_renderbuffer(rb);
 
@@ -505,7 +507,7 @@ xmesa_MapRenderbuffer(struct gl_context *ctx,
 
    /* otherwise, this is an ordinary malloc-based renderbuffer */
    _swrast_map_soft_renderbuffer(ctx, rb, x, y, w, h, mode,
-                                 mapOut, rowStrideOut);
+                                 mapOut, rowStrideOut, false);
 }
 
 

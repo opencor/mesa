@@ -32,6 +32,8 @@ struct apply_pipeline_layout_state {
    struct anv_pipeline_layout *layout;
    bool add_bounds_checks;
 
+   bool uses_constants;
+   uint8_t constants_offset;
    struct {
       BITSET_WORD *used;
       uint8_t *surface_offsets;
@@ -54,6 +56,24 @@ add_var_binding(struct apply_pipeline_layout_state *state, nir_variable *var)
 }
 
 static void
+add_deref_src_binding(struct apply_pipeline_layout_state *state, nir_src src)
+{
+   nir_deref_instr *deref = nir_src_as_deref(src);
+   add_var_binding(state, nir_deref_instr_get_variable(deref));
+}
+
+static void
+add_tex_src_binding(struct apply_pipeline_layout_state *state,
+                    nir_tex_instr *tex, nir_tex_src_type deref_src_type)
+{
+   int deref_src_idx = nir_tex_instr_src_index(tex, deref_src_type);
+   if (deref_src_idx < 0)
+      return;
+
+   add_deref_src_binding(state, tex->src[deref_src_idx].src);
+}
+
+static void
 get_used_bindings_block(nir_block *block,
                         struct apply_pipeline_layout_state *state)
 {
@@ -67,19 +87,23 @@ get_used_bindings_block(nir_block *block,
                         nir_intrinsic_binding(intrin));
             break;
 
-         case nir_intrinsic_image_load:
-         case nir_intrinsic_image_store:
-         case nir_intrinsic_image_atomic_add:
-         case nir_intrinsic_image_atomic_min:
-         case nir_intrinsic_image_atomic_max:
-         case nir_intrinsic_image_atomic_and:
-         case nir_intrinsic_image_atomic_or:
-         case nir_intrinsic_image_atomic_xor:
-         case nir_intrinsic_image_atomic_exchange:
-         case nir_intrinsic_image_atomic_comp_swap:
-         case nir_intrinsic_image_size:
-         case nir_intrinsic_image_samples:
-            add_var_binding(state, intrin->variables[0]->var);
+         case nir_intrinsic_image_deref_load:
+         case nir_intrinsic_image_deref_store:
+         case nir_intrinsic_image_deref_atomic_add:
+         case nir_intrinsic_image_deref_atomic_min:
+         case nir_intrinsic_image_deref_atomic_max:
+         case nir_intrinsic_image_deref_atomic_and:
+         case nir_intrinsic_image_deref_atomic_or:
+         case nir_intrinsic_image_deref_atomic_xor:
+         case nir_intrinsic_image_deref_atomic_exchange:
+         case nir_intrinsic_image_deref_atomic_comp_swap:
+         case nir_intrinsic_image_deref_size:
+         case nir_intrinsic_image_deref_samples:
+            add_deref_src_binding(state, intrin->src[0]);
+            break;
+
+         case nir_intrinsic_load_constant:
+            state->uses_constants = true;
             break;
 
          default:
@@ -89,10 +113,8 @@ get_used_bindings_block(nir_block *block,
       }
       case nir_instr_type_tex: {
          nir_tex_instr *tex = nir_instr_as_tex(instr);
-         assert(tex->texture);
-         add_var_binding(state, tex->texture->var);
-         if (tex->sampler)
-            add_var_binding(state, tex->sampler->var);
+         add_tex_src_binding(state, tex, nir_tex_src_texture_deref);
+         add_tex_src_binding(state, tex, nir_tex_src_sampler_deref);
          break;
       }
       default:
@@ -116,12 +138,21 @@ lower_res_index_intrinsic(nir_intrinsic_instr *intrin,
    uint32_t array_size =
       state->layout->set[set].layout->binding[binding].array_size;
 
-   nir_ssa_def *block_index = nir_ssa_for_src(b, intrin->src[0], 1);
+   nir_const_value *const_array_index = nir_src_as_const_value(intrin->src[0]);
 
-   if (state->add_bounds_checks)
-      block_index = nir_umin(b, block_index, nir_imm_int(b, array_size - 1));
+   nir_ssa_def *block_index;
+   if (const_array_index) {
+      unsigned array_index = const_array_index->u32[0];
+      array_index = MIN2(array_index, array_size - 1);
+      block_index = nir_imm_int(b, surface_index + array_index);
+   } else {
+      block_index = nir_ssa_for_src(b, intrin->src[0], 1);
 
-   block_index = nir_iadd(b, nir_imm_int(b, surface_index), block_index);
+      if (state->add_bounds_checks)
+         block_index = nir_umin(b, block_index, nir_imm_int(b, array_size - 1));
+
+      block_index = nir_iadd(b, nir_imm_int(b, surface_index), block_index);
+   }
 
    assert(intrin->dest.is_ssa);
    nir_ssa_def_rewrite_uses(&intrin->dest.ssa, nir_src_for_ssa(block_index));
@@ -129,99 +160,147 @@ lower_res_index_intrinsic(nir_intrinsic_instr *intrin,
 }
 
 static void
-lower_tex_deref(nir_tex_instr *tex, nir_deref_var *deref,
-                unsigned *const_index, unsigned array_size,
-                nir_tex_src_type src_type,
-                struct apply_pipeline_layout_state *state)
+lower_res_reindex_intrinsic(nir_intrinsic_instr *intrin,
+                            struct apply_pipeline_layout_state *state)
 {
    nir_builder *b = &state->builder;
 
-   if (deref->deref.child) {
-      assert(deref->deref.child->deref_type == nir_deref_type_array);
-      nir_deref_array *deref_array = nir_deref_as_array(deref->deref.child);
+   /* For us, the resource indices are just indices into the binding table and
+    * array elements are sequential.  A resource_reindex just turns into an
+    * add of the two indices.
+    */
+   assert(intrin->src[0].is_ssa && intrin->src[1].is_ssa);
+   nir_ssa_def *new_index = nir_iadd(b, intrin->src[0].ssa,
+                                        intrin->src[1].ssa);
 
-      if (deref_array->deref_array_type == nir_deref_array_type_indirect) {
-         nir_ssa_def *index =
-            nir_iadd(b, nir_imm_int(b, deref_array->base_offset),
-                        nir_ssa_for_src(b, deref_array->indirect, 1));
-
-         if (state->add_bounds_checks)
-            index = nir_umin(b, index, nir_imm_int(b, array_size - 1));
-
-         nir_tex_src *new_srcs = rzalloc_array(tex, nir_tex_src,
-                                               tex->num_srcs + 1);
-
-         for (unsigned i = 0; i < tex->num_srcs; i++) {
-            new_srcs[i].src_type = tex->src[i].src_type;
-            nir_instr_move_src(&tex->instr, &new_srcs[i].src, &tex->src[i].src);
-         }
-
-         ralloc_free(tex->src);
-         tex->src = new_srcs;
-
-         /* Now we can go ahead and move the source over to being a
-          * first-class texture source.
-          */
-         tex->src[tex->num_srcs].src_type = src_type;
-         nir_instr_rewrite_src(&tex->instr, &tex->src[tex->num_srcs].src,
-                               nir_src_for_ssa(index));
-         tex->num_srcs++;
-      } else {
-         *const_index += MIN2(deref_array->base_offset, array_size - 1);
-      }
-   }
+   assert(intrin->dest.is_ssa);
+   nir_ssa_def_rewrite_uses(&intrin->dest.ssa, nir_src_for_ssa(new_index));
+   nir_instr_remove(&intrin->instr);
 }
 
 static void
-cleanup_tex_deref(nir_tex_instr *tex, nir_deref_var *deref)
+lower_load_constant(nir_intrinsic_instr *intrin,
+                    struct apply_pipeline_layout_state *state)
 {
-   if (deref->deref.child == NULL)
+   nir_builder *b = &state->builder;
+
+   b->cursor = nir_before_instr(&intrin->instr);
+
+   nir_ssa_def *index = nir_imm_int(b, state->constants_offset);
+   nir_ssa_def *offset = nir_iadd(b, nir_ssa_for_src(b, intrin->src[0], 1),
+                                  nir_imm_int(b, nir_intrinsic_base(intrin)));
+
+   nir_intrinsic_instr *load_ubo =
+      nir_intrinsic_instr_create(b->shader, nir_intrinsic_load_ubo);
+   load_ubo->num_components = intrin->num_components;
+   load_ubo->src[0] = nir_src_for_ssa(index);
+   load_ubo->src[1] = nir_src_for_ssa(offset);
+   nir_ssa_dest_init(&load_ubo->instr, &load_ubo->dest,
+                     intrin->dest.ssa.num_components,
+                     intrin->dest.ssa.bit_size, NULL);
+   nir_builder_instr_insert(b, &load_ubo->instr);
+
+   nir_ssa_def_rewrite_uses(&intrin->dest.ssa,
+                            nir_src_for_ssa(&load_ubo->dest.ssa));
+   nir_instr_remove(&intrin->instr);
+}
+
+static void
+lower_tex_deref(nir_tex_instr *tex, nir_tex_src_type deref_src_type,
+                unsigned *base_index,
+                struct apply_pipeline_layout_state *state)
+{
+   int deref_src_idx = nir_tex_instr_src_index(tex, deref_src_type);
+   if (deref_src_idx < 0)
       return;
 
-   nir_deref_array *deref_array = nir_deref_as_array(deref->deref.child);
+   nir_deref_instr *deref = nir_src_as_deref(tex->src[deref_src_idx].src);
+   nir_variable *var = nir_deref_instr_get_variable(deref);
 
-   if (deref_array->deref_array_type != nir_deref_array_type_indirect)
-      return;
+   unsigned set = var->data.descriptor_set;
+   unsigned binding = var->data.binding;
+   unsigned array_size =
+      state->layout->set[set].layout->binding[binding].array_size;
 
-   nir_instr_rewrite_src(&tex->instr, &deref_array->indirect, NIR_SRC_INIT);
+   nir_tex_src_type offset_src_type;
+   if (deref_src_type == nir_tex_src_texture_deref) {
+      offset_src_type = nir_tex_src_texture_offset;
+      *base_index = state->set[set].surface_offsets[binding];
+   } else {
+      assert(deref_src_type == nir_tex_src_sampler_deref);
+      offset_src_type = nir_tex_src_sampler_offset;
+      *base_index = state->set[set].sampler_offsets[binding];
+   }
+
+   nir_ssa_def *index = NULL;
+   if (deref->deref_type != nir_deref_type_var) {
+      assert(deref->deref_type == nir_deref_type_array);
+
+      nir_const_value *const_index = nir_src_as_const_value(deref->arr.index);
+      if (const_index) {
+         *base_index += MIN2(const_index->u32[0], array_size - 1);
+      } else {
+         nir_builder *b = &state->builder;
+
+         /* From VK_KHR_sampler_ycbcr_conversion:
+          *
+          * If sampler Y’CBCR conversion is enabled, the combined image
+          * sampler must be indexed only by constant integral expressions when
+          * aggregated into arrays in shader code, irrespective of the
+          * shaderSampledImageArrayDynamicIndexing feature.
+          */
+         assert(nir_tex_instr_src_index(tex, nir_tex_src_plane) == -1);
+
+         index = nir_ssa_for_src(b, deref->arr.index, 1);
+
+         if (state->add_bounds_checks)
+            index = nir_umin(b, index, nir_imm_int(b, array_size - 1));
+      }
+   }
+
+   if (index) {
+      nir_instr_rewrite_src(&tex->instr, &tex->src[deref_src_idx].src,
+                            nir_src_for_ssa(index));
+      tex->src[deref_src_idx].src_type = offset_src_type;
+   } else {
+      nir_tex_instr_remove_src(tex, deref_src_idx);
+   }
+}
+
+static uint32_t
+tex_instr_get_and_remove_plane_src(nir_tex_instr *tex)
+{
+   int plane_src_idx = nir_tex_instr_src_index(tex, nir_tex_src_plane);
+   if (plane_src_idx < 0)
+      return 0;
+
+   unsigned plane =
+      nir_src_as_const_value(tex->src[plane_src_idx].src)->u32[0];
+
+   nir_tex_instr_remove_src(tex, plane_src_idx);
+
+   return plane;
 }
 
 static void
 lower_tex(nir_tex_instr *tex, struct apply_pipeline_layout_state *state)
 {
-   /* No one should have come by and lowered it already */
-   assert(tex->texture);
-
    state->builder.cursor = nir_before_instr(&tex->instr);
 
-   unsigned set = tex->texture->var->data.descriptor_set;
-   unsigned binding = tex->texture->var->data.binding;
-   unsigned array_size =
-      state->layout->set[set].layout->binding[binding].array_size;
-   tex->texture_index = state->set[set].surface_offsets[binding];
-   lower_tex_deref(tex, tex->texture, &tex->texture_index, array_size,
-                   nir_tex_src_texture_offset, state);
+   unsigned plane = tex_instr_get_and_remove_plane_src(tex);
 
-   if (tex->sampler) {
-      unsigned set = tex->sampler->var->data.descriptor_set;
-      unsigned binding = tex->sampler->var->data.binding;
-      unsigned array_size =
-         state->layout->set[set].layout->binding[binding].array_size;
-      tex->sampler_index = state->set[set].sampler_offsets[binding];
-      lower_tex_deref(tex, tex->sampler, &tex->sampler_index, array_size,
-                      nir_tex_src_sampler_offset, state);
-   }
+   lower_tex_deref(tex, nir_tex_src_texture_deref,
+                   &tex->texture_index, state);
+   tex->texture_index += plane;
+
+   lower_tex_deref(tex, nir_tex_src_sampler_deref,
+                   &tex->sampler_index, state);
+   tex->sampler_index += plane;
 
    /* The backend only ever uses this to mark used surfaces.  We don't care
     * about that little optimization so it just needs to be non-zero.
     */
    tex->texture_array_size = 1;
-
-   cleanup_tex_deref(tex, tex->texture);
-   if (tex->sampler)
-      cleanup_tex_deref(tex, tex->sampler);
-   tex->texture = NULL;
-   tex->sampler = NULL;
 }
 
 static void
@@ -232,8 +311,18 @@ apply_pipeline_layout_block(nir_block *block,
       switch (instr->type) {
       case nir_instr_type_intrinsic: {
          nir_intrinsic_instr *intrin = nir_instr_as_intrinsic(instr);
-         if (intrin->intrinsic == nir_intrinsic_vulkan_resource_index) {
+         switch (intrin->intrinsic) {
+         case nir_intrinsic_vulkan_resource_index:
             lower_res_index_intrinsic(intrin, state);
+            break;
+         case nir_intrinsic_vulkan_resource_reindex:
+            lower_res_reindex_intrinsic(intrin, state);
+            break;
+         case nir_intrinsic_load_constant:
+            lower_load_constant(intrin, state);
+            break;
+         default:
+            break;
          }
          break;
       }
@@ -247,26 +336,23 @@ apply_pipeline_layout_block(nir_block *block,
 }
 
 static void
-setup_vec4_uniform_value(const union gl_constant_value **params,
-                         const union gl_constant_value *values,
-                         unsigned n)
+setup_vec4_uniform_value(uint32_t *params, uint32_t offset, unsigned n)
 {
-   static const gl_constant_value zero = { 0 };
-
    for (unsigned i = 0; i < n; ++i)
-      params[i] = &values[i];
+      params[i] = ANV_PARAM_PUSH(offset + i * sizeof(uint32_t));
 
    for (unsigned i = n; i < 4; ++i)
-      params[i] = &zero;
+      params[i] = BRW_PARAM_BUILTIN_ZERO;
 }
 
 void
 anv_nir_apply_pipeline_layout(struct anv_pipeline *pipeline,
+                              struct anv_pipeline_layout *layout,
                               nir_shader *shader,
                               struct brw_stage_prog_data *prog_data,
                               struct anv_pipeline_bind_map *map)
 {
-   struct anv_pipeline_layout *layout = pipeline->layout;
+   gl_shader_stage stage = shader->info.stage;
 
    struct apply_pipeline_layout_state state = {
       .shader = shader,
@@ -293,17 +379,24 @@ anv_nir_apply_pipeline_layout(struct anv_pipeline *pipeline,
          get_used_bindings_block(block, &state);
    }
 
+   if (state.uses_constants)
+      map->surface_count++;
+
    for (uint32_t set = 0; set < layout->num_sets; set++) {
       struct anv_descriptor_set_layout *set_layout = layout->set[set].layout;
 
       BITSET_WORD b, _tmp;
       BITSET_FOREACH_SET(b, _tmp, state.set[set].used,
                          set_layout->binding_count) {
-         if (set_layout->binding[b].stage[shader->stage].surface_index >= 0)
-            map->surface_count += set_layout->binding[b].array_size;
-         if (set_layout->binding[b].stage[shader->stage].sampler_index >= 0)
-            map->sampler_count += set_layout->binding[b].array_size;
-         if (set_layout->binding[b].stage[shader->stage].image_index >= 0)
+         if (set_layout->binding[b].stage[stage].surface_index >= 0) {
+            map->surface_count +=
+               anv_descriptor_set_binding_layout_get_hw_size(&set_layout->binding[b]);
+         }
+         if (set_layout->binding[b].stage[stage].sampler_index >= 0) {
+            map->sampler_count +=
+               anv_descriptor_set_binding_layout_get_hw_size(&set_layout->binding[b]);
+         }
+         if (set_layout->binding[b].stage[stage].image_index >= 0)
             map->image_count += set_layout->binding[b].array_size;
       }
    }
@@ -311,46 +404,67 @@ anv_nir_apply_pipeline_layout(struct anv_pipeline *pipeline,
    unsigned surface = 0;
    unsigned sampler = 0;
    unsigned image = 0;
+
+   if (state.uses_constants) {
+      state.constants_offset = surface;
+      map->surface_to_descriptor[surface].set =
+         ANV_DESCRIPTOR_SET_SHADER_CONSTANTS;
+      surface++;
+   }
+
    for (uint32_t set = 0; set < layout->num_sets; set++) {
       struct anv_descriptor_set_layout *set_layout = layout->set[set].layout;
 
       BITSET_WORD b, _tmp;
       BITSET_FOREACH_SET(b, _tmp, state.set[set].used,
                          set_layout->binding_count) {
-         unsigned array_size = set_layout->binding[b].array_size;
+         struct anv_descriptor_set_binding_layout *binding =
+            &set_layout->binding[b];
 
-         if (set_layout->binding[b].stage[shader->stage].surface_index >= 0) {
+         if (binding->stage[stage].surface_index >= 0) {
             state.set[set].surface_offsets[b] = surface;
-            for (unsigned i = 0; i < array_size; i++) {
-               map->surface_to_descriptor[surface + i].set = set;
-               map->surface_to_descriptor[surface + i].binding = b;
-               map->surface_to_descriptor[surface + i].index = i;
+            struct anv_sampler **samplers = binding->immutable_samplers;
+            for (unsigned i = 0; i < binding->array_size; i++) {
+               uint8_t planes = samplers ? samplers[i]->n_planes : 1;
+               for (uint8_t p = 0; p < planes; p++) {
+                  map->surface_to_descriptor[surface].set = set;
+                  map->surface_to_descriptor[surface].binding = b;
+                  map->surface_to_descriptor[surface].index = i;
+                  map->surface_to_descriptor[surface].plane = p;
+                  surface++;
+               }
             }
-            surface += array_size;
          }
 
-         if (set_layout->binding[b].stage[shader->stage].sampler_index >= 0) {
+         if (binding->stage[stage].sampler_index >= 0) {
             state.set[set].sampler_offsets[b] = sampler;
-            for (unsigned i = 0; i < array_size; i++) {
-               map->sampler_to_descriptor[sampler + i].set = set;
-               map->sampler_to_descriptor[sampler + i].binding = b;
-               map->sampler_to_descriptor[sampler + i].index = i;
+            struct anv_sampler **samplers = binding->immutable_samplers;
+            for (unsigned i = 0; i < binding->array_size; i++) {
+               uint8_t planes = samplers ? samplers[i]->n_planes : 1;
+               for (uint8_t p = 0; p < planes; p++) {
+                  map->sampler_to_descriptor[sampler].set = set;
+                  map->sampler_to_descriptor[sampler].binding = b;
+                  map->sampler_to_descriptor[sampler].index = i;
+                  map->sampler_to_descriptor[sampler].plane = p;
+                  sampler++;
+               }
             }
-            sampler += array_size;
          }
 
-         if (set_layout->binding[b].stage[shader->stage].image_index >= 0) {
+         if (binding->stage[stage].image_index >= 0) {
             state.set[set].image_offsets[b] = image;
-            image += array_size;
+            image += binding->array_size;
          }
       }
    }
 
    nir_foreach_variable(var, &shader->uniforms) {
-      if (!glsl_type_is_image(var->interface_type))
+      const struct glsl_type *glsl_type = glsl_without_array(var->type);
+
+      if (!glsl_type_is_image(glsl_type))
          continue;
 
-      enum glsl_sampler_dim dim = glsl_get_sampler_dim(var->interface_type);
+      enum glsl_sampler_dim dim = glsl_get_sampler_dim(glsl_type);
 
       const uint32_t set = var->data.descriptor_set;
       const uint32_t binding = var->data.binding;
@@ -405,27 +519,29 @@ anv_nir_apply_pipeline_layout(struct anv_pipeline *pipeline,
          }
       }
 
+      uint32_t *param = brw_stage_prog_data_add_params(prog_data,
+                                                       map->image_count *
+                                                       BRW_IMAGE_PARAM_SIZE);
       struct anv_push_constants *null_data = NULL;
-      const gl_constant_value **param =
-         prog_data->param + (shader->num_uniforms / 4);
       const struct brw_image_param *image_param = null_data->images;
       for (uint32_t i = 0; i < map->image_count; i++) {
          setup_vec4_uniform_value(param + BRW_IMAGE_PARAM_SURFACE_IDX_OFFSET,
-            (const union gl_constant_value *)&image_param->surface_idx, 1);
+                                  (uintptr_t)&image_param->surface_idx, 1);
          setup_vec4_uniform_value(param + BRW_IMAGE_PARAM_OFFSET_OFFSET,
-            (const union gl_constant_value *)image_param->offset, 2);
+                                  (uintptr_t)image_param->offset, 2);
          setup_vec4_uniform_value(param + BRW_IMAGE_PARAM_SIZE_OFFSET,
-            (const union gl_constant_value *)image_param->size, 3);
+                                  (uintptr_t)image_param->size, 3);
          setup_vec4_uniform_value(param + BRW_IMAGE_PARAM_STRIDE_OFFSET,
-            (const union gl_constant_value *)image_param->stride, 4);
+                                  (uintptr_t)image_param->stride, 4);
          setup_vec4_uniform_value(param + BRW_IMAGE_PARAM_TILING_OFFSET,
-            (const union gl_constant_value *)image_param->tiling, 3);
+                                  (uintptr_t)image_param->tiling, 3);
          setup_vec4_uniform_value(param + BRW_IMAGE_PARAM_SWIZZLING_OFFSET,
-            (const union gl_constant_value *)image_param->swizzling, 2);
+                                  (uintptr_t)image_param->swizzling, 2);
 
          param += BRW_IMAGE_PARAM_SIZE;
          image_param ++;
       }
+      assert(param == prog_data->param + prog_data->nr_params);
 
       shader->num_uniforms += map->image_count * BRW_IMAGE_PARAM_SIZE * 4;
    }

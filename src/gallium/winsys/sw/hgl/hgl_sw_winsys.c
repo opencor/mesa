@@ -221,7 +221,7 @@ hgl_create_sw_winsys()
 
 	if (!winsys)
 		return NULL;
-
+	
 	// Attach winsys hooks for Haiku
 	winsys->destroy = hgl_winsys_destroy;
 	winsys->is_displaytarget_format_supported

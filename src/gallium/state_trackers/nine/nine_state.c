@@ -293,7 +293,7 @@ nine_context_get_pipe_multithread( struct NineDevice9 *device )
     if (!device->csmt_active)
         return device->context.pipe;
 
-    if (!pipe_thread_is_self(ctx->worker))
+    if (!u_thread_is_self(ctx->worker))
         nine_csmt_process(device);
 
     return device->context.pipe;
@@ -382,9 +382,6 @@ prepare_vs_constants_userbuf_swvp(struct NineDevice9 *device)
             cb.user_buffer = dst;
         }
 
-        /* Do not erase the buffer field.
-         * It is either NULL (user_cbufs), or a resource.
-         * u_upload_data will do the proper refcount */
         context->pipe_data.cb0_swvp.buffer_offset = cb.buffer_offset;
         context->pipe_data.cb0_swvp.buffer_size = cb.buffer_size;
         context->pipe_data.cb0_swvp.user_buffer = cb.user_buffer;
@@ -421,52 +418,6 @@ prepare_vs_constants_userbuf_swvp(struct NineDevice9 *device)
         context->pipe_data.cb3_swvp.buffer_size = cb.buffer_size;
         context->pipe_data.cb3_swvp.user_buffer = cb.user_buffer;
         context->changed.vs_const_b = 0;
-    }
-
-    if (!device->driver_caps.user_cbufs) {
-        struct pipe_constant_buffer *cb = &(context->pipe_data.cb0_swvp);
-        u_upload_data(device->context.pipe->const_uploader,
-                      0,
-                      cb->buffer_size,
-                      device->constbuf_alignment,
-                      cb->user_buffer,
-                      &(cb->buffer_offset),
-                      &(cb->buffer));
-        u_upload_unmap(device->context.pipe->const_uploader);
-        cb->user_buffer = NULL;
-
-        cb = &(context->pipe_data.cb1_swvp);
-        u_upload_data(device->context.pipe->const_uploader,
-                      0,
-                      cb->buffer_size,
-                      device->constbuf_alignment,
-                      cb->user_buffer,
-                      &(cb->buffer_offset),
-                      &(cb->buffer));
-        u_upload_unmap(device->context.pipe->const_uploader);
-        cb->user_buffer = NULL;
-
-        cb = &(context->pipe_data.cb2_swvp);
-        u_upload_data(device->context.pipe->const_uploader,
-                      0,
-                      cb->buffer_size,
-                      device->constbuf_alignment,
-                      cb->user_buffer,
-                      &(cb->buffer_offset),
-                      &(cb->buffer));
-        u_upload_unmap(device->context.pipe->const_uploader);
-        cb->user_buffer = NULL;
-
-        cb = &(context->pipe_data.cb3_swvp);
-        u_upload_data(device->context.pipe->const_uploader,
-                      0,
-                      cb->buffer_size,
-                      device->constbuf_alignment,
-                      cb->user_buffer,
-                      &(cb->buffer_offset),
-                      &(cb->buffer));
-        u_upload_unmap(device->context.pipe->const_uploader);
-        cb->user_buffer = NULL;
     }
 
     context->changed.group &= ~NINE_STATE_VS_CONST;
@@ -522,20 +473,7 @@ prepare_vs_constants_userbuf(struct NineDevice9 *device)
         cb.user_buffer = dst;
     }
 
-    if (!device->driver_caps.user_cbufs) {
-        context->pipe_data.cb_vs.buffer_size = cb.buffer_size;
-        u_upload_data(device->context.pipe->const_uploader,
-                      0,
-                      cb.buffer_size,
-                      device->constbuf_alignment,
-                      cb.user_buffer,
-                      &context->pipe_data.cb_vs.buffer_offset,
-                      &context->pipe_data.cb_vs.buffer);
-        u_upload_unmap(device->context.pipe->const_uploader);
-        context->pipe_data.cb_vs.user_buffer = NULL;
-    } else
-        context->pipe_data.cb_vs = cb;
-
+    context->pipe_data.cb_vs = cb;
     context->changed.vs_const_f = 0;
 
     context->changed.group &= ~NINE_STATE_VS_CONST;
@@ -593,20 +531,7 @@ prepare_ps_constants_userbuf(struct NineDevice9 *device)
     if (!cb.buffer_size)
         return;
 
-    if (!device->driver_caps.user_cbufs) {
-        context->pipe_data.cb_ps.buffer_size = cb.buffer_size;
-        u_upload_data(device->context.pipe->const_uploader,
-                      0,
-                      cb.buffer_size,
-                      device->constbuf_alignment,
-                      cb.user_buffer,
-                      &context->pipe_data.cb_ps.buffer_offset,
-                      &context->pipe_data.cb_ps.buffer);
-        u_upload_unmap(device->context.pipe->const_uploader);
-        context->pipe_data.cb_ps.user_buffer = NULL;
-    } else
-        context->pipe_data.cb_ps = cb;
-
+    context->pipe_data.cb_ps = cb;
     context->changed.ps_const_f = 0;
 
     context->changed.group &= ~NINE_STATE_PS_CONST;
@@ -899,9 +824,9 @@ update_vertex_buffers(struct NineDevice9 *device)
 
     if (context->dummy_vbo_bound_at >= 0) {
         if (!context->vbo_bound_done) {
-            dummy_vtxbuf.buffer = device->dummy_vbo;
+            dummy_vtxbuf.buffer.resource = device->dummy_vbo;
             dummy_vtxbuf.stride = 0;
-            dummy_vtxbuf.user_buffer = NULL;
+            dummy_vtxbuf.is_user_buffer = false;
             dummy_vtxbuf.buffer_offset = 0;
             pipe->set_vertex_buffers(pipe, context->dummy_vbo_bound_at,
                                      1, &dummy_vtxbuf);
@@ -912,7 +837,7 @@ update_vertex_buffers(struct NineDevice9 *device)
 
     for (i = 0; mask; mask >>= 1, ++i) {
         if (mask & 1) {
-            if (context->vtxbuf[i].buffer)
+            if (context->vtxbuf[i].buffer.resource)
                 pipe->set_vertex_buffers(pipe, i, 1, &context->vtxbuf[i]);
             else
                 pipe->set_vertex_buffers(pipe, i, 1, NULL);
@@ -1055,7 +980,7 @@ update_textures_and_samplers(struct NineDevice9 *device)
             context->changed.sampler[s] = ~0;
         }
 
-        context->bound_samplers_mask_vs |= (1 << s);
+        context->bound_samplers_mask_vs |= (1 << i);
     }
 
     cso_set_sampler_views(context->cso, PIPE_SHADER_VERTEX, num_textures, view);
@@ -1097,17 +1022,6 @@ commit_rasterizer(struct NineDevice9 *device)
     struct nine_context *context = &device->context;
 
     cso_set_rasterizer(context->cso, &context->pipe_data.rast);
-}
-
-static inline void
-commit_index_buffer(struct NineDevice9 *device)
-{
-    struct nine_context *context = &device->context;
-    struct pipe_context *pipe = context->pipe;
-    if (context->idxbuf.buffer)
-        pipe->set_index_buffer(pipe, &context->idxbuf);
-    else
-        pipe->set_index_buffer(pipe, NULL);
 }
 
 static inline void
@@ -1235,8 +1149,6 @@ nine_update_state(struct NineDevice9 *device)
             update_viewport(device);
         if (group & (NINE_STATE_VDECL | NINE_STATE_VS | NINE_STATE_STREAMFREQ))
             update_vertex_elements(device);
-        if (group & NINE_STATE_IDXBUF)
-            commit_index_buffer(device);
     }
 
     if (likely(group & (NINE_STATE_FREQUENT | NINE_STATE_VS | NINE_STATE_PS | NINE_STATE_SWVP))) {
@@ -1526,7 +1438,7 @@ CSMT_ITEM_NO_WAIT(nine_context_set_stream_source_apply,
 
     context->vtxbuf[i].stride = Stride;
     context->vtxbuf[i].buffer_offset = OffsetInBytes;
-    pipe_resource_reference(&context->vtxbuf[i].buffer, res);
+    pipe_resource_reference(&context->vtxbuf[i].buffer.resource, res);
 
     context->changed.vtxbuf |= 1 << StreamNumber;
 }
@@ -1575,10 +1487,9 @@ CSMT_ITEM_NO_WAIT(nine_context_set_indices_apply,
 {
     struct nine_context *context = &device->context;
 
-    context->idxbuf.index_size = IndexSize;
-    context->idxbuf.offset = OffsetInBytes;
-    pipe_resource_reference(&context->idxbuf.buffer, res);
-    context->idxbuf.user_buffer = NULL;
+    context->index_size = IndexSize;
+    context->index_offset = OffsetInBytes;
+    pipe_resource_reference(&context->idxbuf, res);
 
     context->changed.group |= NINE_STATE_IDXBUF;
 }
@@ -1587,16 +1498,13 @@ void
 nine_context_set_indices(struct NineDevice9 *device,
                          struct NineIndexBuffer9 *idxbuf)
 {
-    const struct pipe_index_buffer *pipe_idxbuf;
     struct pipe_resource *res = NULL;
     UINT IndexSize = 0;
-    UINT OffsetInBytes = 0;
+    unsigned OffsetInBytes = 0;
 
     if (idxbuf) {
-        pipe_idxbuf = NineIndexBuffer9_GetBuffer(idxbuf);
-        IndexSize = pipe_idxbuf->index_size;
-        res = pipe_idxbuf->buffer;
-        OffsetInBytes = pipe_idxbuf->offset;
+        res = NineIndexBuffer9_GetBuffer(idxbuf, &OffsetInBytes);
+        IndexSize = idxbuf->index_size;
     }
 
     nine_context_set_indices_apply(device, res, IndexSize, OffsetInBytes);
@@ -2556,10 +2464,10 @@ init_draw_info(struct pipe_draw_info *info,
     if (dev->context.stream_instancedata_mask & dev->context.stream_usage_mask)
         info->instance_count = MAX2(dev->context.stream_freq[0] & 0x7FFFFF, 1);
     info->primitive_restart = FALSE;
+    info->has_user_indices = FALSE;
     info->restart_index = 0;
     info->count_from_stream_output = NULL;
     info->indirect = NULL;
-    info->indirect_params = NULL;
 }
 
 CSMT_ITEM_NO_WAIT(nine_context_draw_primitive,
@@ -2573,22 +2481,23 @@ CSMT_ITEM_NO_WAIT(nine_context_draw_primitive,
     nine_update_state(device);
 
     init_draw_info(&info, device, PrimitiveType, PrimitiveCount);
-    info.indexed = FALSE;
+    info.index_size = 0;
     info.start = StartVertex;
     info.index_bias = 0;
     info.min_index = info.start;
     info.max_index = info.count - 1;
+    info.index.resource = NULL;
 
     context->pipe->draw_vbo(context->pipe, &info);
 }
 
 CSMT_ITEM_NO_WAIT(nine_context_draw_indexed_primitive,
                   ARG_VAL(D3DPRIMITIVETYPE, PrimitiveType),
-                   ARG_VAL(INT, BaseVertexIndex),
-                   ARG_VAL(UINT, MinVertexIndex),
-                   ARG_VAL(UINT, NumVertices),
-                   ARG_VAL(UINT, StartIndex),
-                   ARG_VAL(UINT, PrimitiveCount))
+                  ARG_VAL(INT, BaseVertexIndex),
+                  ARG_VAL(UINT, MinVertexIndex),
+                  ARG_VAL(UINT, NumVertices),
+                  ARG_VAL(UINT, StartIndex),
+                  ARG_VAL(UINT, PrimitiveCount))
 {
     struct nine_context *context = &device->context;
     struct pipe_draw_info info;
@@ -2596,12 +2505,13 @@ CSMT_ITEM_NO_WAIT(nine_context_draw_indexed_primitive,
     nine_update_state(device);
 
     init_draw_info(&info, device, PrimitiveType, PrimitiveCount);
-    info.indexed = TRUE;
-    info.start = StartIndex;
+    info.index_size = context->index_size;
+    info.start = context->index_offset / context->index_size + StartIndex;
     info.index_bias = BaseVertexIndex;
     /* These don't include index bias: */
     info.min_index = MinVertexIndex;
     info.max_index = MinVertexIndex + NumVertices - 1;
+    info.index.resource = context->idxbuf;
 
     context->pipe->draw_vbo(context->pipe, &info);
 }
@@ -2609,7 +2519,7 @@ CSMT_ITEM_NO_WAIT(nine_context_draw_indexed_primitive,
 CSMT_ITEM_NO_WAIT(nine_context_draw_primitive_from_vtxbuf,
                   ARG_VAL(D3DPRIMITIVETYPE, PrimitiveType),
                   ARG_VAL(UINT, PrimitiveCount),
-                  ARG_BIND_BUF(struct pipe_vertex_buffer, vtxbuf))
+                  ARG_BIND_VBUF(struct pipe_vertex_buffer, vtxbuf))
 {
     struct nine_context *context = &device->context;
     struct pipe_draw_info info;
@@ -2617,11 +2527,12 @@ CSMT_ITEM_NO_WAIT(nine_context_draw_primitive_from_vtxbuf,
     nine_update_state(device);
 
     init_draw_info(&info, device, PrimitiveType, PrimitiveCount);
-    info.indexed = FALSE;
+    info.index_size = 0;
     info.start = 0;
     info.index_bias = 0;
     info.min_index = 0;
     info.max_index = info.count - 1;
+    info.index.resource = NULL;
 
     context->pipe->set_vertex_buffers(context->pipe, 0, 1, vtxbuf);
 
@@ -2633,8 +2544,11 @@ CSMT_ITEM_NO_WAIT(nine_context_draw_indexed_primitive_from_vtxbuf_idxbuf,
                   ARG_VAL(UINT, MinVertexIndex),
                   ARG_VAL(UINT, NumVertices),
                   ARG_VAL(UINT, PrimitiveCount),
-                  ARG_BIND_BUF(struct pipe_vertex_buffer, vbuf),
-                  ARG_BIND_BUF(struct pipe_index_buffer, ibuf))
+                  ARG_BIND_VBUF(struct pipe_vertex_buffer, vbuf),
+                  ARG_BIND_RES(struct pipe_resource, ibuf),
+                  ARG_VAL(void *, user_ibuf),
+                  ARG_VAL(UINT, index_offset),
+                  ARG_VAL(UINT, index_size))
 {
     struct nine_context *context = &device->context;
     struct pipe_draw_info info;
@@ -2642,13 +2556,18 @@ CSMT_ITEM_NO_WAIT(nine_context_draw_indexed_primitive_from_vtxbuf_idxbuf,
     nine_update_state(device);
 
     init_draw_info(&info, device, PrimitiveType, PrimitiveCount);
-    info.indexed = TRUE;
-    info.start = 0;
+    info.index_size = index_size;
+    info.start = index_offset / info.index_size;
     info.index_bias = 0;
     info.min_index = MinVertexIndex;
     info.max_index = MinVertexIndex + NumVertices - 1;
+    info.has_user_indices = ibuf == NULL;
+    if (ibuf)
+        info.index.resource = ibuf;
+    else
+        info.index.user = user_ibuf;
+
     context->pipe->set_vertex_buffers(context->pipe, 0, 1, vbuf);
-    context->pipe->set_index_buffer(context->pipe, ibuf);
 
     context->pipe->draw_vbo(context->pipe, &info);
 }
@@ -3136,7 +3055,6 @@ nine_context_clear(struct NineDevice9 *device)
     cso_set_sampler_views(cso, PIPE_SHADER_FRAGMENT, 0, NULL);
 
     pipe->set_vertex_buffers(pipe, 0, device->caps.MaxStreams, NULL);
-    pipe->set_index_buffer(pipe, NULL);
 
     for (i = 0; i < ARRAY_SIZE(context->rt); ++i)
        nine_bind(&context->rt[i], NULL);
@@ -3145,8 +3063,8 @@ nine_context_clear(struct NineDevice9 *device)
     nine_bind(&context->ps, NULL);
     nine_bind(&context->vdecl, NULL);
     for (i = 0; i < PIPE_MAX_ATTRIBS; ++i)
-        pipe_resource_reference(&context->vtxbuf[i].buffer, NULL);
-    pipe_resource_reference(&context->idxbuf.buffer, NULL);
+        pipe_vertex_buffer_unreference(&context->vtxbuf[i]);
+    pipe_resource_reference(&context->idxbuf, NULL);
 
     for (i = 0; i < NINE_MAX_SAMPLERS; ++i) {
         context->texture[i].enabled = FALSE;
@@ -3283,33 +3201,36 @@ update_vertex_buffers_sw(struct NineDevice9 *device, int start_vertice, int num_
                 unsigned offset;
                 struct pipe_resource *buf;
                 struct pipe_box box;
+                void *userbuf;
 
                 vtxbuf = state->vtxbuf[i];
-                vtxbuf.buffer = NineVertexBuffer9_GetResource(state->stream[i], &offset);
+                buf = NineVertexBuffer9_GetResource(state->stream[i], &offset);
 
-                DBG("Locking %p (offset %d, length %d)\n", vtxbuf.buffer,
+                DBG("Locking %p (offset %d, length %d)\n", buf,
                     vtxbuf.buffer_offset, num_vertices * vtxbuf.stride);
 
                 u_box_1d(vtxbuf.buffer_offset + offset + start_vertice * vtxbuf.stride,
                          num_vertices * vtxbuf.stride, &box);
-                buf = vtxbuf.buffer;
-                vtxbuf.user_buffer = pipe->transfer_map(pipe, buf, 0, PIPE_TRANSFER_READ, &box,
-                                                        &(sw_internal->transfers_so[i]));
-                vtxbuf.buffer = NULL;
+
+                userbuf = pipe->transfer_map(pipe, buf, 0, PIPE_TRANSFER_READ, &box,
+                                             &(sw_internal->transfers_so[i]));
+                vtxbuf.is_user_buffer = true;
+                vtxbuf.buffer.user = userbuf;
+
                 if (!device->driver_caps.user_sw_vbufs) {
+                    vtxbuf.buffer.resource = NULL;
+                    vtxbuf.is_user_buffer = false;
                     u_upload_data(device->pipe_sw->stream_uploader,
                                   0,
                                   box.width,
                                   16,
-                                  vtxbuf.user_buffer,
+                                  userbuf,
                                   &(vtxbuf.buffer_offset),
-                                  &(vtxbuf.buffer));
+                                  &(vtxbuf.buffer.resource));
                     u_upload_unmap(device->pipe_sw->stream_uploader);
-                    vtxbuf.user_buffer = NULL;
                 }
                 pipe_sw->set_vertex_buffers(pipe_sw, i, 1, &vtxbuf);
-                if (vtxbuf.buffer)
-                    pipe_resource_reference(&vtxbuf.buffer, NULL);
+                pipe_vertex_buffer_unreference(&vtxbuf);
             } else
                 pipe_sw->set_vertex_buffers(pipe_sw, i, 1, NULL);
         }
@@ -3352,34 +3273,12 @@ update_vs_constants_sw(struct NineDevice9 *device)
         }
 
         buf = cb.user_buffer;
-        if (!device->driver_caps.user_sw_cbufs) {
-            u_upload_data(device->pipe_sw->const_uploader,
-                          0,
-                          cb.buffer_size,
-                          16,
-                          cb.user_buffer,
-                          &(cb.buffer_offset),
-                          &(cb.buffer));
-            u_upload_unmap(device->pipe_sw->const_uploader);
-            cb.user_buffer = NULL;
-        }
 
         pipe_sw->set_constant_buffer(pipe_sw, PIPE_SHADER_VERTEX, 0, &cb);
         if (cb.buffer)
             pipe_resource_reference(&cb.buffer, NULL);
 
         cb.user_buffer = (char *)buf + 4096 * sizeof(float[4]);
-        if (!device->driver_caps.user_sw_cbufs) {
-            u_upload_data(device->pipe_sw->const_uploader,
-                          0,
-                          cb.buffer_size,
-                          16,
-                          cb.user_buffer,
-                          &(cb.buffer_offset),
-                          &(cb.buffer));
-            u_upload_unmap(device->pipe_sw->const_uploader);
-            cb.user_buffer = NULL;
-        }
 
         pipe_sw->set_constant_buffer(pipe_sw, PIPE_SHADER_VERTEX, 1, &cb);
         if (cb.buffer)
@@ -3394,18 +3293,6 @@ update_vs_constants_sw(struct NineDevice9 *device)
         cb.buffer_size = 2048 * sizeof(float[4]);
         cb.user_buffer = state->vs_const_i;
 
-        if (!device->driver_caps.user_sw_cbufs) {
-            u_upload_data(device->pipe_sw->const_uploader,
-                          0,
-                          cb.buffer_size,
-                          16,
-                          cb.user_buffer,
-                          &(cb.buffer_offset),
-                          &(cb.buffer));
-            u_upload_unmap(device->pipe_sw->const_uploader);
-            cb.user_buffer = NULL;
-        }
-
         pipe_sw->set_constant_buffer(pipe_sw, PIPE_SHADER_VERTEX, 2, &cb);
         if (cb.buffer)
             pipe_resource_reference(&cb.buffer, NULL);
@@ -3418,18 +3305,6 @@ update_vs_constants_sw(struct NineDevice9 *device)
         cb.buffer_offset = 0;
         cb.buffer_size = 512 * sizeof(float[4]);
         cb.user_buffer = state->vs_const_b;
-
-        if (!device->driver_caps.user_sw_cbufs) {
-            u_upload_data(device->pipe_sw->const_uploader,
-                          0,
-                          cb.buffer_size,
-                          16,
-                          cb.user_buffer,
-                          &(cb.buffer_offset),
-                          &(cb.buffer));
-            u_upload_unmap(device->pipe_sw->const_uploader);
-            cb.user_buffer = NULL;
-        }
 
         pipe_sw->set_constant_buffer(pipe_sw, PIPE_SHADER_VERTEX, 3, &cb);
         if (cb.buffer)

@@ -1,10 +1,9 @@
 C_SOURCES := \
-	entrypoint.c \
-	entrypoint.h \
-	vid_dec.c \
-	vid_dec.h \
-	vid_dec_mpeg12.c \
-	vid_dec_h264.c \
-	vid_dec_h265.c \
-	vid_enc.c \
-	vid_enc.h
+	vid_dec_common.c \
+	vid_dec_common.h \
+	vid_dec_h264_common.c \
+	vid_dec_h264_common.h \
+	vid_omx_common.c \
+	vid_omx_common.h \
+	vid_enc_common.c \
+	vid_enc_common.h

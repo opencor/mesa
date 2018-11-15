@@ -27,7 +27,7 @@ AM_CFLAGS = \
 	-I$(top_srcdir)/src/loader \
 	-I$(top_srcdir)/src/mapi/ \
 	-I$(top_srcdir)/src/mesa/ \
-	-I$(top_builddir)/src/mesa/drivers/dri/common/ \
+	-I$(top_builddir)/src/util \
 	-I$(top_srcdir)/src/mesa/drivers/dri/common/ \
 	-I$(top_srcdir)/src/gallium/winsys \
 	-I$(top_srcdir)/src/gallium/state_trackers/nine \
@@ -35,10 +35,7 @@ AM_CFLAGS = \
 	$(VISIBILITY_CFLAGS)
 
 AM_CPPFLAGS = \
-	$(DEFINES) \
-	-DGALLIUM_DDEBUG \
-	-DGALLIUM_RBUG \
-	-DGALLIUM_TRACE
+	$(DEFINES)
 
 ninedir = $(D3D_DRIVER_INSTALL_DIR)
 nine_LTLIBRARIES = d3dadapter9.la
@@ -56,7 +53,7 @@ d3dadapter9_la_LDFLAGS = \
 	-shrext .so \
 	-module \
 	-no-undefined \
-	-version-number $(NINE_MAJOR):$(NINE_MINOR):$(NINE_TINY) \
+	-version-number $(NINE_MAJOR):$(NINE_MINOR):$(NINE_PATCH) \
 	$(GC_SECTIONS) \
 	$(LD_NO_UNDEFINED)
 
@@ -70,14 +67,11 @@ d3dadapter9_la_LIBADD = \
 	$(top_builddir)/src/gallium/auxiliary/libgallium.la \
 	$(top_builddir)/src/gallium/state_trackers/nine/libninetracker.la \
 	$(top_builddir)/src/util/libmesautil.la \
-	$(top_builddir)/src/gallium/drivers/ddebug/libddebug.la \
-	$(top_builddir)/src/gallium/drivers/rbug/librbug.la \
-	$(top_builddir)/src/gallium/drivers/trace/libtrace.la \
 	$(EXPAT_LIBS) \
 	$(GALLIUM_COMMON_LIB_DEPS)
 
 EXTRA_d3dadapter9_la_DEPENDENCIES = d3dadapter9.sym
-EXTRA_DIST = d3dadapter9.sym
+EXTRA_DIST = d3dadapter9.sym meson.build
 
 TARGET_DRIVERS =
 TARGET_CPPFLAGS =
@@ -103,6 +97,7 @@ d3dadapter9_la_LIBADD += \
 	$(top_builddir)/src/gallium/auxiliary/pipe-loader/libpipe_loader_static.la \
 	$(GALLIUM_PIPE_LOADER_WINSYS_LIBS) \
 	$(TARGET_LIB_DEPS) \
+	$(TARGET_COMPILER_LIB_DEPS) \
 	$(TARGET_RADEON_WINSYS) $(TARGET_RADEON_COMMON)
 
 else # HAVE_GALLIUM_STATIC_TARGETS

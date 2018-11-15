@@ -45,8 +45,8 @@ struct st_translate {
    struct ureg_src inputs[PIPE_MAX_SHADER_INPUTS];
    struct ureg_src samplers[PIPE_MAX_SAMPLERS];
 
-   const GLuint *inputMapping;
-   const GLuint *outputMapping;
+   const ubyte *inputMapping;
+   const ubyte *outputMapping;
 
    unsigned current_pass;
 
@@ -105,18 +105,18 @@ apply_swizzle(struct st_translate *t,
       imm[0] = src;
       imm[1] = ureg_imm4f(t->ureg, 1.0f, 1.0f, 0.0f, 0.0f);
       imm[2] = ureg_imm4f(t->ureg, 0.0f, 0.0f, 1.0f, 1.0f);
-      ureg_insn(t->ureg, TGSI_OPCODE_MAD, &tmp[0], 1, imm, 3);
+      ureg_insn(t->ureg, TGSI_OPCODE_MAD, &tmp[0], 1, imm, 3, 0);
 
       if (swizzle == GL_SWIZZLE_STR_DR_ATI) {
          imm[0] = ureg_scalar(src, TGSI_SWIZZLE_Z);
       } else {
          imm[0] = ureg_scalar(src, TGSI_SWIZZLE_W);
       }
-      ureg_insn(t->ureg, TGSI_OPCODE_RCP, &tmp[1], 1, &imm[0], 1);
+      ureg_insn(t->ureg, TGSI_OPCODE_RCP, &tmp[1], 1, &imm[0], 1, 0);
 
       imm[0] = ureg_src(tmp[0]);
       imm[1] = ureg_src(tmp[1]);
-      ureg_insn(t->ureg, TGSI_OPCODE_MUL, &tmp[0], 1, imm, 2);
+      ureg_insn(t->ureg, TGSI_OPCODE_MUL, &tmp[0], 1, imm, 2, 0);
 
       return ureg_src(tmp[0]);
    }
@@ -170,35 +170,35 @@ prepare_argument(struct st_translate *t, const unsigned argId,
       src = ureg_scalar(src, TGSI_SWIZZLE_W);
       break;
    }
-   ureg_insn(t->ureg, TGSI_OPCODE_MOV, &arg, 1, &src, 1);
+   ureg_insn(t->ureg, TGSI_OPCODE_MOV, &arg, 1, &src, 1, 0);
 
    if (srcReg->argMod & GL_COMP_BIT_ATI) {
       struct ureg_src modsrc[2];
       modsrc[0] = ureg_imm1f(t->ureg, 1.0f);
       modsrc[1] = ureg_negate(ureg_src(arg));
 
-      ureg_insn(t->ureg, TGSI_OPCODE_ADD, &arg, 1, modsrc, 2);
+      ureg_insn(t->ureg, TGSI_OPCODE_ADD, &arg, 1, modsrc, 2, 0);
    }
    if (srcReg->argMod & GL_BIAS_BIT_ATI) {
       struct ureg_src modsrc[2];
       modsrc[0] = ureg_src(arg);
       modsrc[1] = ureg_imm1f(t->ureg, -0.5f);
 
-      ureg_insn(t->ureg, TGSI_OPCODE_ADD, &arg, 1, modsrc, 2);
+      ureg_insn(t->ureg, TGSI_OPCODE_ADD, &arg, 1, modsrc, 2, 0);
    }
    if (srcReg->argMod & GL_2X_BIT_ATI) {
       struct ureg_src modsrc[2];
       modsrc[0] = ureg_src(arg);
       modsrc[1] = ureg_src(arg);
 
-      ureg_insn(t->ureg, TGSI_OPCODE_ADD, &arg, 1, modsrc, 2);
+      ureg_insn(t->ureg, TGSI_OPCODE_ADD, &arg, 1, modsrc, 2, 0);
    }
    if (srcReg->argMod & GL_NEGATE_BIT_ATI) {
       struct ureg_src modsrc[2];
       modsrc[0] = ureg_src(arg);
       modsrc[1] = ureg_imm1f(t->ureg, -1.0f);
 
-      ureg_insn(t->ureg, TGSI_OPCODE_MUL, &arg, 1, modsrc, 2);
+      ureg_insn(t->ureg, TGSI_OPCODE_MUL, &arg, 1, modsrc, 2, 0);
    }
    return  ureg_src(arg);
 }
@@ -217,25 +217,24 @@ emit_special_inst(struct st_translate *t, const struct instruction_desc *desc,
       tmp[0] = get_temp(t, MAX_NUM_FRAGMENT_REGISTERS_ATI + 2); /* re-purpose a3 */
       src[0] = ureg_imm1f(t->ureg, 0.5f);
       src[1] = ureg_negate(args[2]);
-      ureg_insn(t->ureg, TGSI_OPCODE_ADD, tmp, 1, src, 2);
+      ureg_insn(t->ureg, TGSI_OPCODE_ADD, tmp, 1, src, 2, 0);
       src[0] = ureg_src(tmp[0]);
       src[1] = args[0];
       src[2] = args[1];
-      ureg_insn(t->ureg, TGSI_OPCODE_CMP, dst, 1, src, 3);
+      ureg_insn(t->ureg, TGSI_OPCODE_CMP, dst, 1, src, 3, 0);
    } else if (!strcmp(desc->name, "CND0")) {
       src[0] = args[2];
       src[1] = args[1];
       src[2] = args[0];
-      ureg_insn(t->ureg, TGSI_OPCODE_CMP, dst, 1, src, 3);
+      ureg_insn(t->ureg, TGSI_OPCODE_CMP, dst, 1, src, 3, 0);
    } else if (!strcmp(desc->name, "DOT2_ADD")) {
-      /* note: DP2A is not implemented in most pipe drivers */
       tmp[0] = get_temp(t, MAX_NUM_FRAGMENT_REGISTERS_ATI); /* re-purpose a1 */
       src[0] = args[0];
       src[1] = args[1];
-      ureg_insn(t->ureg, TGSI_OPCODE_DP2, tmp, 1, src, 2);
+      ureg_insn(t->ureg, TGSI_OPCODE_DP2, tmp, 1, src, 2, 0);
       src[0] = ureg_src(tmp[0]);
       src[1] = ureg_scalar(args[2], TGSI_SWIZZLE_Z);
-      ureg_insn(t->ureg, TGSI_OPCODE_ADD, dst, 1, src, 2);
+      ureg_insn(t->ureg, TGSI_OPCODE_ADD, dst, 1, src, 2, 0);
    }
 }
 
@@ -249,7 +248,7 @@ emit_arith_inst(struct st_translate *t,
       return;
    }
 
-   ureg_insn(t->ureg, desc->TGSI_opcode, dst, 1, args, argcount);
+   ureg_insn(t->ureg, desc->TGSI_opcode, dst, 1, args, argcount, 0);
 }
 
 static void
@@ -292,7 +291,7 @@ emit_dstmod(struct st_translate *t,
    if (dstMod & GL_SATURATE_BIT_ATI) {
       dst = ureg_saturate(dst);
    }
-   ureg_insn(t->ureg, TGSI_OPCODE_MUL, &dst, 1, src, 2);
+   ureg_insn(t->ureg, TGSI_OPCODE_MUL, &dst, 1, src, 2, 0);
 }
 
 /**
@@ -334,9 +333,9 @@ compile_setupinst(struct st_translate *t,
       src[1] = t->samplers[r];
       /* the texture target is still unknown, it will be fixed in the draw call */
       ureg_tex_insn(t->ureg, TGSI_OPCODE_TEX, dst, 1, TGSI_TEXTURE_2D,
-                    NULL, 0, src, 2);
+                    TGSI_RETURN_TYPE_FLOAT, NULL, 0, src, 2);
    } else if (texinst->Opcode == ATI_FRAGMENT_SHADER_PASS_OP) {
-      ureg_insn(t->ureg, TGSI_OPCODE_MOV, dst, 1, src, 1);
+      ureg_insn(t->ureg, TGSI_OPCODE_MOV, dst, 1, src, 1, 0);
    }
 
    t->regs_written[t->current_pass][r] = true;
@@ -408,11 +407,11 @@ finalize_shader(struct st_translate *t, unsigned numPasses)
       /* copy the result into the OUT slot */
       dst[0] = t->outputs[t->outputMapping[FRAG_RESULT_COLOR]];
       src[0] = ureg_src(t->temps[0]);
-      ureg_insn(t->ureg, TGSI_OPCODE_MOV, dst, 1, src, 1);
+      ureg_insn(t->ureg, TGSI_OPCODE_MOV, dst, 1, src, 1, 0);
    }
 
    /* signal the end of the program */
-   ureg_insn(t->ureg, TGSI_OPCODE_END, dst, 0, src, 0);
+   ureg_insn(t->ureg, TGSI_OPCODE_END, dst, 0, src, 0, 0);
 }
 
 /**
@@ -425,12 +424,12 @@ st_translate_atifs_program(
    struct ati_fragment_shader *atifs,
    struct gl_program *program,
    GLuint numInputs,
-   const GLuint inputMapping[],
+   const ubyte inputMapping[],
    const ubyte inputSemanticName[],
    const ubyte inputSemanticIndex[],
-   const GLuint interpMode[],
+   const ubyte interpMode[],
    GLuint numOutputs,
-   const GLuint outputMapping[],
+   const ubyte outputMapping[],
    const ubyte outputSemanticName[],
    const ubyte outputSemanticIndex[])
 {
@@ -477,6 +476,8 @@ st_translate_atifs_program(
       }
 
       for (i = 0; i < program->Parameters->NumParameters; i++) {
+         unsigned pvo = program->Parameters->ParameterValueOffset[i];
+
          switch (program->Parameters->Parameters[i].Type) {
          case PROGRAM_STATE_VAR:
          case PROGRAM_UNIFORM:
@@ -485,7 +486,7 @@ st_translate_atifs_program(
          case PROGRAM_CONSTANT:
             t->constants[i] =
                ureg_DECL_immediate(ureg,
-                                   (const float*)program->Parameters->ParameterValues[i],
+                                   (const float*)program->Parameters->ParameterValues + pvo,
                                    4);
             break;
          default:
@@ -545,9 +546,9 @@ st_init_atifs_prog(struct gl_context *ctx, struct gl_program *prog)
 
    unsigned pass, i, r, optype, arg;
 
-   static const gl_state_index fog_params_state[STATE_LENGTH] =
+   static const gl_state_index16 fog_params_state[STATE_LENGTH] =
       {STATE_INTERNAL, STATE_FOG_PARAMS_OPTIMIZED, 0, 0, 0};
-   static const gl_state_index fog_color[STATE_LENGTH] =
+   static const gl_state_index16 fog_color[STATE_LENGTH] =
       {STATE_FOG_COLOR, 0, 0, 0, 0};
 
    prog->info.inputs_read = 0;
@@ -602,14 +603,10 @@ st_init_atifs_prog(struct gl_context *ctx, struct gl_program *prog)
    /* we always have the ATI_fs constants, and the fog params */
    for (i = 0; i < MAX_NUM_FRAGMENT_CONSTANTS_ATI; i++) {
       _mesa_add_parameter(prog->Parameters, PROGRAM_UNIFORM,
-                          NULL, 4, GL_FLOAT, NULL, NULL);
+                          NULL, 4, GL_FLOAT, NULL, NULL, true);
    }
    _mesa_add_state_reference(prog->Parameters, fog_params_state);
    _mesa_add_state_reference(prog->Parameters, fog_color);
-
-   prog->arb.NumInstructions = 0;
-   prog->arb.NumTemporaries = MAX_NUM_FRAGMENT_REGISTERS_ATI + 3; /* 3 input temps for arith ops */
-   prog->arb.NumParameters = MAX_NUM_FRAGMENT_CONSTANTS_ATI + 2; /* 2 state variables for fog */
 }
 
 
@@ -638,6 +635,10 @@ set_src(struct tgsi_full_instruction *inst, unsigned i, unsigned file, unsigned 
    inst->Src[i].Register.SwizzleY = y;
    inst->Src[i].Register.SwizzleZ = z;
    inst->Src[i].Register.SwizzleW = w;
+   if (file == TGSI_FILE_CONSTANT) {
+      inst->Src[i].Register.Dimension = 1;
+      inst->Src[i].Dimension.Index = 0;
+   }
 }
 
 #define SET_SRC(inst, i, file, index, x, y, z, w) \

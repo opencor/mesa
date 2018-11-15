@@ -23,7 +23,7 @@ To create and destroy the module:
 
 	GLboolean _swrast_CreateContext( struct gl_context *ctx );
 	void _swrast_DestroyContext( struct gl_context *ctx );
-
+   
 This module tracks state changes internally and maintains derived
 values based on the current state.  For this to work, the driver
 ensure the following funciton is called whenever the state changes and
@@ -31,7 +31,7 @@ the swsetup module is 'awake':
 
 	void _swrast_InvalidateState( struct gl_context *ctx, GLuint new_state );
 
-There is no explicit call to put the swrast module to sleep.
+There is no explicit call to put the swrast module to sleep.  
 
 
 CUSTOMIZATION

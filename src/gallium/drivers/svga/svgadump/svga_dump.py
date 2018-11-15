@@ -97,49 +97,49 @@ class type_dumper_t(type_visitor.type_visitor_t):
 
     def visit_char(self):
         self.print_instance('%i')
-
+        
     def visit_unsigned_char(self):
         self.print_instance('%u')
 
     def visit_signed_char(self):
         self.print_instance('%i')
-
+    
     def visit_wchar(self):
         self.print_instance('%i')
-
+        
     def visit_short_int(self):
         self.print_instance('%i')
-
+        
     def visit_short_unsigned_int(self):
         self.print_instance('%u')
-
+        
     def visit_bool(self):
         self.print_instance('%i')
-
+        
     def visit_int(self):
         self.print_instance('%i')
-
+        
     def visit_unsigned_int(self):
         self.print_instance('%u')
-
+        
     def visit_long_int(self):
         self.print_instance('%li')
-
+        
     def visit_long_unsigned_int(self):
         self.print_instance('%lu')
-
+        
     def visit_long_long_int(self):
         self.print_instance('%lli')
-
+        
     def visit_long_long_unsigned_int(self):
         self.print_instance('%llu')
-
+        
     def visit_float(self):
         self.print_instance('%f')
-
+        
     def visit_double(self):
         self.print_instance('%f')
-
+        
     def visit_array(self):
         for i in range(type_traits.array_size(self.type)):
             dump_type(self.instance + '[%i]' % i, type_traits.base_type(self.type))
@@ -206,7 +206,7 @@ cmds = [
 
 def dump_cmds():
     print r'''
-void
+void            
 svga_dump_command(uint32_t cmd_id, const void *data, uint32_t size)
 {
    const uint8_t *body = (const uint8_t *)data;
@@ -256,14 +256,14 @@ svga_dump_command(uint32_t cmd_id, const void *data, uint32_t size)
 }
 '''
     print r'''
-void
+void            
 svga_dump_commands(const void *commands, uint32_t size)
 {
    const uint8_t *next = commands;
    const uint8_t *last = next + size;
-
+   
    assert(size % sizeof(uint32_t) == 0);
-
+   
    while(next < last) {
       const uint32_t cmd_id = *(const uint32_t *)next;
 
@@ -314,8 +314,8 @@ def main():
     )
 
     headers = [
-        'svga_types.h',
-        'svga3d_reg.h',
+        'svga_types.h', 
+        'svga3d_reg.h', 
     ]
 
     decls = parser.parse(headers, config, parser.COMPILATION_MODE.ALL_AT_ONCE)

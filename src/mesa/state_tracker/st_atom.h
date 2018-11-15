@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,14 +22,14 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
  /*
   * Authors:
   *   Keith Whitwell <keithw@vmware.com>
   */
-
+    
 
 #ifndef ST_ATOM_H
 #define ST_ATOM_H
@@ -44,14 +44,10 @@ struct st_context;
 enum st_pipeline {
    ST_PIPELINE_RENDER,
    ST_PIPELINE_CLEAR,
+   ST_PIPELINE_META,
    ST_PIPELINE_UPDATE_FRAMEBUFFER,
    ST_PIPELINE_COMPUTE,
 };
-
-struct st_tracked_state {
-   void (*update)( struct st_context *st );
-};
-
 
 void st_init_atoms( struct st_context *st );
 void st_destroy_atoms( struct st_context *st );
@@ -59,8 +55,7 @@ void st_validate_state( struct st_context *st, enum st_pipeline pipeline );
 GLuint st_compare_func_to_pipe(GLenum func);
 
 enum pipe_format
-st_pipe_vertex_format(GLenum type, GLuint size, GLenum format,
-                      GLboolean normalized, GLboolean integer);
+st_pipe_vertex_format(const struct gl_array_attributes *attrib);
 
 
 /* Define ST_NEW_xxx_INDEX */
@@ -73,12 +68,12 @@ enum {
 /* Define ST_NEW_xxx values as static const uint64_t values.
  * We can't use an enum type because MSVC doesn't allow 64-bit enum values.
  */
-#define ST_STATE(FLAG, st_update) static const uint64_t FLAG = 1llu << FLAG##_INDEX;
+#define ST_STATE(FLAG, st_update) static const uint64_t FLAG = 1ull << FLAG##_INDEX;
 #include "st_atom_list.h"
 #undef ST_STATE
 
-/* Add extern struct declarations. */
-#define ST_STATE(FLAG, st_update) extern const struct st_tracked_state st_update;
+/* Declare function prototypes. */
+#define ST_STATE(FLAG, st_update) void st_update(struct st_context *st);
 #include "st_atom_list.h"
 #undef ST_STATE
 
@@ -91,7 +86,7 @@ enum {
                                  ST_NEW_CS_SAMPLERS)
 
 #define ST_NEW_FRAMEBUFFER      (ST_NEW_FB_STATE | \
-                                 ST_NEW_SAMPLE_MASK | \
+                                 ST_NEW_SAMPLE_STATE | \
                                  ST_NEW_SAMPLE_SHADING)
 
 #define ST_NEW_VERTEX_PROGRAM(st, p) (p->affected_states | \
@@ -150,10 +145,12 @@ enum {
 
 /* All state flags within each group: */
 #define ST_PIPELINE_RENDER_STATE_MASK  (ST_NEW_CS_STATE - 1)
-#define ST_PIPELINE_COMPUTE_STATE_MASK (0xffllu << ST_NEW_CS_STATE_INDEX)
+#define ST_PIPELINE_COMPUTE_STATE_MASK (0xffull << ST_NEW_CS_STATE_INDEX)
 #define ST_PIPELINE_CLEAR_STATE_MASK (ST_NEW_FB_STATE | \
                                       ST_NEW_SCISSOR | \
                                       ST_NEW_WINDOW_RECTANGLES)
+#define ST_PIPELINE_META_STATE_MASK (ST_PIPELINE_RENDER_STATE_MASK & \
+                                     ~ST_NEW_VERTEX_ARRAYS)
 /* For ReadPixels, ReadBuffer, GetSamplePosition: */
 #define ST_PIPELINE_UPDATE_FB_STATE_MASK (ST_NEW_FB_STATE)
 

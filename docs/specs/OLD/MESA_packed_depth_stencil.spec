@@ -30,7 +30,7 @@ Dependencies
     ARB_packed_pixels affects the definition of this extension
 
 Overview
-
+	
     Provides a mechanism for DrawPixels and ReadPixels to efficiently
     transfer depth and stencil image data.  Specifically, we defined new
     packed pixel formats and types which pack both stencil and depth
@@ -40,7 +40,7 @@ Issues:
 
     1. Is this the right way to distinguish between 24/8 and 8/24
        pixel formats?  Should we instead provide both:
-
+	
        GL_DEPTH_STENCIL_MESA
        GL_STENCIL_DEPTH_MESA
 
@@ -49,15 +49,15 @@ Issues:
     2. If not, is it correct to use _REV to indicate that stencil
        preceeds depth in the 1_15 and 8_24 formats?
 
-    3. Do we really want the GL_UNSIGNED_SHORT formats?
+    3. Do we really want the GL_UNSIGNED_SHORT formats?  
 
-
+	
 New Procedures and Functions
 
     None.
 
 New Tokens
-
+    
     Accepted by the <format> parameter of ReadPixels and DrawPixels:
 
 	GL_DEPTH_STENCIL_MESA		0x8750
@@ -133,8 +133,8 @@ Additions to Chapter 3 of the 1.1 Specification (Rasterization)
 	    |			    |			     			    			    |
 	    +-----------------------+-----------------------------------------------------------------------+
 
-		    first					second
-		    element					element
+		    first					second		    
+		    element					element		    
 
 
 	UNSIGNED_INT_24_8:
@@ -144,8 +144,8 @@ Additions to Chapter 3 of the 1.1 Specification (Rasterization)
 	    |			    			     			   | 			    |
 	    +----------------------------------------------------------------------+------------------------+
 
-		    first								  second
-		    element								  element
+		    first								  second		    
+		    element								  element		    
 
 	UNSIGNED_SHORT_15_1:
 
@@ -154,8 +154,8 @@ Additions to Chapter 3 of the 1.1 Specification (Rasterization)
 	    |					    			|   |
 	    +-----------------------------------------------------------+---+
 
-	    		first						second
-			element						element
+	    		first						second	
+			element						element	
 
 
 	UNSIGNED_SHORT_1_15_REV:

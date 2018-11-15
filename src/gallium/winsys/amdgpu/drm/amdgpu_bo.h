@@ -25,10 +25,6 @@
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
  */
-/*
- * Authors:
- *      Marek Olšák <maraeo@gmail.com>
- */
 
 #ifndef AMDGPU_BO_H
 #define AMDGPU_BO_H
@@ -76,7 +72,7 @@ struct amdgpu_winsys_bo {
          struct amdgpu_winsys_bo *real;
       } slab;
       struct {
-         mtx_t commit_lock;
+         simple_mtx_t commit_lock;
          amdgpu_va_handle va_handle;
          enum radeon_bo_flag flags;
 
@@ -115,6 +111,8 @@ struct amdgpu_winsys_bo {
    unsigned num_fences;
    unsigned max_fences;
    struct pipe_fence_handle **fences;
+
+   bool is_local;
 };
 
 struct amdgpu_slab {

@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
  /*
@@ -30,7 +30,7 @@
   *   Keith Whitwell <keithw@vmware.com>
   *   Brian Paul
   */
-
+ 
 
 #include "st_context.h"
 #include "st_atom.h"
@@ -39,6 +39,8 @@
 #include "pipe/p_defines.h"
 #include "cso_cache/cso_context.h"
 
+#include "framebuffer.h"
+#include "main/blend.h"
 #include "main/macros.h"
 
 /**
@@ -106,76 +108,30 @@ translate_blend(GLenum blend)
    }
 }
 
-
-/**
- * Convert GLenum logicop tokens to pipe tokens.
- */
-static GLuint
-translate_logicop(GLenum logicop)
-{
-   switch (logicop) {
-   case GL_CLEAR:
-      return PIPE_LOGICOP_CLEAR;
-   case GL_NOR:
-      return PIPE_LOGICOP_NOR;
-   case GL_AND_INVERTED:
-      return PIPE_LOGICOP_AND_INVERTED;
-   case GL_COPY_INVERTED:
-      return PIPE_LOGICOP_COPY_INVERTED;
-   case GL_AND_REVERSE:
-      return PIPE_LOGICOP_AND_REVERSE;
-   case GL_INVERT:
-      return PIPE_LOGICOP_INVERT;
-   case GL_XOR:
-      return PIPE_LOGICOP_XOR;
-   case GL_NAND:
-      return PIPE_LOGICOP_NAND;
-   case GL_AND:
-      return PIPE_LOGICOP_AND;
-   case GL_EQUIV:
-      return PIPE_LOGICOP_EQUIV;
-   case GL_NOOP:
-      return PIPE_LOGICOP_NOOP;
-   case GL_OR_INVERTED:
-      return PIPE_LOGICOP_OR_INVERTED;
-   case GL_COPY:
-      return PIPE_LOGICOP_COPY;
-   case GL_OR_REVERSE:
-      return PIPE_LOGICOP_OR_REVERSE;
-   case GL_OR:
-      return PIPE_LOGICOP_OR;
-   case GL_SET:
-      return PIPE_LOGICOP_SET;
-   default:
-      assert("invalid GL token in translate_logicop()" == NULL);
-      return 0;
-   }
-}
-
 /**
  * Figure out if colormasks are different per rt.
  */
 static GLboolean
-colormask_per_rt(const struct gl_context *ctx)
+colormask_per_rt(const struct gl_context *ctx, unsigned num_cb)
 {
-   /* a bit suboptimal have to compare lots of values */
-   unsigned i;
-   for (i = 1; i < ctx->Const.MaxDrawBuffers; i++) {
-      if (memcmp(ctx->Color.ColorMask[0], ctx->Color.ColorMask[i], 4)) {
-         return GL_TRUE;
-      }
-   }
-   return GL_FALSE;
+   GLbitfield full_mask = _mesa_replicate_colormask(0xf, num_cb);
+   GLbitfield repl_mask0 =
+      _mesa_replicate_colormask(GET_COLORMASK(ctx->Color.ColorMask, 0),
+                                num_cb);
+
+   return (ctx->Color.ColorMask & full_mask) != repl_mask0;
 }
 
 /**
  * Figure out if blend enables/state are different per rt.
  */
 static GLboolean
-blend_per_rt(const struct gl_context *ctx)
+blend_per_rt(const struct gl_context *ctx, unsigned num_cb)
 {
-   if (ctx->Color.BlendEnabled &&
-      (ctx->Color.BlendEnabled != ((1U << ctx->Const.MaxDrawBuffers) - 1))) {
+   GLbitfield cb_mask = u_bit_consecutive(0, num_cb);
+   GLbitfield blend_enabled = ctx->Color.BlendEnabled & cb_mask;
+
+   if (blend_enabled && blend_enabled != cb_mask) {
       /* This can only happen if GL_EXT_draw_buffers2 is enabled */
       return GL_TRUE;
    }
@@ -186,34 +142,42 @@ blend_per_rt(const struct gl_context *ctx)
    return GL_FALSE;
 }
 
-static void
-update_blend( struct st_context *st )
+void
+st_update_blend( struct st_context *st )
 {
    struct pipe_blend_state *blend = &st->state.blend;
    const struct gl_context *ctx = st->ctx;
+   unsigned num_cb = st->state.fb_num_cb;
    unsigned num_state = 1;
    unsigned i, j;
 
    memset(blend, 0, sizeof(*blend));
 
-   if (blend_per_rt(ctx) || colormask_per_rt(ctx)) {
-      num_state = ctx->Const.MaxDrawBuffers;
+   if (num_cb > 1 &&
+       (blend_per_rt(ctx, num_cb) || colormask_per_rt(ctx, num_cb))) {
+      num_state = num_cb;
       blend->independent_blend_enable = 1;
    }
+
+   for (i = 0; i < num_state; i++)
+      blend->rt[i].colormask = GET_COLORMASK(ctx->Color.ColorMask, i);
+
    if (ctx->Color.ColorLogicOpEnabled) {
       /* logicop enabled */
       blend->logicop_enable = 1;
-      blend->logicop_func = translate_logicop(ctx->Color.LogicOp);
+      blend->logicop_func = ctx->Color._LogicOp;
    }
    else if (ctx->Color.BlendEnabled && !ctx->Color._AdvancedBlendMode) {
       /* blending enabled */
       for (i = 0, j = 0; i < num_state; i++) {
+         if (!(ctx->Color.BlendEnabled & (1 << i)) ||
+             !blend->rt[i].colormask)
+            continue;
 
-         blend->rt[i].blend_enable = (ctx->Color.BlendEnabled >> i) & 0x1;
-
-         if (ctx->Extensions.ARB_draw_buffers_blend)
+	 if (ctx->Extensions.ARB_draw_buffers_blend)
             j = i;
 
+         blend->rt[i].blend_enable = 1;
          blend->rt[i].rgb_func =
             translate_blend(ctx->Color.Blend[j].EquationRGB);
 
@@ -251,22 +215,9 @@ update_blend( struct st_context *st )
       /* no blending / logicop */
    }
 
-   /* Colormask - maybe reverse these bits? */
-   for (i = 0; i < num_state; i++) {
-      if (ctx->Color.ColorMask[i][0])
-         blend->rt[i].colormask |= PIPE_MASK_R;
-      if (ctx->Color.ColorMask[i][1])
-         blend->rt[i].colormask |= PIPE_MASK_G;
-      if (ctx->Color.ColorMask[i][2])
-         blend->rt[i].colormask |= PIPE_MASK_B;
-      if (ctx->Color.ColorMask[i][3])
-         blend->rt[i].colormask |= PIPE_MASK_A;
-   }
-
    blend->dither = ctx->Color.DitherFlag;
 
-   if (ctx->Multisample.Enabled &&
-       ctx->DrawBuffer->Visual.sampleBuffers > 0 &&
+   if (_mesa_is_multisample_enabled(ctx) &&
        !(ctx->DrawBuffer->_IntegerBuffers & 0x1)) {
       /* Unlike in gallium/d3d10 these operations are only performed
        * if both msaa is enabled and we have a multisample buffer.
@@ -276,15 +227,13 @@ update_blend( struct st_context *st )
    }
 
    cso_set_blend(st->cso_context, blend);
-
-   {
-      struct pipe_blend_color bc;
-      COPY_4FV(bc.color, ctx->Color.BlendColorUnclamped);
-      cso_set_blend_color(st->cso_context, &bc);
-   }
 }
 
+void
+st_update_blend_color(struct st_context *st)
+{
+   struct pipe_blend_color bc;
 
-const struct st_tracked_state st_update_blend = {
-   update_blend,					/* update */
-};
+   COPY_4FV(bc.color, st->ctx->Color.BlendColorUnclamped);
+   cso_set_blend_color(st->cso_context, &bc);
+}

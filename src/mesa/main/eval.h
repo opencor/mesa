@@ -1,7 +1,7 @@
 /**
  * \file eval.h
  * Eval operations.
- *
+ * 
  * \if subset
  * (No-op)
  *
@@ -37,7 +37,7 @@
 #define EVAL_H
 
 
-#include "main/mtypes.h"
+#include "dd.h"
 #include <stdbool.h>
 
 

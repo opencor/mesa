@@ -113,12 +113,14 @@ nvc0_render_condition(struct pipe_context *pipe,
       /* NOTE: comparison of 2 queries only works if both have completed */
       switch (q->type) {
       case PIPE_QUERY_SO_OVERFLOW_PREDICATE:
+      case PIPE_QUERY_SO_OVERFLOW_ANY_PREDICATE:
          cond = condition ? NVC0_3D_COND_MODE_EQUAL :
-                          NVC0_3D_COND_MODE_NOT_EQUAL;
+                            NVC0_3D_COND_MODE_NOT_EQUAL;
          wait = true;
          break;
       case PIPE_QUERY_OCCLUSION_COUNTER:
       case PIPE_QUERY_OCCLUSION_PREDICATE:
+      case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE:
          if (likely(!condition)) {
             if (unlikely(hq->nesting))
                cond = wait ? NVC0_3D_COND_MODE_NOT_EQUAL :

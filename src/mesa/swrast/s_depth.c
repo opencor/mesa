@@ -182,7 +182,7 @@ _swrast_depth_clamp_span( struct gl_context *ctx, SWspan *span )
    /* Convert floating point values in [0,1] to device Z coordinates in
     * [0, DepthMax].
     * ex: If the Z buffer has 24 bits, DepthMax = 0xffffff.
-    *
+    * 
     * XXX this all falls apart if we have 31 or more bits of Z because
     * the triangle rasterization code produces unsigned Z values.  Negative
     * vertex Z values come out as large fragment Z uints.
@@ -570,7 +570,8 @@ _swrast_clear_depth_buffer(struct gl_context *ctx)
    }
 
    ctx->Driver.MapRenderbuffer(ctx, rb, x, y, width, height,
-                               mapMode, &map, &rowStride);
+                               mapMode, &map, &rowStride,
+                               ctx->DrawBuffer->FlipY);
    if (!map) {
       _mesa_error(ctx, GL_OUT_OF_MEMORY, "glClear(depth)");
       return;
@@ -695,7 +696,8 @@ _swrast_clear_depth_stencil_buffer(struct gl_context *ctx)
    }
 
    ctx->Driver.MapRenderbuffer(ctx, rb, x, y, width, height,
-                               mapMode, &map, &rowStride);
+                               mapMode, &map, &rowStride,
+                               ctx->DrawBuffer->FlipY);
    if (!map) {
       _mesa_error(ctx, GL_OUT_OF_MEMORY, "glClear(depth+stencil)");
       return;

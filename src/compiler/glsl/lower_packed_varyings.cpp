@@ -149,6 +149,7 @@
 #include "ir_builder.h"
 #include "ir_optimization.h"
 #include "program/prog_instruction.h"
+#include "main/mtypes.h"
 
 using namespace ir_builder;
 
@@ -383,6 +384,12 @@ lower_packed_varyings_visitor::bitwise_assign_pack(ir_rvalue *lhs,
             rhs = u2i(expr(ir_unop_unpack_uint_2x32, rhs));
          }
          break;
+      case GLSL_TYPE_SAMPLER:
+         rhs = u2i(expr(ir_unop_unpack_sampler_2x32, rhs));
+         break;
+      case GLSL_TYPE_IMAGE:
+         rhs = u2i(expr(ir_unop_unpack_image_2x32, rhs));
+         break;
       default:
          assert(!"Unexpected type conversion while lowering varyings");
          break;
@@ -461,6 +468,14 @@ lower_packed_varyings_visitor::bitwise_assign_unpack(ir_rvalue *lhs,
          } else {
             rhs = expr(ir_unop_pack_uint_2x32, i2u(rhs));
          }
+         break;
+      case GLSL_TYPE_SAMPLER:
+         rhs = new(mem_ctx)
+            ir_expression(ir_unop_pack_sampler_2x32, lhs->type, i2u(rhs));
+         break;
+      case GLSL_TYPE_IMAGE:
+         rhs = new(mem_ctx)
+            ir_expression(ir_unop_pack_image_2x32, lhs->type, i2u(rhs));
          break;
       default:
          assert(!"Unexpected type conversion while lowering varyings");
@@ -714,12 +729,17 @@ lower_packed_varyings_visitor::get_packed_varying_deref(
       unpacked_var->insert_before(packed_var);
       this->packed_varyings[slot] = packed_var;
    } else {
+      ir_variable *var = this->packed_varyings[slot];
+
+      /* The slot needs to be marked as always active if any variable that got
+       * packed there was.
+       */
+      var->data.always_active_io |= unpacked_var->data.always_active_io;
+
       /* For geometry shader inputs, only update the packed variable name the
        * first time we visit each component.
        */
       if (this->gs_input_vertices == 0 || vertex_index == 0) {
-         ir_variable *var = this->packed_varyings[slot];
-
          if (var->is_name_ralloced())
             ralloc_asprintf_append((char **) &var->name, ",%s", name);
          else
@@ -742,16 +762,17 @@ lower_packed_varyings_visitor::get_packed_varying_deref(
 bool
 lower_packed_varyings_visitor::needs_lowering(ir_variable *var)
 {
-   /* Things composed of vec4's and varyings with explicitly assigned
-    * locations don't need lowering.  Everything else does.
+   /* Things composed of vec4's, varyings with explicitly assigned
+    * locations or varyings marked as must_be_shader_input (which might be used
+    * by interpolateAt* functions) shouldn't be lowered. Everything else can be.
     */
-   if (var->data.explicit_location)
+   if (var->data.explicit_location || var->data.must_be_shader_input)
       return false;
 
    /* Override disable_varying_packing if the var is only used by transform
     * feedback. Also override it if transform feedback is enabled and the
     * variable is an array, struct or matrix as the elements of these types
-    * will always has the same interpolation and therefore asre safe to pack.
+    * will always have the same interpolation and therefore are safe to pack.
     */
    const glsl_type *type = var->type;
    if (disable_varying_packing && !var->data.is_xfb_only &&

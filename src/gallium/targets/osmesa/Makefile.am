@@ -33,8 +33,7 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/src/gallium/drivers \
 	-I$(top_srcdir)/src/gallium/winsys \
 	-I$(top_srcdir)/src/gallium/auxiliary \
-	-DGALLIUM_SOFTPIPE \
-	-DGALLIUM_TRACE
+	-DGALLIUM_SOFTPIPE
 
 lib_LTLIBRARIES = lib@OSMESA_LIB@.la
 
@@ -60,13 +59,13 @@ lib@OSMESA_LIB@_la_LIBADD = \
 	$(top_builddir)/src/mesa/libmesagallium.la \
 	$(top_builddir)/src/gallium/auxiliary/libgallium.la \
 	$(top_builddir)/src/gallium/winsys/sw/null/libws_null.la \
-	$(top_builddir)/src/gallium/drivers/trace/libtrace.la \
 	$(top_builddir)/src/gallium/drivers/softpipe/libsoftpipe.la \
 	$(top_builddir)/src/gallium/state_trackers/osmesa/libosmesa.la \
 	$(top_builddir)/src/mapi/glapi/libglapi.la \
 	$(SHARED_GLAPI_LIB) \
 	$(OSMESA_LIB_DEPS) \
-	$(CLOCK_LIB)
+	$(CLOCK_LIB) \
+	$(LIBUNWIND_LIBS)
 
 if HAVE_GALLIUM_LLVM
 AM_CPPFLAGS += -DGALLIUM_LLVMPIPE
@@ -85,7 +84,8 @@ EXTRA_DIST = \
 	osmesa.sym \
 	osmesa.def \
 	osmesa.mingw.def \
-	SConscript
+	SConscript \
+	meson.build
 
 include $(top_srcdir)/install-gallium-links.mk
 

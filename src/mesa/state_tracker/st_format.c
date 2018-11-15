@@ -1,9 +1,9 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007 VMware, Inc.
  * Copyright (c) 2008-2010 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -11,11 +11,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
@@ -52,14 +52,22 @@
 #include "st_cb_texture.h"
 #include "st_context.h"
 #include "st_format.h"
+#include "st_texture.h"
 
 
 /**
  * Translate Mesa format to Gallium format.
  */
 enum pipe_format
-st_mesa_format_to_pipe_format(const struct st_context *st, mesa_format mesaFormat)
+st_mesa_format_to_pipe_format(const struct st_context *st,
+                              mesa_format mesaFormat)
 {
+   struct pipe_screen *screen = st->pipe->screen;
+   bool has_bgra_srgb = screen->is_format_supported(screen,
+						    PIPE_FORMAT_B8G8R8A8_SRGB,
+						    PIPE_TEXTURE_2D, 0, 0,
+						    PIPE_BIND_SAMPLER_VIEW);
+
    switch (mesaFormat) {
    case MESA_FORMAT_A8B8G8R8_UNORM:
       return PIPE_FORMAT_ABGR8888_UNORM;
@@ -79,8 +87,12 @@ st_mesa_format_to_pipe_format(const struct st_context *st, mesa_format mesaForma
       return PIPE_FORMAT_XRGB8888_UNORM;
    case MESA_FORMAT_B5G5R5A1_UNORM:
       return PIPE_FORMAT_B5G5R5A1_UNORM;
+   case MESA_FORMAT_A1B5G5R5_UNORM:
+      return PIPE_FORMAT_A1B5G5R5_UNORM;
    case MESA_FORMAT_B4G4R4A4_UNORM:
       return PIPE_FORMAT_B4G4R4A4_UNORM;
+   case MESA_FORMAT_A4B4G4R4_UNORM:
+      return PIPE_FORMAT_A4B4G4R4_UNORM;
    case MESA_FORMAT_B5G6R5_UNORM:
       return PIPE_FORMAT_B5G6R5_UNORM;
    case MESA_FORMAT_B2G3R3_UNORM:
@@ -89,6 +101,8 @@ st_mesa_format_to_pipe_format(const struct st_context *st, mesa_format mesaForma
       return PIPE_FORMAT_B10G10R10A2_UNORM;
    case MESA_FORMAT_R10G10B10A2_UNORM:
       return PIPE_FORMAT_R10G10B10A2_UNORM;
+   case MESA_FORMAT_R10G10B10X2_UNORM:
+      return PIPE_FORMAT_R10G10B10X2_UNORM;
    case MESA_FORMAT_L4A4_UNORM:
       return PIPE_FORMAT_L4A4_UNORM;
    case MESA_FORMAT_L8A8_UNORM:
@@ -407,6 +421,8 @@ st_mesa_format_to_pipe_format(const struct st_context *st, mesa_format mesaForma
       return PIPE_FORMAT_B4G4R4X4_UNORM;
    case MESA_FORMAT_B5G5R5X1_UNORM:
       return PIPE_FORMAT_B5G5R5X1_UNORM;
+   case MESA_FORMAT_X1B5G5R5_UNORM:
+      return PIPE_FORMAT_X1B5G5R5_UNORM;
    case MESA_FORMAT_R8G8B8X8_SNORM:
       return PIPE_FORMAT_RGBX8888_SNORM;
    case MESA_FORMAT_X8B8G8R8_SNORM:
@@ -449,11 +465,13 @@ st_mesa_format_to_pipe_format(const struct st_context *st, mesa_format mesaForma
    case MESA_FORMAT_ETC2_RGB8:
       return st->has_etc2 ? PIPE_FORMAT_ETC2_RGB8 : PIPE_FORMAT_R8G8B8A8_UNORM;
    case MESA_FORMAT_ETC2_SRGB8:
-      return st->has_etc2 ? PIPE_FORMAT_ETC2_SRGB8 : PIPE_FORMAT_B8G8R8A8_SRGB;
+      return st->has_etc2 ? PIPE_FORMAT_ETC2_SRGB8 :
+	 has_bgra_srgb ? PIPE_FORMAT_B8G8R8A8_SRGB : PIPE_FORMAT_R8G8B8A8_SRGB;
    case MESA_FORMAT_ETC2_RGBA8_EAC:
       return st->has_etc2 ? PIPE_FORMAT_ETC2_RGBA8 : PIPE_FORMAT_R8G8B8A8_UNORM;
    case MESA_FORMAT_ETC2_SRGB8_ALPHA8_EAC:
-      return st->has_etc2 ? PIPE_FORMAT_ETC2_SRGBA8 : PIPE_FORMAT_B8G8R8A8_SRGB;
+      return st->has_etc2 ? PIPE_FORMAT_ETC2_SRGBA8 :
+	 has_bgra_srgb ? PIPE_FORMAT_B8G8R8A8_SRGB : PIPE_FORMAT_R8G8B8A8_SRGB;
    case MESA_FORMAT_ETC2_R11_EAC:
       return st->has_etc2 ? PIPE_FORMAT_ETC2_R11_UNORM : PIPE_FORMAT_R16_UNORM;
    case MESA_FORMAT_ETC2_RG11_EAC:
@@ -465,64 +483,121 @@ st_mesa_format_to_pipe_format(const struct st_context *st, mesa_format mesaForma
    case MESA_FORMAT_ETC2_RGB8_PUNCHTHROUGH_ALPHA1:
       return st->has_etc2 ? PIPE_FORMAT_ETC2_RGB8A1 : PIPE_FORMAT_R8G8B8A8_UNORM;
    case MESA_FORMAT_ETC2_SRGB8_PUNCHTHROUGH_ALPHA1:
-      return st->has_etc2 ? PIPE_FORMAT_ETC2_SRGB8A1 : PIPE_FORMAT_B8G8R8A8_SRGB;
+      return st->has_etc2 ? PIPE_FORMAT_ETC2_SRGB8A1 :
+	 has_bgra_srgb ? PIPE_FORMAT_B8G8R8A8_SRGB : PIPE_FORMAT_R8G8B8A8_SRGB;
 
    case MESA_FORMAT_RGBA_ASTC_4x4:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_4x4;
    case MESA_FORMAT_RGBA_ASTC_5x4:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_5x4;
    case MESA_FORMAT_RGBA_ASTC_5x5:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_5x5;
    case MESA_FORMAT_RGBA_ASTC_6x5:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_6x5;
    case MESA_FORMAT_RGBA_ASTC_6x6:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_6x6;
    case MESA_FORMAT_RGBA_ASTC_8x5:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_8x5;
    case MESA_FORMAT_RGBA_ASTC_8x6:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_8x6;
    case MESA_FORMAT_RGBA_ASTC_8x8:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_8x8;
    case MESA_FORMAT_RGBA_ASTC_10x5:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_10x5;
    case MESA_FORMAT_RGBA_ASTC_10x6:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_10x6;
    case MESA_FORMAT_RGBA_ASTC_10x8:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_10x8;
    case MESA_FORMAT_RGBA_ASTC_10x10:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_10x10;
    case MESA_FORMAT_RGBA_ASTC_12x10:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_12x10;
    case MESA_FORMAT_RGBA_ASTC_12x12:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_UNORM;
       return PIPE_FORMAT_ASTC_12x12;
 
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_4x4:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_4x4_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_5x4:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_5x4_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_5x5:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_5x5_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_6x5:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_6x5_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_6x6:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_6x6_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_8x5:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_8x5_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_8x6:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_8x6_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_8x8:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_8x8_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_10x5:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_10x5_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_10x6:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_10x6_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_10x8:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_10x8_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_10x10:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_10x10_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_12x10:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_12x10_SRGB;
    case MESA_FORMAT_SRGB8_ALPHA8_ASTC_12x12:
+      if (!st->has_astc_2d_ldr)
+         return PIPE_FORMAT_R8G8B8A8_SRGB;
       return PIPE_FORMAT_ASTC_12x12_SRGB;
 
    default:
@@ -556,8 +631,12 @@ st_pipe_format_to_mesa_format(enum pipe_format format)
       return MESA_FORMAT_X8R8G8B8_UNORM;
    case PIPE_FORMAT_B5G5R5A1_UNORM:
       return MESA_FORMAT_B5G5R5A1_UNORM;
+   case PIPE_FORMAT_A1B5G5R5_UNORM:
+      return MESA_FORMAT_A1B5G5R5_UNORM;
    case PIPE_FORMAT_B4G4R4A4_UNORM:
       return MESA_FORMAT_B4G4R4A4_UNORM;
+   case PIPE_FORMAT_A4B4G4R4_UNORM:
+      return MESA_FORMAT_A4B4G4R4_UNORM;
    case PIPE_FORMAT_B5G6R5_UNORM:
       return MESA_FORMAT_B5G6R5_UNORM;
    case PIPE_FORMAT_B2G3R3_UNORM:
@@ -566,6 +645,8 @@ st_pipe_format_to_mesa_format(enum pipe_format format)
       return MESA_FORMAT_B10G10R10A2_UNORM;
    case PIPE_FORMAT_R10G10B10A2_UNORM:
       return MESA_FORMAT_R10G10B10A2_UNORM;
+   case PIPE_FORMAT_R10G10B10X2_UNORM:
+      return MESA_FORMAT_R10G10B10X2_UNORM;
    case PIPE_FORMAT_L4A4_UNORM:
       return MESA_FORMAT_L4A4_UNORM;
    case PIPE_FORMAT_LA88_UNORM:
@@ -886,6 +967,8 @@ st_pipe_format_to_mesa_format(enum pipe_format format)
       return MESA_FORMAT_B4G4R4X4_UNORM;
    case PIPE_FORMAT_B5G5R5X1_UNORM:
       return MESA_FORMAT_B5G5R5X1_UNORM;
+   case PIPE_FORMAT_X1B5G5R5_UNORM:
+      return MESA_FORMAT_X1B5G5R5_UNORM;
    case PIPE_FORMAT_RGBX8888_SNORM:
       return MESA_FORMAT_R8G8B8X8_SNORM;
    case PIPE_FORMAT_XBGR8888_SNORM:
@@ -1020,15 +1103,12 @@ test_format_conversion(struct st_context *st)
    for (i = 1; i < MESA_FORMAT_COUNT; i++) {
       enum pipe_format pf;
 
-      /* ETC formats are translated differently, skip them. */
-      if (_mesa_is_format_etc2(i))
-         continue;
-      if (i == MESA_FORMAT_ETC1_RGB8 && !st->has_etc1)
+      if (st_compressed_format_fallback(st, i))
          continue;
 
       pf = st_mesa_format_to_pipe_format(st, i);
       if (pf != PIPE_FORMAT_NONE) {
-         mesa_format mf = st_pipe_format_to_mesa_format(pf);
+         mesa_format MAYBE_UNUSED mf = st_pipe_format_to_mesa_format(pf);
          assert(mf == i);
       }
    }
@@ -1036,16 +1116,12 @@ test_format_conversion(struct st_context *st)
    /* Test all Gallium formats */
    for (i = 1; i < PIPE_FORMAT_COUNT; i++) {
       mesa_format mf = st_pipe_format_to_mesa_format(i);
-
-      /* ETC formats are translated differently, skip them. */
-      if (i == PIPE_FORMAT_ETC1_RGB8 && !st->has_etc1)
-         continue;
-
-      if (_mesa_is_format_etc2(mf) && !st->has_etc2)
+      if (st_compressed_format_fallback(st, mf))
          continue;
 
       if (mf != MESA_FORMAT_NONE) {
-         enum pipe_format pf = st_mesa_format_to_pipe_format(st, mf);
+         enum pipe_format MAYBE_UNUSED pf =
+            st_mesa_format_to_pipe_format(st, mf);
          assert(pf == i);
       }
    }
@@ -1058,7 +1134,7 @@ test_format_conversion(struct st_context *st)
 struct format_mapping
 {
    GLenum glFormats[18];       /**< list of GLenum formats, 0-terminated */
-   enum pipe_format pipeFormats[13]; /**< list of pipe formats, 0-terminated */
+   enum pipe_format pipeFormats[14]; /**< list of pipe formats, 0-terminated */
 };
 
 
@@ -1110,8 +1186,9 @@ static const struct format_mapping format_map[] = {
    /* Basic RGB, RGBA formats */
    {
       { GL_RGB10, 0 },
-      { PIPE_FORMAT_B10G10R10X2_UNORM, PIPE_FORMAT_B10G10R10A2_UNORM,
-        PIPE_FORMAT_R10G10B10A2_UNORM, DEFAULT_RGB_FORMATS }
+      { PIPE_FORMAT_R10G10B10X2_UNORM, PIPE_FORMAT_B10G10R10X2_UNORM,
+        PIPE_FORMAT_R10G10B10A2_UNORM, PIPE_FORMAT_B10G10R10A2_UNORM,
+        DEFAULT_RGB_FORMATS }
    },
    {
       { GL_RGB10_A2, 0 },
@@ -1141,11 +1218,13 @@ static const struct format_mapping format_map[] = {
    },
    {
       { GL_RGBA4, GL_RGBA2, 0 },
-      { PIPE_FORMAT_B4G4R4A4_UNORM, DEFAULT_RGBA_FORMATS }
+      { PIPE_FORMAT_B4G4R4A4_UNORM, PIPE_FORMAT_A4B4G4R4_UNORM,
+        DEFAULT_RGBA_FORMATS }
    },
    {
       { GL_RGB5_A1, 0 },
-      { PIPE_FORMAT_B5G5R5A1_UNORM, DEFAULT_RGBA_FORMATS }
+      { PIPE_FORMAT_B5G5R5A1_UNORM, PIPE_FORMAT_A1B5G5R5_UNORM,
+        DEFAULT_RGBA_FORMATS }
    },
    {
       { GL_R3_G3_B2, 0 },
@@ -1155,11 +1234,13 @@ static const struct format_mapping format_map[] = {
    {
       { GL_RGB4 },
       { PIPE_FORMAT_B4G4R4X4_UNORM, PIPE_FORMAT_B4G4R4A4_UNORM,
+        PIPE_FORMAT_A4B4G4R4_UNORM,
         DEFAULT_RGB_FORMATS }
    },
    {
       { GL_RGB5 },
-      { PIPE_FORMAT_B5G5R5X1_UNORM, PIPE_FORMAT_B5G5R5A1_UNORM,
+      { PIPE_FORMAT_B5G5R5X1_UNORM, PIPE_FORMAT_X1B5G5R5_UNORM,
+        PIPE_FORMAT_B5G5R5A1_UNORM, PIPE_FORMAT_A1B5G5R5_UNORM,
         DEFAULT_RGB_FORMATS }
    },
    {
@@ -1186,7 +1267,7 @@ static const struct format_mapping format_map[] = {
    },
    {
       { 1, GL_LUMINANCE, GL_LUMINANCE4, GL_LUMINANCE8, 0 },
-      { PIPE_FORMAT_L8_UNORM, DEFAULT_RGB_FORMATS }
+      { PIPE_FORMAT_L8_UNORM, PIPE_FORMAT_L8A8_UNORM, DEFAULT_RGB_FORMATS }
    },
 
    /* basic Luminance/Alpha formats */
@@ -1682,101 +1763,101 @@ static const struct format_mapping format_map[] = {
    {
       { GL_ALPHA_INTEGER_EXT,
         GL_ALPHA8I_EXT, 0 },
-      { PIPE_FORMAT_A8_SINT, 0 }
+      { PIPE_FORMAT_A8_SINT, PIPE_FORMAT_R8G8B8A8_SINT, 0 }
    },
    {
       { GL_ALPHA16I_EXT, 0 },
-      { PIPE_FORMAT_A16_SINT, 0 }
+      { PIPE_FORMAT_A16_SINT, PIPE_FORMAT_R16G16B16A16_SINT, 0 }
    },
    {
       { GL_ALPHA32I_EXT, 0 },
-      { PIPE_FORMAT_A32_SINT, 0 }
+      { PIPE_FORMAT_A32_SINT, PIPE_FORMAT_R32G32B32A32_SINT, 0 }
    },
    {
       { GL_ALPHA8UI_EXT, 0 },
-      { PIPE_FORMAT_A8_UINT, 0 }
+      { PIPE_FORMAT_A8_UINT, PIPE_FORMAT_R8G8B8A8_UINT, 0 }
    },
    {
       { GL_ALPHA16UI_EXT, 0 },
-      { PIPE_FORMAT_A16_UINT, 0 }
+      { PIPE_FORMAT_A16_UINT, PIPE_FORMAT_R16G16B16A16_UINT, 0 }
    },
    {
       { GL_ALPHA32UI_EXT, 0 },
-      { PIPE_FORMAT_A32_UINT, 0 }
+      { PIPE_FORMAT_A32_UINT, PIPE_FORMAT_R32G32B32A32_UINT, 0 }
    },
    {
       { GL_INTENSITY8I_EXT, 0 },
-      { PIPE_FORMAT_I8_SINT, 0 }
+      { PIPE_FORMAT_I8_SINT, PIPE_FORMAT_R8G8B8A8_SINT, 0 }
    },
    {
       { GL_INTENSITY16I_EXT, 0 },
-      { PIPE_FORMAT_I16_SINT, 0 }
+      { PIPE_FORMAT_I16_SINT, PIPE_FORMAT_R16G16B16A16_SINT, 0 }
    },
    {
       { GL_INTENSITY32I_EXT, 0 },
-      { PIPE_FORMAT_I32_SINT, 0 }
+      { PIPE_FORMAT_I32_SINT, PIPE_FORMAT_R32G32B32A32_SINT, 0 }
    },
    {
       { GL_INTENSITY8UI_EXT, 0 },
-      { PIPE_FORMAT_I8_UINT, 0 }
+      { PIPE_FORMAT_I8_UINT, PIPE_FORMAT_R8G8B8A8_UINT, 0 }
    },
    {
       { GL_INTENSITY16UI_EXT, 0 },
-      { PIPE_FORMAT_I16_UINT, 0 }
+      { PIPE_FORMAT_I16_UINT, PIPE_FORMAT_R16G16B16A16_UINT, 0 }
    },
    {
       { GL_INTENSITY32UI_EXT, 0 },
-      { PIPE_FORMAT_I32_UINT, 0 }
+      { PIPE_FORMAT_I32_UINT, PIPE_FORMAT_R32G32B32A32_UINT, 0 }
    },
    {
       { GL_LUMINANCE8I_EXT, 0 },
-      { PIPE_FORMAT_L8_SINT, 0 }
+      { PIPE_FORMAT_L8_SINT, PIPE_FORMAT_R8G8B8A8_SINT, 0 }
    },
    {
       { GL_LUMINANCE16I_EXT, 0 },
-      { PIPE_FORMAT_L16_SINT, 0 }
+      { PIPE_FORMAT_L16_SINT, PIPE_FORMAT_R16G16B16A16_SINT, 0 }
    },
    {
       { GL_LUMINANCE32I_EXT, 0 },
-      { PIPE_FORMAT_L32_SINT, 0 }
+      { PIPE_FORMAT_L32_SINT, PIPE_FORMAT_R32G32B32A32_SINT, 0 }
    },
    {
       { GL_LUMINANCE_INTEGER_EXT,
         GL_LUMINANCE8UI_EXT, 0 },
-      { PIPE_FORMAT_L8_UINT, 0 }
+      { PIPE_FORMAT_L8_UINT, PIPE_FORMAT_R8G8B8A8_UINT, 0 }
    },
    {
       { GL_LUMINANCE16UI_EXT, 0 },
-      { PIPE_FORMAT_L16_UINT, 0 }
+      { PIPE_FORMAT_L16_UINT, PIPE_FORMAT_R16G16B16A16_UINT, 0 }
    },
    {
       { GL_LUMINANCE32UI_EXT, 0 },
-      { PIPE_FORMAT_L32_UINT, 0 }
+      { PIPE_FORMAT_L32_UINT, PIPE_FORMAT_R32G32B32A32_UINT, 0 }
    },
    {
       { GL_LUMINANCE_ALPHA_INTEGER_EXT,
         GL_LUMINANCE_ALPHA8I_EXT, 0 },
-      { PIPE_FORMAT_L8A8_SINT, 0 }
+      { PIPE_FORMAT_L8A8_SINT, PIPE_FORMAT_R8G8B8A8_SINT, 0 }
    },
    {
       { GL_LUMINANCE_ALPHA16I_EXT, 0 },
-      { PIPE_FORMAT_L16A16_SINT, 0 }
+      { PIPE_FORMAT_L16A16_SINT, PIPE_FORMAT_R16G16B16A16_SINT, 0 }
    },
    {
       { GL_LUMINANCE_ALPHA32I_EXT, 0 },
-      { PIPE_FORMAT_L32A32_SINT, 0 }
+      { PIPE_FORMAT_L32A32_SINT, PIPE_FORMAT_R32G32B32A32_SINT, 0 }
    },
    {
       { GL_LUMINANCE_ALPHA8UI_EXT, 0 },
-      { PIPE_FORMAT_L8A8_UINT, 0 }
+      { PIPE_FORMAT_L8A8_UINT, PIPE_FORMAT_R8G8B8A8_UINT, 0 }
    },
    {
       { GL_LUMINANCE_ALPHA16UI_EXT, 0 },
-      { PIPE_FORMAT_L16A16_UINT, 0 }
+      { PIPE_FORMAT_L16A16_UINT, PIPE_FORMAT_R16G16B16A16_UINT, 0 }
    },
    {
       { GL_LUMINANCE_ALPHA32UI_EXT, 0 },
-      { PIPE_FORMAT_L32A32_UINT, 0 }
+      { PIPE_FORMAT_L32A32_UINT, PIPE_FORMAT_R32G32B32A32_UINT, 0 }
    },
    {
       { GL_RGB16I_EXT, 0 },
@@ -1972,13 +2053,13 @@ find_supported_format(struct pipe_screen *screen,
                       const enum pipe_format formats[],
                       enum pipe_texture_target target,
                       unsigned sample_count,
-                      unsigned tex_usage,
+                      unsigned bindings,
                       boolean allow_dxt)
 {
    uint i;
    for (i = 0; formats[i]; i++) {
       if (screen->is_format_supported(screen, formats[i], target,
-                                      sample_count, tex_usage)) {
+                                      sample_count, sample_count, bindings)) {
          if (!allow_dxt && util_format_is_s3tc(formats[i])) {
             /* we can't return a dxt format, continue searching */
             continue;
@@ -1989,6 +2070,7 @@ find_supported_format(struct pipe_screen *screen,
    }
    return PIPE_FORMAT_NONE;
 }
+
 
 struct exact_format_mapping
 {
@@ -2025,6 +2107,7 @@ static const struct exact_format_mapping rgbx8888_tbl[] =
    { 0,           0,                              0                          }
 };
 
+
 /**
  * For unsized/base internal formats, we may choose a convenient effective
  * internal format for {format, type}. If one exists, return that, otherwise
@@ -2058,6 +2141,7 @@ find_exact_format(GLint internalFormat, GLenum format, GLenum type)
 
    return PIPE_FORMAT_NONE;
 }
+
 
 /**
  * Given an OpenGL internalFormat value for a texture or surface, return
@@ -2108,9 +2192,23 @@ st_choose_format(struct st_context *st, GLenum internalFormat,
    /* search for exact matches */
    pf = find_exact_format(internalFormat, format, type);
    if (pf != PIPE_FORMAT_NONE &&
-       screen->is_format_supported(screen, pf,
-                                   target, sample_count, bindings))
-      return pf;
+       screen->is_format_supported(screen, pf, target, sample_count,
+                                   sample_count, bindings)) {
+      goto success;
+   }
+
+   /* For an unsized GL_RGB but a 2_10_10_10 type, try to pick one of the
+    * 2_10_10_10 formats.  This is important for
+    * GL_EXT_texture_type_2_10_10_10_EXT support, which says that these
+    * formats are not color-renderable.  Mesa's check for making those
+    * non-color-renderable is based on our chosen format being 2101010.
+    */
+   if (type == GL_UNSIGNED_INT_2_10_10_10_REV) {
+      if (internalFormat == GL_RGB)
+         internalFormat = GL_RGB10;
+      else if (internalFormat == GL_RGBA)
+         internalFormat = GL_RGB10_A2;
+   }
 
    /* search table for internalFormat */
    for (i = 0; i < ARRAY_SIZE(format_map); i++) {
@@ -2120,15 +2218,27 @@ st_choose_format(struct st_context *st, GLenum internalFormat,
             /* Found the desired internal format.  Find first pipe format
              * which is supported by the driver.
              */
-            return find_supported_format(screen, mapping->pipeFormats,
-                                         target, sample_count, bindings,
-                                         allow_dxt);
+            pf = find_supported_format(screen, mapping->pipeFormats,
+                                       target, sample_count, bindings,
+                                       allow_dxt);
+            goto success;
          }
       }
    }
 
    _mesa_problem(NULL, "unhandled format!\n");
    return PIPE_FORMAT_NONE;
+
+success:
+   if (0) {
+      debug_printf("%s(fmt=%s, type=%s, intFmt=%s) = %s\n",
+                   __FUNCTION__,
+                   _mesa_enum_to_string(format),
+                   _mesa_enum_to_string(type),
+                   _mesa_enum_to_string(internalFormat),
+                   util_format_name(pf));
+   }
+   return pf;
 }
 
 
@@ -2139,13 +2249,13 @@ enum pipe_format
 st_choose_renderbuffer_format(struct st_context *st,
                               GLenum internalFormat, unsigned sample_count)
 {
-   uint usage;
+   unsigned bindings;
    if (_mesa_is_depth_or_stencil_format(internalFormat))
-      usage = PIPE_BIND_DEPTH_STENCIL;
+      bindings = PIPE_BIND_DEPTH_STENCIL;
    else
-      usage = PIPE_BIND_RENDER_TARGET;
+      bindings = PIPE_BIND_RENDER_TARGET;
    return st_choose_format(st, internalFormat, GL_NONE, GL_NONE,
-                           PIPE_TEXTURE_2D, sample_count, usage, FALSE);
+                           PIPE_TEXTURE_2D, sample_count, bindings, FALSE);
 }
 
 
@@ -2158,7 +2268,7 @@ st_choose_renderbuffer_format(struct st_context *st,
  */
 enum pipe_format
 st_choose_matching_format(struct st_context *st, unsigned bind,
-			  GLenum format, GLenum type, GLboolean swapBytes)
+                          GLenum format, GLenum type, GLboolean swapBytes)
 {
    struct pipe_screen *screen = st->pipe->screen;
    mesa_format mesa_format;
@@ -2180,8 +2290,8 @@ st_choose_matching_format(struct st_context *st, unsigned bind,
             st_mesa_format_to_pipe_format(st, mesa_format);
 
          if (format &&
-             screen->is_format_supported(screen, format, PIPE_TEXTURE_2D, 0,
-                                         bind)) {
+             screen->is_format_supported(screen, format, PIPE_TEXTURE_2D,
+                                         0, 0, bind)) {
             return format;
          }
          /* It's unlikely to find 2 matching Mesa formats. */
@@ -2238,7 +2348,7 @@ st_ChooseTextureFormat(struct gl_context *ctx, GLenum target,
             internalFormat == GL_RGBA16F ||
             internalFormat == GL_RGB32F ||
             internalFormat == GL_RGBA32F)
-	 bindings |= PIPE_BIND_RENDER_TARGET;
+      bindings |= PIPE_BIND_RENDER_TARGET;
 
    /* GLES allows the driver to choose any format which matches
     * the format+type combo, because GLES only supports unsized internal
@@ -2264,7 +2374,9 @@ st_ChooseTextureFormat(struct gl_context *ctx, GLenum target,
             return st_pipe_format_to_mesa_format(pFormat);
 
          if (!is_renderbuffer) {
-            /* try choosing format again, this time without render target bindings */
+            /* try choosing format again, this time without render
+             * target bindings.
+             */
             pFormat = st_choose_matching_format(st, PIPE_BIND_SAMPLER_VIEW,
                                                 format, type,
                                                 ctx->Unpack.SwapBytes);
@@ -2275,20 +2387,18 @@ st_ChooseTextureFormat(struct gl_context *ctx, GLenum target,
    }
 
    pFormat = st_choose_format(st, internalFormat, format, type,
-                              pTarget, 0, bindings, ctx->Mesa_DXTn);
+                              pTarget, 0, bindings, GL_TRUE);
 
    if (pFormat == PIPE_FORMAT_NONE && !is_renderbuffer) {
       /* try choosing format again, this time without render target bindings */
       pFormat = st_choose_format(st, internalFormat, format, type,
                                  pTarget, 0, PIPE_BIND_SAMPLER_VIEW,
-                                 ctx->Mesa_DXTn);
+                                 GL_TRUE);
    }
 
    if (pFormat == PIPE_FORMAT_NONE) {
-      /* lie about using etc1/etc2 natively if we do decoding tricks */
       mFormat = _mesa_glenum_to_compressed_format(internalFormat);
-      if ((mFormat == MESA_FORMAT_ETC1_RGB8 && !st->has_etc1) ||
-          (_mesa_is_format_etc2(mFormat) && !st->has_etc2))
+      if (st_compressed_format_fallback(st, mFormat))
           return mFormat;
 
       /* no luck at all */
@@ -2354,6 +2464,7 @@ st_QuerySamplesForFormat(struct gl_context *ctx, GLenum target,
    return num_sample_counts;
 }
 
+
 /**
  * ARB_internalformat_query2 driver hook.
  */
@@ -2373,9 +2484,10 @@ st_QueryInternalFormat(struct gl_context *ctx, GLenum target,
       break;
 
    case GL_NUM_SAMPLE_COUNTS: {
+      int samples[16];
       size_t num_samples;
       num_samples = st_QuerySamplesForFormat(ctx, target, internalFormat,
-                                             params);
+                                             samples);
       params[0] = (GLint) num_samples;
       break;
    }
@@ -2388,17 +2500,17 @@ st_QueryInternalFormat(struct gl_context *ctx, GLenum target,
        * the driver, and if so return the same internal format, otherwise
        * return GL_NONE.
        */
-      uint usage;
+      unsigned bindings;
       if (_mesa_is_depth_or_stencil_format(internalFormat))
-         usage = PIPE_BIND_DEPTH_STENCIL;
+         bindings = PIPE_BIND_DEPTH_STENCIL;
       else
-         usage = PIPE_BIND_RENDER_TARGET;
+         bindings = PIPE_BIND_RENDER_TARGET;
       enum pipe_format pformat = st_choose_format(st,
                                                   internalFormat,
                                                   GL_NONE,
                                                   GL_NONE,
                                                   PIPE_TEXTURE_2D, 1,
-                                                  usage, FALSE);
+                                                  bindings, FALSE);
       if (pformat)
          params[0] = internalFormat;
       break;
@@ -2411,6 +2523,7 @@ st_QueryInternalFormat(struct gl_context *ctx, GLenum target,
                                           params);
    }
 }
+
 
 /**
  * This is used for translating texture border color and the clear
@@ -2502,6 +2615,8 @@ st_translate_color(const union gl_color_union *colorIn,
          out[0] = out[1] = out[2] = in[0];
          out[3] = in[3];
          break;
+      /* Stencil border is tricky on some hw. Help drivers a little here. */
+      case GL_STENCIL_INDEX:
       case GL_INTENSITY:
          out[0] = out[1] = out[2] = out[3] = in[0];
          break;

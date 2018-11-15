@@ -141,7 +141,7 @@ prim_point(struct draw_assembler *asmblr,
       inject_primid(asmblr, idx, asmblr->primid++);
    }
    indices[0] = idx;
-
+   
    copy_verts(asmblr, indices, 1);
 }
 
@@ -207,7 +207,7 @@ draw_prim_assembler_prepare_outputs(struct draw_assembler *ia)
  * Primitive assembler breaks up adjacency primitives and assembles
  * the base primitives they represent, e.g. vertices forming
  * PIPE_PRIM_TRIANGLE_STRIP_ADJACENCY
- * become vertices forming PIPE_PRIM_TRIANGLES
+ * become vertices forming PIPE_PRIM_TRIANGLES 
  * This is needed because specification says that the adjacency
  * primitives are only visible in the geometry shader so we need
  * to get rid of them so that the rest of the pipeline can

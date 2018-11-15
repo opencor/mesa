@@ -41,7 +41,7 @@
 /* This is to ensure that we get M_PI, etc. definitions */
 #if defined(_MSC_VER) && !defined(_USE_MATH_DEFINES)
 #error _USE_MATH_DEFINES define required when building with MSVC
-#endif
+#endif 
 
 
 #if !defined(_MSC_VER) && \

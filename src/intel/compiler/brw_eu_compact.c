@@ -74,7 +74,7 @@
 
 #include "brw_eu.h"
 #include "brw_shader.h"
-#include "intel_asm_annotation.h"
+#include "brw_disasm_info.h"
 #include "common/gen_debug.h"
 
 static const uint32_t g45_control_index_table[32] = {
@@ -637,6 +637,41 @@ static const uint16_t gen8_src_index_table[32] = {
    0b010110001000
 };
 
+static const uint32_t gen11_datatype_table[32] = {
+   0b001000000000000000001,
+   0b001000000000001000000,
+   0b001000000000001000001,
+   0b001000000000011000001,
+   0b001000000000101100101,
+   0b001000000101111100101,
+   0b001000000100101000001,
+   0b001000000100101000101,
+   0b001000000100101100101,
+   0b001000001000001000001,
+   0b001000011000001000000,
+   0b001000011000001000001,
+   0b001000101000101000101,
+   0b001000111000101000100,
+   0b001000111000101000101,
+   0b001100100100101100101,
+   0b001100101100100100101,
+   0b001100101100101100100,
+   0b001100101100101100101,
+   0b001100111100101100100,
+   0b000000000010000001100,
+   0b001000000000001100101,
+   0b001000000000101000101,
+   0b001000001000001000000,
+   0b001000101000101000100,
+   0b001000111000100000100,
+   0b001001001001000001001,
+   0b001101111100101100101,
+   0b001100111100101100101,
+   0b001001111001101001100,
+   0b001001001001001001000,
+   0b001001011001001001000,
+};
+
 /* This is actually the control index table for Cherryview (26 bits), but the
  * only difference from Broadwell (24 bits) is that it has two extra 0-bits at
  * the start.
@@ -671,7 +706,7 @@ static const uint16_t *src_index_table;
 
 static bool
 set_control_index(const struct gen_device_info *devinfo,
-                  brw_compact_inst *dst, brw_inst *src)
+                  brw_compact_inst *dst, const brw_inst *src)
 {
    uint32_t uncompacted = devinfo->gen >= 8  /* 17b/G45; 19b/IVB+ */
       ? (brw_inst_bits(src, 33, 31) << 16) | /*  3b */
@@ -700,7 +735,7 @@ set_control_index(const struct gen_device_info *devinfo,
 
 static bool
 set_datatype_index(const struct gen_device_info *devinfo, brw_compact_inst *dst,
-                   brw_inst *src)
+                   const brw_inst *src)
 {
    uint32_t uncompacted = devinfo->gen >= 8  /* 18b/G45+; 21b/BDW+ */
       ? (brw_inst_bits(src, 63, 61) << 18) | /*  3b */
@@ -721,7 +756,7 @@ set_datatype_index(const struct gen_device_info *devinfo, brw_compact_inst *dst,
 
 static bool
 set_subreg_index(const struct gen_device_info *devinfo, brw_compact_inst *dst,
-                 brw_inst *src, bool is_immediate)
+                 const brw_inst *src, bool is_immediate)
 {
    uint16_t uncompacted =                 /* 15b */
       (brw_inst_bits(src, 52, 48) << 0) | /*  5b */
@@ -756,7 +791,7 @@ get_src_index(uint16_t uncompacted,
 
 static bool
 set_src0_index(const struct gen_device_info *devinfo,
-               brw_compact_inst *dst, brw_inst *src)
+               brw_compact_inst *dst, const brw_inst *src)
 {
    uint16_t compacted;
    uint16_t uncompacted = brw_inst_bits(src, 88, 77); /* 12b */
@@ -771,7 +806,7 @@ set_src0_index(const struct gen_device_info *devinfo,
 
 static bool
 set_src1_index(const struct gen_device_info *devinfo, brw_compact_inst *dst,
-               brw_inst *src, bool is_immediate)
+               const brw_inst *src, bool is_immediate)
 {
    uint16_t compacted;
 
@@ -791,7 +826,7 @@ set_src1_index(const struct gen_device_info *devinfo, brw_compact_inst *dst,
 
 static bool
 set_3src_control_index(const struct gen_device_info *devinfo,
-                       brw_compact_inst *dst, brw_inst *src)
+                       brw_compact_inst *dst, const brw_inst *src)
 {
    assert(devinfo->gen >= 8);
 
@@ -814,7 +849,7 @@ set_3src_control_index(const struct gen_device_info *devinfo,
 
 static bool
 set_3src_source_index(const struct gen_device_info *devinfo,
-                      brw_compact_inst *dst, brw_inst *src)
+                      brw_compact_inst *dst, const brw_inst *src)
 {
    assert(devinfo->gen >= 8);
 
@@ -847,7 +882,7 @@ set_3src_source_index(const struct gen_device_info *devinfo,
 }
 
 static bool
-has_unmapped_bits(const struct gen_device_info *devinfo, brw_inst *src)
+has_unmapped_bits(const struct gen_device_info *devinfo, const brw_inst *src)
 {
    /* EOT can only be mapped on a send if the src1 is an immediate */
    if ((brw_inst_opcode(devinfo, src) == BRW_OPCODE_SENDC ||
@@ -878,7 +913,8 @@ has_unmapped_bits(const struct gen_device_info *devinfo, brw_inst *src)
 }
 
 static bool
-has_3src_unmapped_bits(const struct gen_device_info *devinfo, brw_inst *src)
+has_3src_unmapped_bits(const struct gen_device_info *devinfo,
+                       const brw_inst *src)
 {
    /* Check for three-source instruction bits that don't map to any of the
     * fields of the compacted instruction.  All of them seem to be reserved
@@ -901,7 +937,7 @@ has_3src_unmapped_bits(const struct gen_device_info *devinfo, brw_inst *src)
 
 static bool
 brw_try_compact_3src_instruction(const struct gen_device_info *devinfo,
-                                 brw_compact_inst *dst, brw_inst *src)
+                                 brw_compact_inst *dst, const brw_inst *src)
 {
    assert(devinfo->gen >= 8);
 
@@ -910,6 +946,8 @@ brw_try_compact_3src_instruction(const struct gen_device_info *devinfo,
 
 #define compact(field) \
    brw_compact_inst_set_3src_##field(devinfo, dst, brw_inst_3src_##field(devinfo, src))
+#define compact_a16(field) \
+   brw_compact_inst_set_3src_##field(devinfo, dst, brw_inst_3src_a16_##field(devinfo, src))
 
    compact(opcode);
 
@@ -920,20 +958,21 @@ brw_try_compact_3src_instruction(const struct gen_device_info *devinfo,
       return false;
 
    compact(dst_reg_nr);
-   compact(src0_rep_ctrl);
+   compact_a16(src0_rep_ctrl);
    brw_compact_inst_set_3src_cmpt_control(devinfo, dst, true);
    compact(debug_control);
    compact(saturate);
-   compact(src1_rep_ctrl);
-   compact(src2_rep_ctrl);
+   compact_a16(src1_rep_ctrl);
+   compact_a16(src2_rep_ctrl);
    compact(src0_reg_nr);
    compact(src1_reg_nr);
    compact(src2_reg_nr);
-   compact(src0_subreg_nr);
-   compact(src1_subreg_nr);
-   compact(src2_subreg_nr);
+   compact_a16(src0_subreg_nr);
+   compact_a16(src1_subreg_nr);
+   compact_a16(src2_subreg_nr);
 
 #undef compact
+#undef compact_a16
 
    return true;
 }
@@ -955,6 +994,89 @@ is_compactable_immediate(unsigned imm)
 }
 
 /**
+ * Applies some small changes to instruction types to increase chances of
+ * compaction.
+ */
+static brw_inst
+precompact(const struct gen_device_info *devinfo, brw_inst inst)
+{
+   if (brw_inst_src0_reg_file(devinfo, &inst) != BRW_IMMEDIATE_VALUE)
+      return inst;
+
+   /* The Bspec's section titled "Non-present Operands" claims that if src0
+    * is an immediate that src1's type must be the same as that of src0.
+    *
+    * The SNB+ DataTypeIndex instruction compaction tables contain mappings
+    * that do not follow this rule. E.g., from the IVB/HSW table:
+    *
+    *  DataTypeIndex   18-Bit Mapping       Mapped Meaning
+    *        3         001000001011111101   r:f | i:vf | a:ud | <1> | dir |
+    *
+    * And from the SNB table:
+    *
+    *  DataTypeIndex   18-Bit Mapping       Mapped Meaning
+    *        8         001000000111101100   a:w | i:w | a:ud | <1> | dir |
+    *
+    * Neither of these cause warnings from the simulator when used,
+    * compacted or otherwise. In fact, all compaction mappings that have an
+    * immediate in src0 use a:ud for src1.
+    *
+    * The GM45 instruction compaction tables do not contain mapped meanings
+    * so it's not clear whether it has the restriction. We'll assume it was
+    * lifted on SNB. (FINISHME: decode the GM45 tables and check.)
+    *
+    * Don't do any of this for 64-bit immediates, since the src1 fields
+    * overlap with the immediate and setting them would overwrite the
+    * immediate we set.
+    */
+   if (devinfo->gen >= 6 &&
+       !(devinfo->is_haswell &&
+         brw_inst_opcode(devinfo, &inst) == BRW_OPCODE_DIM) &&
+       !(devinfo->gen >= 8 &&
+         (brw_inst_src0_type(devinfo, &inst) == BRW_REGISTER_TYPE_DF ||
+          brw_inst_src0_type(devinfo, &inst) == BRW_REGISTER_TYPE_UQ ||
+          brw_inst_src0_type(devinfo, &inst) == BRW_REGISTER_TYPE_Q))) {
+      enum brw_reg_file file = brw_inst_src1_reg_file(devinfo, &inst);
+      brw_inst_set_src1_file_type(devinfo, &inst, file, BRW_REGISTER_TYPE_UD);
+   }
+
+   /* Compacted instructions only have 12-bits (plus 1 for the other 20)
+    * for immediate values. Presumably the hardware engineers realized
+    * that the only useful floating-point value that could be represented
+    * in this format is 0.0, which can also be represented as a VF-typed
+    * immediate, so they gave us the previously mentioned mapping on IVB+.
+    *
+    * Strangely, we do have a mapping for imm:f in src1, so we don't need
+    * to do this there.
+    *
+    * If we see a 0.0:F, change the type to VF so that it can be compacted.
+    */
+   if (brw_inst_imm_ud(devinfo, &inst) == 0x0 &&
+       brw_inst_src0_type(devinfo, &inst) == BRW_REGISTER_TYPE_F &&
+       brw_inst_dst_type(devinfo, &inst) == BRW_REGISTER_TYPE_F &&
+       brw_inst_dst_hstride(devinfo, &inst) == BRW_HORIZONTAL_STRIDE_1) {
+      enum brw_reg_file file = brw_inst_src0_reg_file(devinfo, &inst);
+      brw_inst_set_src0_file_type(devinfo, &inst, file, BRW_REGISTER_TYPE_VF);
+   }
+
+   /* There are no mappings for dst:d | i:d, so if the immediate is suitable
+    * set the types to :UD so the instruction can be compacted.
+    */
+   if (is_compactable_immediate(brw_inst_imm_ud(devinfo, &inst)) &&
+       brw_inst_cond_modifier(devinfo, &inst) == BRW_CONDITIONAL_NONE &&
+       brw_inst_src0_type(devinfo, &inst) == BRW_REGISTER_TYPE_D &&
+       brw_inst_dst_type(devinfo, &inst) == BRW_REGISTER_TYPE_D) {
+      enum brw_reg_file src_file = brw_inst_src0_reg_file(devinfo, &inst);
+      enum brw_reg_file dst_file = brw_inst_dst_reg_file(devinfo, &inst);
+
+      brw_inst_set_src0_file_type(devinfo, &inst, src_file, BRW_REGISTER_TYPE_UD);
+      brw_inst_set_dst_file_type(devinfo, &inst, dst_file, BRW_REGISTER_TYPE_UD);
+   }
+
+   return inst;
+}
+
+/**
  * Tries to compact instruction src into dst.
  *
  * It doesn't modify dst unless src is compactable, which is relied on by
@@ -962,7 +1084,7 @@ is_compactable_immediate(unsigned imm)
  */
 bool
 brw_try_compact_instruction(const struct gen_device_info *devinfo,
-                            brw_compact_inst *dst, brw_inst *src)
+                            brw_compact_inst *dst, const brw_inst *src)
 {
    brw_compact_inst temp;
 
@@ -1173,6 +1295,8 @@ brw_uncompact_3src_instruction(const struct gen_device_info *devinfo,
 
 #define uncompact(field) \
    brw_inst_set_3src_##field(devinfo, dst, brw_compact_inst_3src_##field(devinfo, src))
+#define uncompact_a16(field) \
+   brw_inst_set_3src_a16_##field(devinfo, dst, brw_compact_inst_3src_##field(devinfo, src))
 
    uncompact(opcode);
 
@@ -1180,20 +1304,21 @@ brw_uncompact_3src_instruction(const struct gen_device_info *devinfo,
    set_uncompacted_3src_source_index(devinfo, dst, src);
 
    uncompact(dst_reg_nr);
-   uncompact(src0_rep_ctrl);
+   uncompact_a16(src0_rep_ctrl);
    brw_inst_set_3src_cmpt_control(devinfo, dst, false);
    uncompact(debug_control);
    uncompact(saturate);
-   uncompact(src1_rep_ctrl);
-   uncompact(src2_rep_ctrl);
+   uncompact_a16(src1_rep_ctrl);
+   uncompact_a16(src2_rep_ctrl);
    uncompact(src0_reg_nr);
    uncompact(src1_reg_nr);
    uncompact(src2_reg_nr);
-   uncompact(src0_subreg_nr);
-   uncompact(src1_subreg_nr);
-   uncompact(src2_subreg_nr);
+   uncompact_a16(src0_subreg_nr);
+   uncompact_a16(src1_subreg_nr);
+   uncompact_a16(src2_subreg_nr);
 
 #undef uncompact
+#undef uncompact_a16
 }
 
 void
@@ -1360,8 +1485,16 @@ brw_init_compaction_tables(const struct gen_device_info *devinfo)
    assert(gen8_datatype_table[ARRAY_SIZE(gen8_datatype_table) - 1] != 0);
    assert(gen8_subreg_table[ARRAY_SIZE(gen8_subreg_table) - 1] != 0);
    assert(gen8_src_index_table[ARRAY_SIZE(gen8_src_index_table) - 1] != 0);
+   assert(gen11_datatype_table[ARRAY_SIZE(gen11_datatype_table) - 1] != 0);
 
    switch (devinfo->gen) {
+   case 11:
+      control_index_table = gen8_control_index_table;
+      datatype_table = gen11_datatype_table;
+      subreg_table = gen8_subreg_table;
+      src_index_table = gen8_src_index_table;
+      break;
+   case 10:
    case 9:
    case 8:
       control_index_table = gen8_control_index_table;
@@ -1395,7 +1528,7 @@ brw_init_compaction_tables(const struct gen_device_info *devinfo)
 
 void
 brw_compact_instructions(struct brw_codegen *p, int start_offset,
-                         int num_annotations, struct annotation *annotation)
+                         struct disasm_info *disasm)
 {
    if (unlikely(INTEL_DEBUG & DEBUG_NO_COMPACTION))
       return;
@@ -1410,7 +1543,7 @@ brw_compact_instructions(struct brw_codegen *p, int start_offset,
    /* For an instruction at byte offset 8*i after compaction, this was its IP
     * (in 16-byte units) before compaction.
     */
-   int old_ip[(p->next_insn_offset - start_offset) / sizeof(brw_compact_inst)];
+   int old_ip[(p->next_insn_offset - start_offset) / sizeof(brw_compact_inst) + 1];
 
    if (devinfo->gen == 4 && !devinfo->is_g4x)
       return;
@@ -1425,9 +1558,10 @@ brw_compact_instructions(struct brw_codegen *p, int start_offset,
       old_ip[offset / sizeof(brw_compact_inst)] = src_offset / sizeof(brw_inst);
       compacted_counts[src_offset / sizeof(brw_inst)] = compacted_count;
 
-      brw_inst saved = *src;
+      brw_inst inst = precompact(devinfo, *src);
+      brw_inst saved = inst;
 
-      if (brw_try_compact_instruction(devinfo, dst, src)) {
+      if (brw_try_compact_instruction(devinfo, dst, &inst)) {
          compacted_count++;
 
          if (INTEL_DEBUG) {
@@ -1463,6 +1597,12 @@ brw_compact_instructions(struct brw_codegen *p, int start_offset,
          offset += sizeof(brw_inst);
       }
    }
+
+   /* Add an entry for the ending offset of the program. This greatly
+    * simplifies the linked list walk at the end of the function.
+    */
+   old_ip[offset / sizeof(brw_compact_inst)] =
+      (p->next_insn_offset - start_offset) / sizeof(brw_inst);
 
    /* Fix up control flow offsets. */
    p->next_insn_offset = start_offset + offset;
@@ -1559,21 +1699,21 @@ brw_compact_instructions(struct brw_codegen *p, int start_offset,
    }
    p->nr_insn = p->next_insn_offset / sizeof(brw_inst);
 
-   /* Update the instruction offsets for each annotation. */
-   if (annotation) {
-      for (int offset = 0, i = 0; i < num_annotations; i++) {
+   /* Update the instruction offsets for each group. */
+   if (disasm) {
+      int offset = 0;
+
+      foreach_list_typed(struct inst_group, group, link, &disasm->group_list) {
          while (start_offset + old_ip[offset / sizeof(brw_compact_inst)] *
-                sizeof(brw_inst) != annotation[i].offset) {
+                sizeof(brw_inst) != group->offset) {
             assert(start_offset + old_ip[offset / sizeof(brw_compact_inst)] *
-                   sizeof(brw_inst) < annotation[i].offset);
+                   sizeof(brw_inst) < group->offset);
             offset = next_offset(devinfo, store, offset);
          }
 
-         annotation[i].offset = start_offset + offset;
+         group->offset = start_offset + offset;
 
          offset = next_offset(devinfo, store, offset);
       }
-
-      annotation[num_annotations].offset = p->next_insn_offset;
    }
 }

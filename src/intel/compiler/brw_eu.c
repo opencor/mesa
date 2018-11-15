@@ -37,35 +37,6 @@
 
 #include "util/ralloc.h"
 
-/**
- * Converts a BRW_REGISTER_TYPE_* enum to a short string (F, UD, and so on).
- *
- * This is different than reg_encoding from brw_disasm.c in that it operates
- * on the abstract enum values, rather than the generation-specific encoding.
- */
-const char *
-brw_reg_type_letters(unsigned type)
-{
-   const char *names[] = {
-      [BRW_REGISTER_TYPE_UD] = "UD",
-      [BRW_REGISTER_TYPE_D]  = "D",
-      [BRW_REGISTER_TYPE_UW] = "UW",
-      [BRW_REGISTER_TYPE_W]  = "W",
-      [BRW_REGISTER_TYPE_F]  = "F",
-      [BRW_REGISTER_TYPE_UB] = "UB",
-      [BRW_REGISTER_TYPE_B]  = "B",
-      [BRW_REGISTER_TYPE_UV] = "UV",
-      [BRW_REGISTER_TYPE_V]  = "V",
-      [BRW_REGISTER_TYPE_VF] = "VF",
-      [BRW_REGISTER_TYPE_DF] = "DF",
-      [BRW_REGISTER_TYPE_HF] = "HF",
-      [BRW_REGISTER_TYPE_UQ] = "UQ",
-      [BRW_REGISTER_TYPE_Q]  = "Q",
-   };
-   assert(type <= BRW_REGISTER_TYPE_Q);
-   return names[type];
-}
-
 /* Returns a conditional modifier that negates the condition. */
 enum brw_conditional_mod
 brw_negate_cmod(uint32_t cmod)
@@ -155,65 +126,79 @@ brw_swizzle_immediate(enum brw_reg_type type, uint32_t x, unsigned swz)
    }
 }
 
+unsigned
+brw_get_default_exec_size(struct brw_codegen *p)
+{
+   return p->current->exec_size;
+}
+
+unsigned
+brw_get_default_group(struct brw_codegen *p)
+{
+   return p->current->group;
+}
+
+unsigned
+brw_get_default_access_mode(struct brw_codegen *p)
+{
+   return p->current->access_mode;
+}
+
 void
 brw_set_default_exec_size(struct brw_codegen *p, unsigned value)
 {
-   brw_inst_set_exec_size(p->devinfo, p->current, value);
+   p->current->exec_size = value;
 }
 
 void brw_set_default_predicate_control( struct brw_codegen *p, unsigned pc )
 {
-   brw_inst_set_pred_control(p->devinfo, p->current, pc);
+   p->current->predicate = pc;
 }
 
 void brw_set_default_predicate_inverse(struct brw_codegen *p, bool predicate_inverse)
 {
-   brw_inst_set_pred_inv(p->devinfo, p->current, predicate_inverse);
+   p->current->pred_inv = predicate_inverse;
 }
 
 void brw_set_default_flag_reg(struct brw_codegen *p, int reg, int subreg)
 {
-   if (p->devinfo->gen >= 7)
-      brw_inst_set_flag_reg_nr(p->devinfo, p->current, reg);
-
-   brw_inst_set_flag_subreg_nr(p->devinfo, p->current, subreg);
+   assert(subreg < 2);
+   p->current->flag_subreg = reg * 2 + subreg;
 }
 
 void brw_set_default_access_mode( struct brw_codegen *p, unsigned access_mode )
 {
-   brw_inst_set_access_mode(p->devinfo, p->current, access_mode);
+   p->current->access_mode = access_mode;
 }
 
 void
 brw_set_default_compression_control(struct brw_codegen *p,
 			    enum brw_compression compression_control)
 {
-   if (p->devinfo->gen >= 6) {
-      /* Since we don't use the SIMD32 support in gen6, we translate
-       * the pre-gen6 compression control here.
+   switch (compression_control) {
+   case BRW_COMPRESSION_NONE:
+      /* This is the "use the first set of bits of dmask/vmask/arf
+       * according to execsize" option.
        */
-      switch (compression_control) {
-      case BRW_COMPRESSION_NONE:
-	 /* This is the "use the first set of bits of dmask/vmask/arf
-	  * according to execsize" option.
-	  */
-         brw_inst_set_qtr_control(p->devinfo, p->current, GEN6_COMPRESSION_1Q);
-	 break;
-      case BRW_COMPRESSION_2NDHALF:
-	 /* For SIMD8, this is "use the second set of 8 bits." */
-         brw_inst_set_qtr_control(p->devinfo, p->current, GEN6_COMPRESSION_2Q);
-	 break;
-      case BRW_COMPRESSION_COMPRESSED:
-	 /* For SIMD16 instruction compression, use the first set of 16 bits
-	  * since we don't do SIMD32 dispatch.
-	  */
-         brw_inst_set_qtr_control(p->devinfo, p->current, GEN6_COMPRESSION_1H);
-	 break;
-      default:
-         unreachable("not reached");
-      }
-   } else {
-      brw_inst_set_qtr_control(p->devinfo, p->current, compression_control);
+      p->current->group = 0;
+      break;
+   case BRW_COMPRESSION_2NDHALF:
+      /* For SIMD8, this is "use the second set of 8 bits." */
+      p->current->group = 8;
+      break;
+   case BRW_COMPRESSION_COMPRESSED:
+      /* For SIMD16 instruction compression, use the first set of 16 bits
+       * since we don't do SIMD32 dispatch.
+       */
+      p->current->group = 0;
+      break;
+   default:
+      unreachable("not reached");
+   }
+
+   if (p->devinfo->gen <= 6) {
+      p->current->compressed =
+         (compression_control == BRW_COMPRESSION_COMPRESSED);
    }
 }
 
@@ -246,7 +231,7 @@ brw_inst_set_compression(const struct gen_device_info *devinfo,
 void
 brw_set_default_compression(struct brw_codegen *p, bool on)
 {
-   brw_inst_set_compression(p->devinfo, p->current, on);
+   p->current->compressed = on;
 }
 
 /**
@@ -283,29 +268,28 @@ brw_inst_set_group(const struct gen_device_info *devinfo,
 void
 brw_set_default_group(struct brw_codegen *p, unsigned group)
 {
-   brw_inst_set_group(p->devinfo, p->current, group);
+   p->current->group = group;
 }
 
 void brw_set_default_mask_control( struct brw_codegen *p, unsigned value )
 {
-   brw_inst_set_mask_control(p->devinfo, p->current, value);
+   p->current->mask_control = value;
 }
 
 void brw_set_default_saturate( struct brw_codegen *p, bool enable )
 {
-   brw_inst_set_saturate(p->devinfo, p->current, enable);
+   p->current->saturate = enable;
 }
 
 void brw_set_default_acc_write_control(struct brw_codegen *p, unsigned value)
 {
-   if (p->devinfo->gen >= 6)
-      brw_inst_set_acc_wr_control(p->devinfo, p->current, value);
+   p->current->acc_wr_control = value;
 }
 
 void brw_push_insn_state( struct brw_codegen *p )
 {
    assert(p->current != &p->stack[BRW_EU_MAX_INSN_STACK-1]);
-   memcpy(p->current + 1, p->current, sizeof(brw_inst));
+   *(p->current + 1) = *p->current;
    p->current++;
 }
 
@@ -325,6 +309,7 @@ brw_init_codegen(const struct gen_device_info *devinfo,
    memset(p, 0, sizeof(*p));
 
    p->devinfo = devinfo;
+   p->automatic_exec_sizes = true;
    /*
     * Set the initial instruction store array size to 1024, if found that
     * isn't enough, then it will double the store size at brw_next_insn()
@@ -366,12 +351,12 @@ const unsigned *brw_get_program( struct brw_codegen *p,
 
 void
 brw_disassemble(const struct gen_device_info *devinfo,
-                void *assembly, int start, int end, FILE *out)
+                const void *assembly, int start, int end, FILE *out)
 {
    bool dump_hex = (INTEL_DEBUG & DEBUG_HEX) != 0;
 
    for (int offset = start; offset < end;) {
-      brw_inst *insn = assembly + offset;
+      const brw_inst *insn = assembly + offset;
       brw_inst uncompacted;
       bool compacted = brw_inst_cmpt_control(devinfo, insn);
       if (0)
@@ -412,6 +397,8 @@ enum gen {
    GEN75 = (1 << 5),
    GEN8  = (1 << 6),
    GEN9  = (1 << 7),
+   GEN10 = (1 << 8),
+   GEN11 = (1 << 9),
    GEN_ALL = ~0
 };
 
@@ -655,16 +642,16 @@ static const struct opcode_desc opcode_descs[128] = {
    },
    /* Reserved 88 */
    [BRW_OPCODE_LINE] = {
-      .name = "line",    .nsrc = 2, .ndst = 1, .gens = GEN_ALL,
+      .name = "line",    .nsrc = 2, .ndst = 1, .gens = GEN_LE(GEN10),
    },
    [BRW_OPCODE_PLN] = {
-      .name = "pln",     .nsrc = 2, .ndst = 1, .gens = GEN_GE(GEN45),
+      .name = "pln",     .nsrc = 2, .ndst = 1, .gens = GEN_GE(GEN45) & GEN_LE(GEN10),
    },
    [BRW_OPCODE_MAD] = {
       .name = "mad",     .nsrc = 3, .ndst = 1, .gens = GEN_GE(GEN6),
    },
    [BRW_OPCODE_LRP] = {
-      .name = "lrp",     .nsrc = 3, .ndst = 1, .gens = GEN_GE(GEN6),
+      .name = "lrp",     .nsrc = 3, .ndst = 1, .gens = GEN_GE(GEN6) & GEN_LE(GEN10),
    },
    [93] = {
       .name = "madm",    .nsrc = 3, .ndst = 1, .gens = GEN_GE(GEN8),
@@ -688,6 +675,8 @@ gen_from_devinfo(const struct gen_device_info *devinfo)
    case 7: return devinfo->is_haswell ? GEN75 : GEN7;
    case 8: return GEN8;
    case 9: return GEN9;
+   case 10: return GEN10;
+   case 11: return GEN11;
    default:
       unreachable("not reached");
    }

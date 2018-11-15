@@ -1,9 +1,9 @@
 /**************************************************************************
- *
+ * 
  * Copyright 1999-2006 Brian Paul
  * Copyright 2008 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -27,7 +27,7 @@
 
 /**
  * @file
- *
+ * 
  * Thread, mutex, condition variable, barrier, semaphore and
  * thread-specific data functions.
  */
@@ -41,17 +41,6 @@
 #include "util/u_debug.h" /* for assert */
 #include "util/u_thread.h"
 
-
-static inline int pipe_thread_is_self( thrd_t thread )
-{
-#if defined(HAVE_PTHREAD)
-#  if defined(__GNU_LIBRARY__) && defined(__GLIBC__) && defined(__GLIBC_MINOR__) && \
-      (__GLIBC__ >= 3 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 12))
-   return pthread_equal(pthread_self(), thread);
-#  endif
-#endif
-   return 0;
-}
 
 #define pipe_mutex_assert_locked(mutex) \
    __pipe_mutex_assert_locked(&(mutex))
@@ -67,84 +56,10 @@ __pipe_mutex_assert_locked(mtx_t *mutex)
    assert(ret == thrd_busy);
    if (ret == thrd_success)
       mtx_unlock(mutex);
+#else
+   (void)mutex;
 #endif
 }
-
-
-/*
- * pipe_barrier
- */
-
-#if (defined(PIPE_OS_LINUX) || defined(PIPE_OS_BSD) || defined(PIPE_OS_SOLARIS) || defined(PIPE_OS_HURD)) && !defined(PIPE_OS_ANDROID)
-
-typedef pthread_barrier_t pipe_barrier;
-
-static inline void pipe_barrier_init(pipe_barrier *barrier, unsigned count)
-{
-   pthread_barrier_init(barrier, NULL, count);
-}
-
-static inline void pipe_barrier_destroy(pipe_barrier *barrier)
-{
-   pthread_barrier_destroy(barrier);
-}
-
-static inline void pipe_barrier_wait(pipe_barrier *barrier)
-{
-   pthread_barrier_wait(barrier);
-}
-
-
-#else /* If the OS doesn't have its own, implement barriers using a mutex and a condvar */
-
-typedef struct {
-   unsigned count;
-   unsigned waiters;
-   uint64_t sequence;
-   mtx_t mutex;
-   cnd_t condvar;
-} pipe_barrier;
-
-static inline void pipe_barrier_init(pipe_barrier *barrier, unsigned count)
-{
-   barrier->count = count;
-   barrier->waiters = 0;
-   barrier->sequence = 0;
-   (void) mtx_init(&barrier->mutex, mtx_plain);
-   cnd_init(&barrier->condvar);
-}
-
-static inline void pipe_barrier_destroy(pipe_barrier *barrier)
-{
-   assert(barrier->waiters == 0);
-   mtx_destroy(&barrier->mutex);
-   cnd_destroy(&barrier->condvar);
-}
-
-static inline void pipe_barrier_wait(pipe_barrier *barrier)
-{
-   mtx_lock(&barrier->mutex);
-
-   assert(barrier->waiters < barrier->count);
-   barrier->waiters++;
-
-   if (barrier->waiters < barrier->count) {
-      uint64_t sequence = barrier->sequence;
-
-      do {
-         cnd_wait(&barrier->condvar, &barrier->mutex);
-      } while (sequence == barrier->sequence);
-   } else {
-      barrier->waiters = 0;
-      barrier->sequence++;
-      cnd_broadcast(&barrier->condvar);
-   }
-
-   mtx_unlock(&barrier->mutex);
-}
-
-
-#endif
 
 
 /*

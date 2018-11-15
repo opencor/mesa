@@ -8,17 +8,19 @@ http://github.com/freedreno/envytools/
 git clone https://github.com/freedreno/envytools.git
 
 The rules-ng-ng source files this header was generated from are:
-- /home/robclark/src/freedreno/envytools/rnndb/adreno.xml               (    431 bytes, from 2016-04-26 17:56:44)
-- /home/robclark/src/freedreno/envytools/rnndb/freedreno_copyright.xml  (   1572 bytes, from 2016-02-10 17:07:21)
-- /home/robclark/src/freedreno/envytools/rnndb/adreno/a2xx.xml          (  32907 bytes, from 2016-11-26 23:01:08)
-- /home/robclark/src/freedreno/envytools/rnndb/adreno/adreno_common.xml (  12025 bytes, from 2016-11-26 23:01:08)
-- /home/robclark/src/freedreno/envytools/rnndb/adreno/adreno_pm4.xml    (  23277 bytes, from 2016-12-24 05:01:47)
-- /home/robclark/src/freedreno/envytools/rnndb/adreno/a3xx.xml          (  83840 bytes, from 2016-11-26 23:01:08)
-- /home/robclark/src/freedreno/envytools/rnndb/adreno/a4xx.xml          ( 110757 bytes, from 2016-12-26 17:51:07)
-- /home/robclark/src/freedreno/envytools/rnndb/adreno/a5xx.xml          ( 100594 bytes, from 2017-01-20 23:03:30)
-- /home/robclark/src/freedreno/envytools/rnndb/adreno/ocmem.xml         (   1773 bytes, from 2015-09-24 17:30:00)
+- /home/robclark/src/freedreno/envytools/rnndb/adreno.xml               (    501 bytes, from 2018-01-31 18:26:32)
+- /home/robclark/src/freedreno/envytools/rnndb/freedreno_copyright.xml  (   1572 bytes, from 2018-01-08 14:56:24)
+- /home/robclark/src/freedreno/envytools/rnndb/adreno/a2xx.xml          (  36805 bytes, from 2018-05-20 19:03:35)
+- /home/robclark/src/freedreno/envytools/rnndb/adreno/adreno_common.xml (  13634 bytes, from 2018-06-10 17:35:36)
+- /home/robclark/src/freedreno/envytools/rnndb/adreno/adreno_pm4.xml    (  41584 bytes, from 2018-06-18 14:25:44)
+- /home/robclark/src/freedreno/envytools/rnndb/adreno/a3xx.xml          (  83840 bytes, from 2018-01-10 16:21:40)
+- /home/robclark/src/freedreno/envytools/rnndb/adreno/a4xx.xml          ( 112086 bytes, from 2018-01-08 14:56:24)
+- /home/robclark/src/freedreno/envytools/rnndb/adreno/a5xx.xml          ( 147158 bytes, from 2018-06-18 14:25:44)
+- /home/robclark/src/freedreno/envytools/rnndb/adreno/a6xx.xml          (  88437 bytes, from 2018-06-18 14:25:44)
+- /home/robclark/src/freedreno/envytools/rnndb/adreno/a6xx_gmu.xml      (  10431 bytes, from 2018-06-10 17:37:04)
+- /home/robclark/src/freedreno/envytools/rnndb/adreno/ocmem.xml         (   1773 bytes, from 2018-01-08 14:56:24)
 
-Copyright (C) 2013-2016 by the following authors:
+Copyright (C) 2013-2018 by the following authors:
 - Rob Clark <robdclark@gmail.com> (robclark)
 - Ilia Mirkin <imirkin@alum.mit.edu> (imirkin)
 

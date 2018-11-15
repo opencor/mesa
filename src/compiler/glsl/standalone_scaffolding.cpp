@@ -34,6 +34,7 @@
 #include <string.h>
 #include "util/ralloc.h"
 #include "util/strtod.h"
+#include "main/mtypes.h"
 
 void
 _mesa_warning(struct gl_context *ctx, const char *fmt, ...)
@@ -100,19 +101,19 @@ _mesa_new_shader(GLuint name, gl_shader_stage stage)
 }
 
 GLbitfield
-_mesa_program_state_flags(const gl_state_index state[STATE_LENGTH])
+_mesa_program_state_flags(UNUSED const gl_state_index16 state[STATE_LENGTH])
 {
    return 0;
 }
 
 char *
-_mesa_program_state_string(const gl_state_index state[STATE_LENGTH])
+_mesa_program_state_string(UNUSED const gl_state_index16 state[STATE_LENGTH])
 {
    return NULL;
 }
 
 void
-_mesa_delete_shader(struct gl_context *ctx, struct gl_shader *sh)
+_mesa_delete_shader(struct gl_context *, struct gl_shader *sh)
 {
    free((void *)sh->Source);
    free(sh->Label);
@@ -120,7 +121,7 @@ _mesa_delete_shader(struct gl_context *ctx, struct gl_shader *sh)
 }
 
 void
-_mesa_delete_linked_shader(struct gl_context *ctx,
+_mesa_delete_linked_shader(struct gl_context *,
                            struct gl_linked_shader *sh)
 {
    ralloc_free(sh);
@@ -183,7 +184,6 @@ void initialize_context_to_defaults(struct gl_context *ctx, gl_api api)
    ctx->Extensions.ARB_shader_bit_encoding = true;
    ctx->Extensions.ARB_shader_draw_parameters = true;
    ctx->Extensions.ARB_shader_stencil_export = true;
-   ctx->Extensions.ARB_shader_subroutine = true;
    ctx->Extensions.ARB_shader_texture_lod = true;
    ctx->Extensions.ARB_shading_language_420pack = true;
    ctx->Extensions.ARB_shading_language_packing = true;
@@ -196,6 +196,7 @@ void initialize_context_to_defaults(struct gl_context *ctx, gl_api api)
    ctx->Extensions.ARB_uniform_buffer_object = true;
    ctx->Extensions.ARB_viewport_array = true;
    ctx->Extensions.ARB_cull_distance = true;
+   ctx->Extensions.ARB_bindless_texture = true;
 
    ctx->Extensions.OES_EGL_image_external = true;
    ctx->Extensions.OES_standard_derivatives = true;

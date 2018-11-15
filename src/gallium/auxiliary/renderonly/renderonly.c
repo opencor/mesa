@@ -33,6 +33,7 @@
 
 #include "state_tracker/drm_driver.h"
 #include "pipe/p_screen.h"
+#include "util/u_format.h"
 #include "util/u_inlines.h"
 #include "util/u_memory.h"
 
@@ -50,27 +51,12 @@ renderonly_dup(const struct renderonly *ro)
    return copy;
 }
 
-struct renderonly_scanout *
-renderonly_scanout_for_prime(struct pipe_resource *rsc, struct renderonly *ro)
-{
-   struct renderonly_scanout *scanout;
-
-   scanout = CALLOC_STRUCT(renderonly_scanout);
-   if (!scanout)
-      return NULL;
-
-   scanout->prime = rsc;
-
-   return scanout;
-}
-
 void
 renderonly_scanout_destroy(struct renderonly_scanout *scanout,
 			   struct renderonly *ro)
 {
    struct drm_mode_destroy_dumb destroy_dumb = { };
 
-   pipe_resource_reference(&scanout->prime, NULL);
    if (ro->kms_fd != -1) {
       destroy_dumb.handle = scanout->handle;
       drmIoctl(ro->kms_fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_dumb);
@@ -80,16 +66,15 @@ renderonly_scanout_destroy(struct renderonly_scanout *scanout,
 
 struct renderonly_scanout *
 renderonly_create_kms_dumb_buffer_for_resource(struct pipe_resource *rsc,
-                                               struct renderonly *ro)
+                                               struct renderonly *ro,
+                                               struct winsys_handle *out_handle)
 {
-   struct pipe_screen *screen = rsc->screen;
    struct renderonly_scanout *scanout;
-   struct winsys_handle handle;
-   int prime_fd, err;
+   int err;
    struct drm_mode_create_dumb create_dumb = {
       .width = rsc->width0,
       .height = rsc->height0,
-      .bpp = 32,
+      .bpp = util_format_get_blocksizebits(rsc->format),
    };
    struct drm_mode_destroy_dumb destroy_dumb = { };
 
@@ -108,26 +93,18 @@ renderonly_create_kms_dumb_buffer_for_resource(struct pipe_resource *rsc,
    scanout->handle = create_dumb.handle;
    scanout->stride = create_dumb.pitch;
 
-   /* export dumb buffer */
+   if (!out_handle)
+      return scanout;
+
+   /* fill in winsys handle */
+   memset(out_handle, 0, sizeof(*out_handle));
+   out_handle->type = WINSYS_HANDLE_TYPE_FD;
+   out_handle->stride = create_dumb.pitch;
+
    err = drmPrimeHandleToFD(ro->kms_fd, create_dumb.handle, O_CLOEXEC,
-         &prime_fd);
+         (int *)&out_handle->handle);
    if (err < 0) {
       fprintf(stderr, "failed to export dumb buffer: %s\n", strerror(errno));
-      goto free_dumb;
-   }
-
-   /* import dumb buffer */
-   handle.type = DRM_API_HANDLE_TYPE_FD;
-   handle.handle = prime_fd;
-   handle.stride = create_dumb.pitch;
-
-   scanout->prime = screen->resource_from_handle(screen, rsc,
-         &handle, PIPE_HANDLE_USAGE_READ_WRITE);
-
-   close(prime_fd);
-
-   if (!scanout->prime) {
-      fprintf(stderr, "failed to create resource_from_handle: %s\n", strerror(errno));
       goto free_dumb;
    }
 
@@ -145,14 +122,15 @@ free_scanout:
 
 struct renderonly_scanout *
 renderonly_create_gpu_import_for_resource(struct pipe_resource *rsc,
-                                          struct renderonly *ro)
+                                          struct renderonly *ro,
+                                          struct winsys_handle *out_handle)
 {
    struct pipe_screen *screen = rsc->screen;
    struct renderonly_scanout *scanout;
    boolean status;
    int fd, err;
    struct winsys_handle handle = {
-      .type = DRM_API_HANDLE_TYPE_FD
+      .type = WINSYS_HANDLE_TYPE_FD
    };
 
    scanout = CALLOC_STRUCT(renderonly_scanout);

@@ -48,7 +48,7 @@ private:
 			bool				fDirectModeEnabled;
 			direct_buffer_info*	fInfo;
 			BLocker				fInfoLocker;
-			ulong				fOptions;
+			ulong				fOptions;			
 			GLuint				fWidth;
 			GLuint				fHeight;
 			color_space			fColorSpace;

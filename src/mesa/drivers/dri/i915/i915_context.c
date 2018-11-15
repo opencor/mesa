@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,11 +22,13 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #include "i915_context.h"
 #include "main/api_exec.h"
+#include "main/framebuffer.h"
+#include "main/extensions.h"
 #include "main/imports.h"
 #include "main/macros.h"
 #include "main/version.h"
@@ -52,14 +54,18 @@
 /* Override intel default.
  */
 static void
-i915InvalidateState(struct gl_context * ctx, GLuint new_state)
+i915InvalidateState(struct gl_context * ctx)
 {
+   GLuint new_state = ctx->NewState;
+
    _swrast_InvalidateState(ctx, new_state);
    _swsetup_InvalidateState(ctx, new_state);
-   _vbo_InvalidateState(ctx, new_state);
    _tnl_InvalidateState(ctx, new_state);
    _tnl_invalidate_vertex_state(ctx, new_state);
    intel_context(ctx)->NewGLState |= new_state;
+
+   if (new_state & (_NEW_SCISSOR | _NEW_BUFFERS | _NEW_VIEWPORT))
+      _mesa_update_draw_buffer_bounds(ctx, ctx->DrawBuffer);
 
    /* Todo: gather state values under which tracked parameters become
     * invalidated, add callbacks for things like
@@ -284,6 +290,7 @@ i915CreateContext(int api,
    _tnl_allow_vertex_fog(ctx, 0);
    _tnl_allow_pixel_fog(ctx, 1);
 
+   _mesa_override_extensions(ctx);
    _mesa_compute_version(ctx);
 
    _mesa_initialize_dispatch_tables(ctx);

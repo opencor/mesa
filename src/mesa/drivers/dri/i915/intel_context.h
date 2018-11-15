@@ -1,8 +1,8 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2003 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -10,11 +10,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -22,7 +22,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 #ifndef INTELCONTEXT_INC
@@ -32,7 +32,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include "main/mtypes.h"
-#include "main/mm.h"
+#include "main/errors.h"
 
 #include <drm.h>
 #include <intel_bufmgr.h>
@@ -150,7 +150,7 @@ struct intel_context
 
    GLbitfield Fallback;  /**< mask of INTEL_FALLBACK_x bits */
    GLuint NewGLState;
-
+ 
    dri_bufmgr *bufmgr;
    unsigned int maxBatchSize;
 
@@ -224,7 +224,7 @@ struct intel_context
    GLuint vertex_size;
    GLubyte *verts;              /* points to tnl->clipspace.vertex_buf */
 
-   /* Fallback rasterization functions
+   /* Fallback rasterization functions 
     */
    intel_point_func draw_point;
    intel_line_func draw_line;
@@ -284,7 +284,11 @@ extern int INTEL_DEBUG;
 
 #ifdef HAVE_ANDROID_PLATFORM
 #define LOG_TAG "INTEL-MESA"
+#if ANDROID_API_LEVEL >= 26
+#include <log/log.h>
+#else
 #include <cutils/log.h>
+#endif /* use log/log.h start from android 8 major version */
 #ifndef ALOGW
 #define ALOGW LOGW
 #endif
@@ -422,7 +426,6 @@ extern int intel_translate_shadow_compare_func(GLenum func);
 extern int intel_translate_compare_func(GLenum func);
 extern int intel_translate_stencil_op(GLenum op);
 extern int intel_translate_blend_factor(GLenum factor);
-extern int intel_translate_logic_op(GLenum opcode);
 
 void intel_update_renderbuffers(__DRIcontext *context,
 				__DRIdrawable *drawable);
@@ -433,7 +436,7 @@ void i915_set_buf_info_for_region(uint32_t *state, struct intel_region *region,
 void intel_init_texture_formats(struct gl_context *ctx);
 
 /*======================================================================
- * Inline conversion functions.
+ * Inline conversion functions.  
  * These are better-typed than the macros used previously:
  */
 static inline struct intel_context *

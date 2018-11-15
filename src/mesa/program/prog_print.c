@@ -50,12 +50,14 @@ _mesa_register_file_name(gl_register_file f)
    switch (f) {
    case PROGRAM_TEMPORARY:
       return "TEMP";
-   case PROGRAM_STATE_VAR:
-      return "STATE";
+   case PROGRAM_ARRAY:
+      return "ARRAY";
    case PROGRAM_INPUT:
       return "INPUT";
    case PROGRAM_OUTPUT:
       return "OUTPUT";
+   case PROGRAM_STATE_VAR:
+      return "STATE";
    case PROGRAM_CONSTANT:
       return "CONST";
    case PROGRAM_UNIFORM:
@@ -68,6 +70,16 @@ _mesa_register_file_name(gl_register_file f)
       return "SYSVAL";
    case PROGRAM_UNDEFINED:
       return "UNDEFINED";
+   case PROGRAM_IMMEDIATE:
+      return "IMM";
+   case PROGRAM_BUFFER:
+      return "BUFFER";
+   case PROGRAM_MEMORY:
+      return "MEMORY";
+   case PROGRAM_IMAGE:
+      return "IMAGE";
+   case PROGRAM_HW_ATOMIC:
+      return "HWATOMIC";
    default:
       {
          static char s[20];
@@ -89,7 +101,6 @@ arb_input_attrib_string(GLuint index, GLenum progType)
     */
    static const char *const vertAttribs[] = {
       "vertex.position",
-      "vertex.weight",
       "vertex.normal",
       "vertex.color.primary",
       "vertex.color.secondary",
@@ -153,6 +164,7 @@ arb_input_attrib_string(GLuint index, GLenum progType)
       "fragment.(twenty-seven)", /* VARYING_SLOT_CULL_DIST1 */
       "fragment.(twenty-eight)", /* VARYING_SLOT_BOUNDING_BOX0 */
       "fragment.(twenty-nine)", /* VARYING_SLOT_BOUNDING_BOX1 */
+      "fragment.(thirty)", /* VARYING_SLOT_VIEW_INDEX */
       "fragment.varying[0]",
       "fragment.varying[1]",
       "fragment.varying[2]",
@@ -284,6 +296,7 @@ arb_output_attrib_string(GLuint index, GLenum progType)
       "result.(twenty-seven)", /* VARYING_SLOT_CULL_DIST1 */
       "result.(twenty-eight)", /* VARYING_SLOT_BOUNDING_BOX0 */
       "result.(twenty-nine)", /* VARYING_SLOT_BOUNDING_BOX1 */
+      "result.(thirty)", /* VARYING_SLOT_VIEW_INDEX */
       "result.varying[0]",
       "result.varying[1]",
       "result.varying[2]",
@@ -520,7 +533,7 @@ fprint_dst_reg(FILE * f,
 	   reg_string((gl_register_file) dstReg->File,
 		      dstReg->Index, mode, dstReg->RelAddr, prog),
 	   _mesa_writemask_string(dstReg->WriteMask));
-
+   
 #if 0
    fprintf(f, "%s[%d]%s",
 	   _mesa_register_file_name((gl_register_file) dstReg->File),
@@ -532,7 +545,7 @@ fprint_dst_reg(FILE * f,
 
 static void
 fprint_src_reg(FILE *f,
-               const struct prog_src_register *srcReg,
+               const struct prog_src_register *srcReg, 
                gl_prog_print_mode mode,
                const struct gl_program *prog)
 {
@@ -886,7 +899,7 @@ _mesa_fprint_program_parameters(FILE *f,
       const GLfloat *p = prog->LocalParams[i];
       fprintf(f, "%2d: %f, %f, %f, %f\n", i, p[0], p[1], p[2], p[3]);
    }
-#endif
+#endif	
    _mesa_print_parameter_list(prog->Parameters);
 }
 
@@ -918,7 +931,9 @@ _mesa_fprint_parameter_list(FILE *f,
    fprintf(f, "dirty state flags: 0x%x\n", list->StateFlags);
    for (i = 0; i < list->NumParameters; i++){
       struct gl_program_parameter *param = list->Parameters + i;
-      const GLfloat *v = (GLfloat *) list->ParameterValues[i];
+      unsigned pvo = list->ParameterValueOffset[i];
+      const GLfloat *v = (GLfloat *) list->ParameterValues + pvo;
+
       fprintf(f, "param[%d] sz=%d %s %s = {%.3g, %.3g, %.3g, %.3g}",
 	      i, param->Size,
 	      _mesa_register_file_name(list->Parameters[i].Type),
@@ -966,6 +981,8 @@ _mesa_write_shader_to_file(const struct gl_shader *shader)
       break;
    case MESA_SHADER_COMPUTE:
       type = "comp";
+      break;
+   default:
       break;
    }
 

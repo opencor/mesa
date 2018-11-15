@@ -426,7 +426,7 @@ XAppleDRICreatePixmap(Display * dpy, int screen, Drawable drawable,
    return True;
 }
 
-/*
+/* 
  * Call it a drawable, because we really don't know what it is
  * until it reaches the server, and we should keep that in mind.
  */

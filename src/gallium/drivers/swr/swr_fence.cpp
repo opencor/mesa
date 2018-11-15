@@ -23,11 +23,15 @@
 
 #include "pipe/p_screen.h"
 #include "util/u_memory.h"
-#include "os/os_time.h"
+#include "util/os_time.h"
 
 #include "swr_context.h"
 #include "swr_screen.h"
 #include "swr_fence.h"
+
+#ifdef __APPLE__
+#include <sched.h>
+#endif
 
 #if defined(PIPE_CC_MSVC) // portable thread yield
    #define sched_yield SwitchToThread
@@ -59,7 +63,7 @@ swr_fence_submit(struct swr_context *ctx, struct pipe_fence_handle *fh)
 
    fence->write++;
    fence->pending = TRUE;
-   SwrSync(ctx->swrContext, swr_fence_cb, (uint64_t)fence, fence->write, 0);
+   ctx->api.pfnSwrSync(ctx->swrContext, swr_fence_cb, (uint64_t)fence, fence->write, 0);
 }
 
 /*

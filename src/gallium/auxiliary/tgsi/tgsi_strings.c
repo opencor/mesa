@@ -1,9 +1,9 @@
 /**************************************************************************
- *
+ * 
  * Copyright 2007-2008 VMware, Inc.
  * Copyright 2012 VMware, Inc.
  * All Rights Reserved.
- *
+ * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -11,11 +11,11 @@
  * distribute, sub license, and/or sell copies of the Software, and to
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice (including the
  * next paragraph) shall be included in all copies or substantial portions
  * of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
@@ -23,7 +23,7 @@
  * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
+ * 
  **************************************************************************/
 
 
@@ -57,6 +57,8 @@ static const char *tgsi_file_names[] =
    "SVIEW",
    "BUFFER",
    "MEMORY",
+   "CONSTBUF",
+   "HWATOMIC",
 };
 
 const char *tgsi_semantic_names[TGSI_SEMANTIC_COUNT] =
@@ -151,6 +153,7 @@ const char *tgsi_property_names[TGSI_PROPERTY_COUNT] =
    "NUM_CLIPDIST_ENABLED",
    "NUM_CULLDIST_ENABLED",
    "FS_EARLY_DEPTH_STENCIL",
+   "FS_POST_DEPTH_COVERAGE",
    "NEXT_SHADER",
    "CS_FIXED_BLOCK_WIDTH",
    "CS_FIXED_BLOCK_HEIGHT",
@@ -181,6 +184,8 @@ const char *tgsi_interpolate_locations[TGSI_INTERPOLATE_LOC_COUNT] =
    "CENTROID",
    "SAMPLE",
 };
+
+const char *tgsi_invariant_name = "INVARIANT";
 
 const char *tgsi_primitive_names[PIPE_PRIM_MAX] =
 {

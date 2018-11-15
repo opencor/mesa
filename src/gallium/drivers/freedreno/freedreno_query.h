@@ -60,7 +60,16 @@ fd_query(struct pipe_query *pq)
 #define FD_QUERY_BATCH_TOTAL     (PIPE_QUERY_DRIVER_SPECIFIC + 1)  /* total # of batches (submits) */
 #define FD_QUERY_BATCH_SYSMEM    (PIPE_QUERY_DRIVER_SPECIFIC + 2)  /* batches using system memory (GMEM bypass) */
 #define FD_QUERY_BATCH_GMEM      (PIPE_QUERY_DRIVER_SPECIFIC + 3)  /* batches using GMEM */
-#define FD_QUERY_BATCH_RESTORE   (PIPE_QUERY_DRIVER_SPECIFIC + 4)  /* batches requiring GMEM restore */
+#define FD_QUERY_BATCH_NONDRAW   (PIPE_QUERY_DRIVER_SPECIFIC + 4)  /* compute/blit batches */
+#define FD_QUERY_BATCH_RESTORE   (PIPE_QUERY_DRIVER_SPECIFIC + 5)  /* batches requiring GMEM restore */
+#define FD_QUERY_STAGING_UPLOADS (PIPE_QUERY_DRIVER_SPECIFIC + 6)  /* texture/buffer uploads using staging blit */
+#define FD_QUERY_SHADOW_UPLOADS  (PIPE_QUERY_DRIVER_SPECIFIC + 7)  /* texture/buffer uploads that shadowed rsc */
+#define FD_QUERY_VS_REGS         (PIPE_QUERY_DRIVER_SPECIFIC + 8)  /* avg # of VS registers (scaled up by 100x) */
+#define FD_QUERY_FS_REGS         (PIPE_QUERY_DRIVER_SPECIFIC + 9)  /* avg # of VS registers (scaled up by 100x) */
+/* insert any new non-perfcntr queries here, the first perfcntr index
+ * needs to come last!
+ */
+#define FD_QUERY_FIRST_PERFCNTR  (PIPE_QUERY_DRIVER_SPECIFIC + 10)
 
 void fd_query_screen_init(struct pipe_screen *pscreen);
 void fd_query_context_init(struct pipe_context *pctx);
@@ -74,6 +83,29 @@ skip_begin_query(int type)
 		return true;
 	default:
 		return false;
+	}
+}
+
+/* maps query_type to sample provider idx: */
+static inline
+int pidx(unsigned query_type)
+{
+	switch (query_type) {
+	case PIPE_QUERY_OCCLUSION_COUNTER:
+		return 0;
+	case PIPE_QUERY_OCCLUSION_PREDICATE:
+		return 1;
+	case PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE:
+		return 2;
+	/* TODO currently queries only emitted in main pass (not in binning pass)..
+	 * which is fine for occlusion query, but pretty much not anything else.
+	 */
+	case PIPE_QUERY_TIME_ELAPSED:
+		return 3;
+	case PIPE_QUERY_TIMESTAMP:
+		return 4;
+	default:
+		return -1;
 	}
 }
 

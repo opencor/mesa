@@ -38,7 +38,7 @@ struct swr_fence {
    unsigned pending;
 
    unsigned id; /* Just for reference */
-
+   
    struct {
       uint32_t count;
       struct swr_fence_work head;

@@ -1,6 +1,6 @@
 # coding=utf-8
 #
-# Copyright © 2015 Intel Corporation
+# Copyright © 2015, 2017 Intel Corporation
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -22,155 +22,68 @@
 # IN THE SOFTWARE.
 #
 
-import sys
-import xml.etree.ElementTree as ET
+import argparse
+import functools
+import math
+import os
+import xml.etree.cElementTree as et
 
-max_api_version = 1.0
+from collections import OrderedDict, namedtuple
+from mako.template import Template
 
-supported_extensions = [
-   'VK_AMD_draw_indirect_count',
-   'VK_NV_dedicated_allocation',
-   'VK_KHR_descriptor_update_template',
-   'VK_KHR_get_physical_device_properties2',
-   'VK_KHR_incremental_present',
-   'VK_KHR_maintenance1',
-   'VK_KHR_push_descriptor',
-   'VK_KHR_sampler_mirror_clamp_to_edge',
-   'VK_KHR_shader_draw_parameters',
-   'VK_KHR_surface',
-   'VK_KHR_swapchain',
-   'VK_KHR_wayland_surface',
-   'VK_KHR_xcb_surface',
-   'VK_KHR_xlib_surface',
-]
+from radv_extensions import *
 
 # We generate a static hash table for entry point lookup
 # (vkGetProcAddress). We use a linear congruential generator for our hash
 # function and a power-of-two size table. The prime numbers are determined
 # experimentally.
 
-none = 0xffff
-hash_size = 256
-u32_mask = 2**32 - 1
-hash_mask = hash_size - 1
+# We currently don't use layers in radv, but keeping the ability for anv
+# anyways, so we can use it for device groups.
+LAYERS = [
+    'radv'
+]
 
-prime_factor = 5024183
-prime_step = 19
+TEMPLATE_H = Template("""\
+/* This file generated from ${filename}, don't edit directly. */
 
-def hash(name):
-    h = 0;
-    for c in name:
-        h = (h * prime_factor + ord(c)) & u32_mask
+struct radv_dispatch_table {
+   union {
+      void *entrypoints[${len(entrypoints)}];
+      struct {
+      % for e in entrypoints:
+        % if e.guard is not None:
+#ifdef ${e.guard}
+          PFN_${e.name} ${e.name};
+#else
+          void *${e.name};
+# endif
+        % else:
+          PFN_${e.name} ${e.name};
+        % endif
+      % endfor
+      };
+   };
+};
 
-    return h
+% for e in entrypoints:
+  % if e.alias:
+    <% continue %>
+  % endif
+  % if e.guard is not None:
+#ifdef ${e.guard}
+  % endif
+  % for layer in LAYERS:
+  ${e.return_type} ${e.prefixed_name(layer)}(${e.decl_params()});
+  % endfor
+  % if e.guard is not None:
+#endif // ${e.guard}
+  % endif
+% endfor
+""", output_encoding='utf-8')
 
-def print_guard_start(guard):
-    if guard is not None:
-        print "#ifdef {0}".format(guard)
-
-def print_guard_end(guard):
-    if guard is not None:
-        print "#endif // {0}".format(guard)
-
-opt_header = False
-opt_code = False
-
-if (sys.argv[1] == "header"):
-    opt_header = True
-    sys.argv.pop()
-elif (sys.argv[1] == "code"):
-    opt_code = True
-    sys.argv.pop()
-
-# Extract the entry points from the registry
-def get_entrypoints(doc, entrypoints_to_defines):
-    entrypoints = []
-
-    enabled_commands = set()
-    for feature in doc.findall('./feature'):
-        assert feature.attrib['api'] == 'vulkan'
-        if float(feature.attrib['number']) > max_api_version:
-            continue
-
-        for command in feature.findall('./require/command'):
-            enabled_commands.add(command.attrib['name'])
-
-    for extension in doc.findall('.extensions/extension'):
-        if extension.attrib['name'] not in supported_extensions:
-            continue
-
-        assert extension.attrib['supported'] == 'vulkan'
-        for command in extension.findall('./require/command'):
-            enabled_commands.add(command.attrib['name'])
-
-    index = 0
-    for command in doc.findall('./commands/command'):
-        type = command.find('./proto/type').text
-        fullname = command.find('./proto/name').text
-
-        if fullname not in enabled_commands:
-            continue
-
-        shortname = fullname[2:]
-        params = map(lambda p: "".join(p.itertext()), command.findall('./param'))
-        params = ', '.join(params)
-        if fullname in entrypoints_to_defines:
-            guard = entrypoints_to_defines[fullname]
-        else:
-            guard = None
-        entrypoints.append((type, shortname, params, index, hash(fullname), guard))
-        index += 1
-
-    return entrypoints
-
-# Maps entry points to extension defines
-def get_entrypoints_defines(doc):
-    entrypoints_to_defines = {}
-    extensions = doc.findall('./extensions/extension')
-    for extension in extensions:
-        define = extension.get('protect')
-        entrypoints = extension.findall('./require/command')
-        for entrypoint in entrypoints:
-            fullname = entrypoint.get('name')
-            entrypoints_to_defines[fullname] = define
-    return entrypoints_to_defines
-
-doc = ET.parse(sys.stdin)
-entrypoints = get_entrypoints(doc, get_entrypoints_defines(doc))
-
-# For outputting entrypoints.h we generate a radv_EntryPoint() prototype
-# per entry point.
-
-if opt_header:
-    print "/* This file generated from vk_gen.py, don't edit directly. */\n"
-
-    print "struct radv_dispatch_table {"
-    print "   union {"
-    print "      void *entrypoints[%d];" % len(entrypoints)
-    print "      struct {"
-
-    for type, name, args, num, h, guard in entrypoints:
-        if guard is not None:
-            print "#ifdef {0}".format(guard)
-            print "         PFN_vk{0} {0};".format(name)
-            print "#else"
-            print "         void *{0};".format(name)
-            print "#endif"
-        else:
-            print "         PFN_vk{0} {0};".format(name)
-    print "      };\n"
-    print "   };\n"
-    print "};\n"
-
-    for type, name, args, num, h, guard in entrypoints:
-        print_guard_start(guard)
-        print "%s radv_%s(%s);" % (type, name, args)
-        print_guard_end(guard)
-    exit()
-
-
-
-print """/*
+TEMPLATE_C = Template(u"""\
+/*
  * Copyright © 2015 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -193,138 +106,401 @@ print """/*
  * IN THE SOFTWARE.
  */
 
-/* DO NOT EDIT! This is a generated file. */
+/* This file generated from ${filename}, don't edit directly. */
 
 #include "radv_private.h"
 
-struct radv_entrypoint {
+struct string_map_entry {
    uint32_t name;
    uint32_t hash;
+   uint32_t num;
 };
 
-/* We use a big string constant to avoid lots of reloctions from the entry
+/* We use a big string constant to avoid lots of relocations from the entry
  * point table to lots of little strings. The entries in the entry point table
  * store the index into this big string.
  */
 
-static const char strings[] ="""
+static const char strings[] =
+% for s in strmap.sorted_strings:
+    "${s.string}\\0"
+% endfor
+;
 
-offsets = []
-i = 0;
-for type, name, args, num, h, guard in entrypoints:
-    print "   \"vk%s\\0\"" % name
-    offsets.append(i)
-    i += 2 + len(name) + 1
-print "   ;"
+static const struct string_map_entry string_map_entries[] = {
+% for s in strmap.sorted_strings:
+    { ${s.offset}, ${'{:0=#8x}'.format(s.hash)}, ${s.num} }, /* ${s.string} */
+% endfor
+};
 
-# Now generate the table of all entry points
+/* Hash table stats:
+ * size ${len(strmap.sorted_strings)} entries
+ * collisions entries:
+% for i in range(10):
+ *     ${i}${'+' if i == 9 else ' '}     ${strmap.collisions[i]}
+% endfor
+ */
 
-print "\nstatic const struct radv_entrypoint entrypoints[] = {"
-for type, name, args, num, h, guard in entrypoints:
-    print "   { %5d, 0x%08x }," % (offsets[num], h)
-print "};\n"
-
-print """
+#define none 0xffff
+static const uint16_t string_map[${strmap.hash_size}] = {
+% for e in strmap.mapping:
+    ${ '{:0=#6x}'.format(e) if e >= 0 else 'none' },
+% endfor
+};
 
 /* Weak aliases for all potential implementations. These will resolve to
  * NULL if they're not defined, which lets the resolve_entrypoint() function
  * either pick the correct entry point.
  */
-"""
 
-for layer in [ "radv" ]:
-    for type, name, args, num, h, guard in entrypoints:
-        print_guard_start(guard)
-        print "%s %s_%s(%s) __attribute__ ((weak));" % (type, layer, name, args)
-        print_guard_end(guard)
-    print "\nconst struct radv_dispatch_table %s_layer = {" % layer
-    for type, name, args, num, h, guard in entrypoints:
-        print_guard_start(guard)
-        print "   .%s = %s_%s," % (name, layer, name)
-        print_guard_end(guard)
-    print "};\n"
+% for layer in LAYERS:
+  % for e in entrypoints:
+    % if e.alias:
+      <% continue %>
+    % endif
+    % if e.guard is not None:
+#ifdef ${e.guard}
+    % endif
+    ${e.return_type} ${e.prefixed_name(layer)}(${e.decl_params()}) __attribute__ ((weak));
+    % if e.guard is not None:
+#endif // ${e.guard}
+    % endif
+  % endfor
 
-print """
+  const struct radv_dispatch_table ${layer}_layer = {
+  % for e in entrypoints:
+    % if e.guard is not None:
+#ifdef ${e.guard}
+    % endif
+    .${e.name} = ${e.prefixed_name(layer)},
+    % if e.guard is not None:
+#endif // ${e.guard}
+    % endif
+  % endfor
+  };
+% endfor
 
 static void * __attribute__ ((noinline))
 radv_resolve_entrypoint(uint32_t index)
 {
    return radv_layer.entrypoints[index];
 }
-"""
 
-# Now generate the hash table used for entry point look up.  This is a
-# uint16_t table of entry point indices. We use 0xffff to indicate an entry
-# in the hash table is empty.
+/** Return true if the core version or extension in which the given entrypoint
+ * is defined is enabled.
+ *
+ * If instance is NULL, we only allow the 3 commands explicitly allowed by the vk
+ * spec.
+ *
+ * If device is NULL, all device extensions are considered enabled.
+ */
+static bool
+radv_entrypoint_is_enabled(int index, uint32_t core_version,
+                          const struct radv_instance_extension_table *instance,
+                          const struct radv_device_extension_table *device)
+{
+   switch (index) {
+% for e in entrypoints:
+   case ${e.num}:
+   % if not e.device_command:
+      if (device) return false;
+   % endif
+   % if e.name == 'vkCreateInstance' or e.name == 'vkEnumerateInstanceExtensionProperties' or e.name == 'vkEnumerateInstanceLayerProperties' or e.name == 'vkEnumerateInstanceVersion':
+      return !device;
+   % elif e.core_version:
+      return instance && ${e.core_version.c_vk_version()} <= core_version;
+   % elif e.extensions:
+      % for ext in e.extensions:
+         % if ext.type == 'instance':
+      if (instance && instance->${ext.name[3:]}) return true;
+         % else:
+      if (instance && (!device || device->${ext.name[3:]})) return true;
+         % endif
+      %endfor
+      return false;
+   % else:
+      return instance;
+   % endif
+% endfor
+   default:
+      return false;
+   }
+}
 
-map = [none for f in xrange(hash_size)]
-collisions = [0 for f in xrange(10)]
-for type, name, args, num, h, guard in entrypoints:
-    level = 0
-    while map[h & hash_mask] != none:
-        h = h + prime_step
-        level = level + 1
-    if level > 9:
-        collisions[9] += 1
-    else:
-        collisions[level] += 1
-    map[h & hash_mask] = num
-
-print "/* Hash table stats:"
-print " * size %d entries" % hash_size
-print " * collisions  entries"
-for i in xrange(10):
-    if (i == 9):
-        plus = "+"
-    else:
-        plus = " "
-
-    print " *     %2d%s     %4d" % (i, plus, collisions[i])
-print " */\n"
-
-print "#define none 0x%04x\n" % none
-
-print "static const uint16_t map[] = {"
-for i in xrange(0, hash_size, 8):
-    print "   ",
-    for j in xrange(i, i + 8):
-        if map[j] & 0xffff == 0xffff:
-            print "  none,",
-        else:
-            print "0x%04x," % (map[j] & 0xffff),
-    print
-
-print "};"
-
-# Finally we generate the hash table lookup function.  The hash function and
-# linear probing algorithm matches the hash table generated above.
-
-print """
-void *
+static int
 radv_lookup_entrypoint(const char *name)
 {
-   static const uint32_t prime_factor = %d;
-   static const uint32_t prime_step = %d;
-   const struct radv_entrypoint *e;
-   uint32_t hash, h, i;
+   static const uint32_t prime_factor = ${strmap.prime_factor};
+   static const uint32_t prime_step = ${strmap.prime_step};
+   const struct string_map_entry *e;
+   uint32_t hash, h;
+   uint16_t i;
    const char *p;
 
    hash = 0;
    for (p = name; *p; p++)
-      hash = hash * prime_factor + *p;
+       hash = hash * prime_factor + *p;
 
    h = hash;
-   do {
-      i = map[h & %d];
-      if (i == none)
-         return NULL;
-      e = &entrypoints[i];
-      h += prime_step;
-   } while (e->hash != hash);
+   while (1) {
+       i = string_map[h & ${strmap.hash_mask}];
+       if (i == none)
+          return -1;
+       e = &string_map_entries[i];
+       if (e->hash == hash && strcmp(name, strings + e->name) == 0)
+           return e->num;
+       h += prime_step;
+   }
 
-   if (strcmp(name, strings + e->name) != 0)
-      return NULL;
-
-   return radv_resolve_entrypoint(i);
+   return -1;
 }
-""" % (prime_factor, prime_step, hash_mask)
+
+void *
+radv_lookup_entrypoint_unchecked(const char *name)
+{
+   int index = radv_lookup_entrypoint(name);
+   if (index < 0)
+      return NULL;
+   return radv_resolve_entrypoint(index);
+}
+
+void *
+radv_lookup_entrypoint_checked(const char *name,
+                               uint32_t core_version,
+                               const struct radv_instance_extension_table *instance,
+                               const struct radv_device_extension_table *device)
+{
+   int index = radv_lookup_entrypoint(name);
+   if (index < 0 || !radv_entrypoint_is_enabled(index, core_version, instance, device))
+      return NULL;
+   return radv_resolve_entrypoint(index);
+}""", output_encoding='utf-8')
+
+U32_MASK = 2**32 - 1
+
+PRIME_FACTOR = 5024183
+PRIME_STEP = 19
+
+def round_to_pow2(x):
+    return 2**int(math.ceil(math.log(x, 2)))
+
+class StringIntMapEntry(object):
+    def __init__(self, string, num):
+        self.string = string
+        self.num = num
+
+        # Calculate the same hash value that we will calculate in C.
+        h = 0
+        for c in string:
+            h = ((h * PRIME_FACTOR) + ord(c)) & U32_MASK
+        self.hash = h
+
+        self.offset = None
+
+class StringIntMap(object):
+    def __init__(self):
+        self.baked = False
+        self.strings = dict()
+
+    def add_string(self, string, num):
+        assert not self.baked
+        assert string not in self.strings
+        assert num >= 0 and num < 2**31
+        self.strings[string] = StringIntMapEntry(string, num)
+
+    def bake(self):
+        self.sorted_strings = \
+            sorted(self.strings.values(), key=lambda x: x.string)
+        offset = 0
+        for entry in self.sorted_strings:
+            entry.offset = offset
+            offset += len(entry.string) + 1
+
+        # Save off some values that we'll need in C
+        self.hash_size = round_to_pow2(len(self.strings) * 1.25)
+        self.hash_mask = self.hash_size - 1
+        self.prime_factor = PRIME_FACTOR
+        self.prime_step = PRIME_STEP
+
+        self.mapping = [-1] * self.hash_size
+        self.collisions = [0] * 10
+        for idx, s in enumerate(self.sorted_strings):
+            level = 0
+            h = s.hash
+            while self.mapping[h & self.hash_mask] >= 0:
+                h = h + PRIME_STEP
+                level = level + 1
+            self.collisions[min(level, 9)] += 1
+            self.mapping[h & self.hash_mask] = idx
+
+EntrypointParam = namedtuple('EntrypointParam', 'type name decl')
+
+class EntrypointBase(object):
+    def __init__(self, name):
+        self.name = name
+        self.alias = None
+        self.guard = None
+        self.enabled = False
+        self.num = None
+        # Extensions which require this entrypoint
+        self.core_version = None
+        self.extensions = []
+
+class Entrypoint(EntrypointBase):
+    def __init__(self, name, return_type, params, guard = None):
+        super(Entrypoint, self).__init__(name)
+        self.return_type = return_type
+        self.params = params
+        self.guard = guard
+        self.device_command = len(params) > 0 and (params[0].type == 'VkDevice' or params[0].type == 'VkQueue' or params[0].type == 'VkCommandBuffer')
+
+    def prefixed_name(self, prefix):
+        assert self.name.startswith('vk')
+        return prefix + '_' + self.name[2:]
+
+    def decl_params(self):
+        return ', '.join(p.decl for p in self.params)
+
+    def call_params(self):
+        return ', '.join(p.name for p in self.params)
+
+class EntrypointAlias(EntrypointBase):
+    def __init__(self, name, entrypoint):
+        super(EntrypointAlias, self).__init__(name)
+        self.alias = entrypoint
+        self.device_command = entrypoint.device_command
+
+    def prefixed_name(self, prefix):
+        return self.alias.prefixed_name(prefix)
+
+def get_entrypoints(doc, entrypoints_to_defines, start_index):
+    """Extract the entry points from the registry."""
+    entrypoints = OrderedDict()
+
+    for command in doc.findall('./commands/command'):
+       if 'alias' in command.attrib:
+           alias = command.attrib['name']
+           target = command.attrib['alias']
+           entrypoints[alias] = EntrypointAlias(alias, entrypoints[target])
+       else:
+           name = command.find('./proto/name').text
+           ret_type = command.find('./proto/type').text
+           params = [EntrypointParam(
+               type = p.find('./type').text,
+               name = p.find('./name').text,
+               decl = ''.join(p.itertext())
+           ) for p in command.findall('./param')]
+           guard = entrypoints_to_defines.get(name)
+           # They really need to be unique
+           assert name not in entrypoints
+           entrypoints[name] = Entrypoint(name, ret_type, params, guard)
+
+    for feature in doc.findall('./feature'):
+        assert feature.attrib['api'] == 'vulkan'
+        version = VkVersion(feature.attrib['number'])
+        if version > MAX_API_VERSION:
+            continue
+
+        for command in feature.findall('./require/command'):
+            e = entrypoints[command.attrib['name']]
+            e.enabled = True
+            assert e.core_version is None
+            e.core_version = version
+
+    supported_exts = dict((ext.name, ext) for ext in EXTENSIONS)
+    for extension in doc.findall('.extensions/extension'):
+        ext_name = extension.attrib['name']
+        if ext_name not in supported_exts:
+            continue
+
+        ext = supported_exts[ext_name]
+        ext.type = extension.attrib['type']
+
+        for command in extension.findall('./require/command'):
+            e = entrypoints[command.attrib['name']]
+            e.enabled = True
+            assert e.core_version is None
+            e.extensions.append(ext)
+
+    # if the base command is not supported by the driver yet, don't alias aliases
+    for e in entrypoints.values():
+        if e.alias and not e.alias.enabled:
+            e_clone = copy.deepcopy(e.alias)
+            e_clone.enabled = True
+            e_clone.name = e.name
+            entrypoints[e.name] = e_clone
+
+    return [e for e in entrypoints.values() if e.enabled]
+
+
+def get_entrypoints_defines(doc):
+    """Maps entry points to extension defines."""
+    entrypoints_to_defines = {}
+
+    for extension in doc.findall('./extensions/extension[@protect]'):
+        define = extension.attrib['protect']
+
+        for entrypoint in extension.findall('./require/command'):
+            fullname = entrypoint.attrib['name']
+            entrypoints_to_defines[fullname] = define
+
+    for extension in doc.findall('./extensions/extension[@platform]'):
+        platform = extension.attrib['platform']
+        ext = '_KHR'
+        if platform.upper() == 'XLIB_XRANDR':
+            ext = '_EXT'
+        define = 'VK_USE_PLATFORM_' + platform.upper() + ext
+
+        for entrypoint in extension.findall('./require/command'):
+            fullname = entrypoint.attrib['name']
+            entrypoints_to_defines[fullname] = define
+
+    return entrypoints_to_defines
+
+
+def gen_code(entrypoints):
+    """Generate the C code."""
+    strmap = StringIntMap()
+    for e in entrypoints:
+        strmap.add_string(e.name, e.num)
+    strmap.bake()
+
+    return TEMPLATE_C.render(entrypoints=entrypoints,
+                             LAYERS=LAYERS,
+                             strmap=strmap,
+                             filename=os.path.basename(__file__))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--outdir', help='Where to write the files.',
+                        required=True)
+    parser.add_argument('--xml',
+                        help='Vulkan API XML file.',
+                        required=True,
+                        action='append',
+                        dest='xml_files')
+    args = parser.parse_args()
+
+    entrypoints = []
+
+    for filename in args.xml_files:
+        doc = et.parse(filename)
+        entrypoints += get_entrypoints(doc, get_entrypoints_defines(doc),
+                                       start_index=len(entrypoints))
+
+    for num, e in enumerate(entrypoints):
+        e.num = num
+
+    # For outputting entrypoints.h we generate a radv_EntryPoint() prototype
+    # per entry point.
+    with open(os.path.join(args.outdir, 'radv_entrypoints.h'), 'wb') as f:
+        f.write(TEMPLATE_H.render(entrypoints=entrypoints,
+                                  LAYERS=LAYERS,
+                                  filename=os.path.basename(__file__)))
+    with open(os.path.join(args.outdir, 'radv_entrypoints.c'), 'wb') as f:
+        f.write(gen_code(entrypoints))
+
+
+if __name__ == '__main__':
+    main()

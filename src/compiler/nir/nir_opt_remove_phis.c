@@ -94,7 +94,7 @@ remove_phis_block(nir_block *block, nir_builder *b)
           */
          if (src->src.ssa == &phi->dest.ssa)
             continue;
-
+         
          if (def == NULL) {
             def  = src->src.ssa;
             mov = get_parent_mov(def);
@@ -139,8 +139,8 @@ remove_phis_block(nir_block *block, nir_builder *b)
    return progress;
 }
 
-static bool
-remove_phis_impl(nir_function_impl *impl)
+bool
+nir_opt_remove_phis_impl(nir_function_impl *impl)
 {
    bool progress = false;
    nir_builder bld;
@@ -165,7 +165,7 @@ nir_opt_remove_phis(nir_shader *shader)
 
    nir_foreach_function(function, shader)
       if (function->impl)
-         progress = remove_phis_impl(function->impl) || progress;
+         progress = nir_opt_remove_phis_impl(function->impl) || progress;
 
    return progress;
 }

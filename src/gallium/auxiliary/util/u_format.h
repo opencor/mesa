@@ -99,7 +99,7 @@ struct util_format_block
 {
    /** Block width in pixels */
    unsigned width;
-
+   
    /** Block height in pixels */
    unsigned height;
 
@@ -406,7 +406,7 @@ struct util_format_description
 };
 
 
-extern const struct util_format_description
+extern const struct util_format_description 
 util_format_description_table[];
 
 
@@ -459,7 +459,7 @@ util_format_is_plain(enum pipe_format format)
    return desc->layout == UTIL_FORMAT_LAYOUT_PLAIN ? TRUE : FALSE;
 }
 
-static inline boolean
+static inline boolean 
 util_format_is_compressed(enum pipe_format format)
 {
    const struct util_format_description *desc = util_format_description(format);
@@ -482,7 +482,7 @@ util_format_is_compressed(enum pipe_format format)
    }
 }
 
-static inline boolean
+static inline boolean 
 util_format_is_s3tc(enum pipe_format format)
 {
    const struct util_format_description *desc = util_format_description(format);
@@ -496,6 +496,19 @@ util_format_is_s3tc(enum pipe_format format)
 }
 
 static inline boolean
+util_format_is_etc(enum pipe_format format)
+{
+   const struct util_format_description *desc = util_format_description(format);
+
+   assert(desc);
+   if (!desc) {
+      return FALSE;
+   }
+
+   return desc->layout == UTIL_FORMAT_LAYOUT_ETC ? TRUE : FALSE;
+}
+
+static inline boolean 
 util_format_is_srgb(enum pipe_format format)
 {
    const struct util_format_description *desc = util_format_description(format);
@@ -544,6 +557,18 @@ util_format_is_depth_and_stencil(enum pipe_format format)
           util_format_has_stencil(desc);
 }
 
+static inline boolean
+util_format_is_yuv(enum pipe_format format)
+{
+   const struct util_format_description *desc = util_format_description(format);
+
+   assert(desc);
+   if (!desc) {
+      return FALSE;
+   }
+
+   return desc->colorspace == UTIL_FORMAT_COLORSPACE_YUV;
+}
 
 /**
  * Calculates the depth format type based upon the incoming format description.
@@ -691,13 +716,6 @@ util_format_is_snorm8(enum pipe_format format);
 boolean
 util_is_format_compatible(const struct util_format_description *src_desc,
                           const struct util_format_description *dst_desc);
-
-/**
- * Whether the format is supported by Gallium for the given bindings.
- * This covers S3TC textures and floating-point render targets.
- */
-boolean
-util_format_is_supported(enum pipe_format format, unsigned bind);
 
 /**
  * Whether this format is a rgab8 variant.
@@ -1209,26 +1227,26 @@ util_format_get_first_non_void_channel(enum pipe_format format)
 
 void
 util_format_read_4f(enum pipe_format format,
-                    float *dst, unsigned dst_stride,
-                    const void *src, unsigned src_stride,
+                    float *dst, unsigned dst_stride, 
+                    const void *src, unsigned src_stride, 
                     unsigned x, unsigned y, unsigned w, unsigned h);
 
 void
 util_format_write_4f(enum pipe_format format,
-                     const float *src, unsigned src_stride,
-                     void *dst, unsigned dst_stride,
+                     const float *src, unsigned src_stride, 
+                     void *dst, unsigned dst_stride, 
                      unsigned x, unsigned y, unsigned w, unsigned h);
 
 void
 util_format_read_4ub(enum pipe_format format,
-                     uint8_t *dst, unsigned dst_stride,
-                     const void *src, unsigned src_stride,
+                     uint8_t *dst, unsigned dst_stride, 
+                     const void *src, unsigned src_stride, 
                      unsigned x, unsigned y, unsigned w, unsigned h);
 
 void
 util_format_write_4ub(enum pipe_format format,
-                      const uint8_t *src, unsigned src_stride,
-                      void *dst, unsigned dst_stride,
+                      const uint8_t *src, unsigned src_stride, 
+                      void *dst, unsigned dst_stride, 
                       unsigned x, unsigned y, unsigned w, unsigned h);
 
 void

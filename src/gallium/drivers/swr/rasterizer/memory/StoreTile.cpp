@@ -19,11 +19,11 @@
 * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 * IN THE SOFTWARE.
-*
+* 
 * @file StoreTile.cpp
-*
+* 
 * @brief Functionality for Store.
-*
+* 
 ******************************************************************************/
 #include "StoreTile.h"
 //////////////////////////////////////////////////////////////////////////
@@ -58,7 +58,8 @@ static std::vector<int32_t> sBuckets(NUM_SWR_FORMATS, -1);
 /// @param renderTargetIndex - Index to destination render target
 /// @param x, y - Coordinates to raster tile.
 /// @param pSrcHotTile - Pointer to Hot Tile
-void StoreHotTileToSurface(
+void SwrStoreHotTileToSurface(
+    HANDLE hWorkerPrivateData,
     SWR_SURFACE_STATE *pDstSurface,
     SWR_FORMAT srcFormat,
     SWR_RENDERTARGET_ATTACHMENT renderTargetIndex,

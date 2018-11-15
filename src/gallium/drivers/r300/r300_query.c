@@ -39,6 +39,7 @@ static struct pipe_query *r300_create_query(struct pipe_context *pipe,
 
     if (query_type != PIPE_QUERY_OCCLUSION_COUNTER &&
         query_type != PIPE_QUERY_OCCLUSION_PREDICATE &&
+        query_type != PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE &&
         query_type != PIPE_QUERY_GPU_FINISHED) {
         return NULL;
     }
@@ -120,7 +121,7 @@ static bool r300_end_query(struct pipe_context* pipe,
 
     if (q->type == PIPE_QUERY_GPU_FINISHED) {
         pb_reference(&q->buf, NULL);
-        r300_flush(pipe, RADEON_FLUSH_ASYNC,
+        r300_flush(pipe, PIPE_FLUSH_ASYNC,
                    (struct pipe_fence_handle**)&q->buf);
         return true;
     }
@@ -171,7 +172,8 @@ static boolean r300_get_query_result(struct pipe_context* pipe,
         map++;
     }
 
-    if (q->type == PIPE_QUERY_OCCLUSION_PREDICATE) {
+    if (q->type == PIPE_QUERY_OCCLUSION_PREDICATE ||
+        q->type == PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE) {
         vresult->b = temp != 0;
     } else {
         vresult->u64 = temp;
@@ -195,7 +197,8 @@ static void r300_render_condition(struct pipe_context *pipe,
                mode == PIPE_RENDER_COND_BY_REGION_WAIT;
 
         if (r300_get_query_result(pipe, query, wait, &result)) {
-            if (r300_query(query)->type == PIPE_QUERY_OCCLUSION_PREDICATE) {
+            if (r300_query(query)->type == PIPE_QUERY_OCCLUSION_PREDICATE ||
+                r300_query(query)->type == PIPE_QUERY_OCCLUSION_PREDICATE_CONSERVATIVE) {
                 r300->skip_rendering = condition == result.b;
             } else {
                 r300->skip_rendering = condition == !!result.u64;

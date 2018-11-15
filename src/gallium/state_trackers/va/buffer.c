@@ -125,9 +125,15 @@ vlVaMapBuffer(VADriverContextP ctx, VABufferID buf_id, void **pbuff)
    }
 
    if (buf->derived_surface.resource) {
-      *pbuff = pipe_buffer_map(drv->pipe, buf->derived_surface.resource,
-                               PIPE_TRANSFER_WRITE,
-                               &buf->derived_surface.transfer);
+      struct pipe_resource *resource;
+      struct pipe_box box = {};
+
+      resource = buf->derived_surface.resource;
+      box.width = resource->width0;
+      box.height = resource->height0;
+      box.depth = resource->depth0;
+      *pbuff = drv->pipe->transfer_map(drv->pipe, resource, 0, PIPE_TRANSFER_WRITE,
+                                       &box, &buf->derived_surface.transfer);
       mtx_unlock(&drv->mutex);
 
       if (!buf->derived_surface.transfer || !*pbuff)
@@ -299,7 +305,7 @@ vlVaAcquireBufferHandle(VADriverContextP ctx, VABufferID buf_id,
          drv->pipe->flush(drv->pipe, NULL, 0);
 
          memset(&whandle, 0, sizeof(whandle));
-         whandle.type = DRM_API_HANDLE_TYPE_FD;
+         whandle.type = WINSYS_HANDLE_TYPE_FD;
 
          if (!screen->resource_get_handle(screen, drv->pipe,
                                           buf->derived_surface.resource,
