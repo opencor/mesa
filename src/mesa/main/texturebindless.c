@@ -21,6 +21,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include "../util/u_dynarray.h"
+
 #include "glheader.h"
 #include "context.h"
 #include "enums.h"
