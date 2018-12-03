@@ -68,6 +68,7 @@ enum {
     __EGL_DISPATCH_eglQueryWaylandBufferWL,
     __EGL_DISPATCH_eglReleaseTexImage,
     __EGL_DISPATCH_eglReleaseThread,
+    __EGL_DISPATCH_eglSetBlobCacheFuncsANDROID,
     __EGL_DISPATCH_eglSignalSyncKHR,
     __EGL_DISPATCH_eglSurfaceAttrib,
     __EGL_DISPATCH_eglSwapBuffers,

@@ -211,6 +211,14 @@ static EGLBoolean EGLAPIENTRY dispatch_eglQueryWaylandBufferWL(EGLDisplay dpy, s
     }
     return _ret;
 }
+static void EGLAPIENTRY dispatch_eglSetBlobCacheFuncsANDROID(EGLDisplay dpy, EGLSetBlobFuncANDROID set, EGLGetBlobFuncANDROID get)
+{
+    typedef void EGLAPIENTRY (* _pfn_eglSetBlobCacheFuncsANDROID)(EGLDisplay dpy, EGLSetBlobFuncANDROID set, EGLGetBlobFuncANDROID get);
+    _pfn_eglSetBlobCacheFuncsANDROID _ptr_eglSetBlobCacheFuncsANDROID = (_pfn_eglSetBlobCacheFuncsANDROID) __eglDispatchFetchByDisplay(dpy, __EGL_DISPATCH_eglSetBlobCacheFuncsANDROID);
+    if(_ptr_eglSetBlobCacheFuncsANDROID != NULL) {
+        _ptr_eglSetBlobCacheFuncsANDROID(dpy, set, get);
+    }
+}
 static EGLBoolean EGLAPIENTRY dispatch_eglSignalSyncKHR(EGLDisplay dpy, EGLSyncKHR sync, EGLenum mode)
 {
     typedef EGLBoolean EGLAPIENTRY (* _pfn_eglSignalSyncKHR)(EGLDisplay dpy, EGLSyncKHR sync, EGLenum mode);
@@ -331,6 +339,7 @@ const char * const __EGL_DISPATCH_FUNC_NAMES[__EGL_DISPATCH_COUNT + 1] = {
     "eglQueryWaylandBufferWL",
     "eglReleaseTexImage",
     "eglReleaseThread",
+    "eglSetBlobCacheFuncsANDROID",
     "eglSignalSyncKHR",
     "eglSurfaceAttrib",
     "eglSwapBuffers",
@@ -406,6 +415,7 @@ const __eglMustCastToProperFunctionPointerType __EGL_DISPATCH_FUNCS[__EGL_DISPAT
     (__eglMustCastToProperFunctionPointerType) dispatch_eglQueryWaylandBufferWL,
     NULL, // eglReleaseTexImage
     NULL, // eglReleaseThread
+    (__eglMustCastToProperFunctionPointerType) dispatch_eglSetBlobCacheFuncsANDROID,
     (__eglMustCastToProperFunctionPointerType) dispatch_eglSignalSyncKHR,
     NULL, // eglSurfaceAttrib
     NULL, // eglSwapBuffers
