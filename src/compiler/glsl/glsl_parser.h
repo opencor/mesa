@@ -1,4 +1,4 @@
-/* A Bison parser, made by GNU Bison 3.2.2.  */
+/* A Bison parser, made by GNU Bison 3.1.  */
 
 /* Bison interface for Yacc-like parsers in C
 
@@ -29,9 +29,6 @@
 
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
-
-/* Undocumented macros, especially those whose name start with YY_,
-   are private implementation details.  Do not rely on them.  */
 
 #ifndef YY__MESA_GLSL_GLSL_GLSL_PARSER_H_INCLUDED
 # define YY__MESA_GLSL_GLSL_GLSL_PARSER_H_INCLUDED
@@ -189,7 +186,7 @@ extern int _mesa_glsl_debug;
 
 union YYSTYPE
 {
-#line 98 "./glsl/glsl_parser.yy" /* yacc.c:1906  */
+#line 98 "./glsl/glsl_parser.yy" /* yacc.c:1913  */
 
    int n;
    int64_t n64;
@@ -230,7 +227,7 @@ union YYSTYPE
 
    const glsl_type *type;
 
-#line 234 "./glsl/glsl_parser.h" /* yacc.c:1906  */
+#line 231 "./glsl/glsl_parser.h" /* yacc.c:1913  */
 };
 
 typedef union YYSTYPE YYSTYPE;

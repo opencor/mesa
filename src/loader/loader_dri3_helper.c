@@ -444,7 +444,7 @@ dri3_handle_present_event(struct loader_dri3_drawable *draw,
             }
          }
 
-	 /* If the server tells us that our allocation is suboptimal, we
+         /* If the server tells us that our allocation is suboptimal, we
           * reallocate once.
           */
 #ifdef HAVE_DRI3_MODIFIERS
@@ -1273,12 +1273,20 @@ dri3_alloc_render_buffer(struct loader_dri3_drawable *draw, unsigned int format,
 
          free(mod_reply);
 
-         buffer->image = draw->ext->image->createImageWithModifiers(draw->dri_screen,
-                                                                    width, height,
-                                                                    format,
-                                                                    modifiers,
-                                                                    count,
-                                                                    buffer);
+         /* don't use createImageWithModifiers() if we have no
+          * modifiers, other things depend on the use flags when
+          * there are no modifiers to know that a buffer can be
+          * shared.
+          */
+         if (modifiers) {
+            buffer->image = draw->ext->image->createImageWithModifiers(draw->dri_screen,
+                                                                       width, height,
+                                                                       format,
+                                                                       modifiers,
+                                                                       count,
+                                                                       buffer);
+         }
+
          free(modifiers);
       }
 #endif
@@ -1427,8 +1435,7 @@ no_shm_fence:
  * track the geometry of the drawable
  */
 static int
-dri3_update_drawable(__DRIdrawable *driDrawable,
-                     struct loader_dri3_drawable *draw)
+dri3_update_drawable(struct loader_dri3_drawable *draw)
 {
    mtx_lock(&draw->mtx);
    if (draw->first_init) {
@@ -1780,7 +1787,6 @@ dri3_get_buffer(__DRIdrawable *driDrawable,
           && buffer) {
 
          /* Fill the new buffer with data from an old buffer */
-         dri3_fence_await(draw->conn, draw, buffer);
          if (!loader_dri3_blit_image(draw,
                                      new_buffer->image,
                                      buffer->image,
@@ -1917,7 +1923,7 @@ loader_dri3_get_buffers(__DRIdrawable *driDrawable,
    front = NULL;
    back = NULL;
 
-   if (!dri3_update_drawable(driDrawable, draw))
+   if (!dri3_update_drawable(draw))
       return false;
 
    dri3_update_num_back(draw);
@@ -2072,7 +2078,7 @@ dri3_find_back_alloc(struct loader_dri3_drawable *draw)
    back = draw->buffers[id];
    /* Allocate a new back if we haven't got one */
    if (!back && draw->back_format != __DRI_IMAGE_FORMAT_NONE &&
-       dri3_update_drawable(draw->dri_drawable, draw))
+       dri3_update_drawable(draw))
       back = dri3_alloc_render_buffer(draw, draw->back_format,
                                       draw->width, draw->height, draw->depth);
 
