@@ -1,4 +1,4 @@
-/* A Bison parser, made by GNU Bison 3.2.2.  */
+/* A Bison parser, made by GNU Bison 3.1.  */
 
 /* Bison interface for Yacc-like parsers in C
 
@@ -29,9 +29,6 @@
 
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
-
-/* Undocumented macros, especially those whose name start with YY_,
-   are private implementation details.  Do not rely on them.  */
 
 #ifndef YY__MESA_PROGRAM_PROGRAM_PROGRAM_PARSE_TAB_H_INCLUDED
 # define YY__MESA_PROGRAM_PROGRAM_PROGRAM_PARSE_TAB_H_INCLUDED
@@ -160,7 +157,7 @@ extern int _mesa_program_debug;
 
 union YYSTYPE
 {
-#line 127 "./program/program_parse.y" /* yacc.c:1906  */
+#line 129 "./program/program_parse.y" /* yacc.c:1913  */
 
    struct asm_instruction *inst;
    struct asm_symbol *sym;
@@ -186,7 +183,7 @@ union YYSTYPE
       unsigned negate:1;
    } ext_swizzle;
 
-#line 190 "./program/program_parse.tab.h" /* yacc.c:1906  */
+#line 187 "./program/program_parse.tab.h" /* yacc.c:1913  */
 };
 
 typedef union YYSTYPE YYSTYPE;

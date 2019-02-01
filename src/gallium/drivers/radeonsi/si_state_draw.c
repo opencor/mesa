@@ -348,20 +348,11 @@ si_get_init_multi_vgt_param(struct si_screen *sscreen,
 		    key->u.uses_gs)
 			partial_vs_wave = true;
 
-		/* Needed for 028B6C_DISTRIBUTION_MODE != 0 */
+		/* Needed for 028B6C_DISTRIBUTION_MODE != 0. (implies >= VI) */
 		if (sscreen->has_distributed_tess) {
 			if (key->u.uses_gs) {
-				if (sscreen->info.chip_class <= VI)
+				if (sscreen->info.chip_class == VI)
 					partial_es_wave = true;
-
-				/* GPU hang workaround. */
-				if (sscreen->info.family == CHIP_TONGA ||
-				    sscreen->info.family == CHIP_FIJI ||
-				    sscreen->info.family == CHIP_POLARIS10 ||
-				    sscreen->info.family == CHIP_POLARIS11 ||
-				    sscreen->info.family == CHIP_POLARIS12 ||
-				    sscreen->info.family == CHIP_VEGAM)
-					partial_vs_wave = true;
 			} else {
 				partial_vs_wave = true;
 			}
@@ -416,6 +407,18 @@ si_get_init_multi_vgt_param(struct si_screen *sscreen,
 		/* Required on CIK and later. */
 		if (sscreen->info.max_se == 4 && !wd_switch_on_eop)
 			ia_switch_on_eoi = true;
+
+		/* HW engineers suggested that PARTIAL_VS_WAVE_ON should be set
+		 * to work around a GS hang.
+		 */
+		if (key->u.uses_gs &&
+		    (sscreen->info.family == CHIP_TONGA ||
+		     sscreen->info.family == CHIP_FIJI ||
+		     sscreen->info.family == CHIP_POLARIS10 ||
+		     sscreen->info.family == CHIP_POLARIS11 ||
+		     sscreen->info.family == CHIP_POLARIS12 ||
+		     sscreen->info.family == CHIP_VEGAM))
+			partial_vs_wave = true;
 
 		/* Required by Hawaii and, for some special cases, by VI. */
 		if (ia_switch_on_eoi &&
@@ -677,7 +680,7 @@ static void si_emit_draw_packets(struct si_context *sctx,
 				       t->stride_in_dw);
 
 		radeon_emit(cs, PKT3(PKT3_COPY_DATA, 4, 0));
-		radeon_emit(cs, COPY_DATA_SRC_SEL(COPY_DATA_MEM) |
+		radeon_emit(cs, COPY_DATA_SRC_SEL(COPY_DATA_SRC_MEM) |
 			    COPY_DATA_DST_SEL(COPY_DATA_REG) |
 			    COPY_DATA_WR_CONFIRM);
 		radeon_emit(cs, va);     /* src address lo */
@@ -924,9 +927,11 @@ void si_emit_cache_flush(struct si_context *sctx)
 
 			/* Necessary for DCC */
 			if (sctx->chip_class == VI)
-				si_gfx_write_event_eop(sctx, V_028A90_FLUSH_AND_INV_CB_DATA_TS,
-						       0, EOP_DATA_SEL_DISCARD, NULL,
-						       0, 0, SI_NOT_QUERY);
+				si_cp_release_mem(sctx,
+						  V_028A90_FLUSH_AND_INV_CB_DATA_TS,
+						  0, EOP_DST_SEL_MEM, EOP_INT_SEL_NONE,
+						  EOP_DATA_SEL_DISCARD, NULL,
+						  0, 0, SI_NOT_QUERY);
 		}
 		if (flags & SI_CONTEXT_FLUSH_AND_INV_DB)
 			cp_coher_cntl |= S_0085F0_DB_ACTION_ENA(1) |
@@ -968,7 +973,7 @@ void si_emit_cache_flush(struct si_context *sctx)
 	if (flags & SI_CONTEXT_CS_PARTIAL_FLUSH &&
 	    sctx->compute_is_busy) {
 		radeon_emit(cs, PKT3(PKT3_EVENT_WRITE, 0, 0));
-		radeon_emit(cs, EVENT_TYPE(V_028A90_CS_PARTIAL_FLUSH | EVENT_INDEX(4)));
+		radeon_emit(cs, EVENT_TYPE(V_028A90_CS_PARTIAL_FLUSH) | EVENT_INDEX(4));
 		sctx->num_cs_flushes++;
 		sctx->compute_is_busy = false;
 	}
@@ -1039,11 +1044,13 @@ void si_emit_cache_flush(struct si_context *sctx)
 		va = sctx->wait_mem_scratch->gpu_address;
 		sctx->wait_mem_number++;
 
-		si_gfx_write_event_eop(sctx, cb_db_event, tc_flags,
-				       EOP_DATA_SEL_VALUE_32BIT,
-				       sctx->wait_mem_scratch, va,
-				       sctx->wait_mem_number, SI_NOT_QUERY);
-		si_gfx_wait_fence(sctx, va, sctx->wait_mem_number, 0xffffffff);
+		si_cp_release_mem(sctx, cb_db_event, tc_flags,
+				  EOP_DST_SEL_MEM,
+				  EOP_INT_SEL_SEND_DATA_AFTER_WR_CONFIRM,
+				  EOP_DATA_SEL_VALUE_32BIT,
+				  sctx->wait_mem_scratch, va,
+				  sctx->wait_mem_number, SI_NOT_QUERY);
+		si_cp_wait_mem(sctx, va, sctx->wait_mem_number, 0xffffffff, 0);
 	}
 
 	/* Make sure ME is idle (it executes most packets) before continuing.
@@ -1191,26 +1198,26 @@ static void si_emit_all_states(struct si_context *sctx, const struct pipe_draw_i
 			       unsigned skip_atom_mask)
 {
 	unsigned num_patches = 0;
+	/* Vega10/Raven scissor bug workaround. When any context register is
+	 * written (i.e. the GPU rolls the context), PA_SC_VPORT_SCISSOR
+	 * registers must be written too.
+	 */
+	bool handle_scissor_bug = (sctx->family == CHIP_VEGA10 || sctx->family == CHIP_RAVEN) &&
+				  !si_is_atom_dirty(sctx, &sctx->atoms.s.scissors);
 	bool context_roll = false; /* set correctly for GFX9 only */
 
 	context_roll |= si_emit_rasterizer_prim_state(sctx);
 	if (sctx->tes_shader.cso)
 		context_roll |= si_emit_derived_tess_state(sctx, info, &num_patches);
-	if (info->count_from_stream_output)
+
+	if (handle_scissor_bug &&
+	    (info->count_from_stream_output ||
+	     sctx->dirty_atoms & si_atoms_that_always_roll_context() ||
+	     sctx->dirty_states & si_states_that_always_roll_context() ||
+	     si_prim_restart_index_changed(sctx, info)))
 		context_roll = true;
 
-	/* Vega10/Raven scissor bug workaround. When any context register is
-	 * written (i.e. the GPU rolls the context), PA_SC_VPORT_SCISSOR
-	 * registers must be written too.
-	 */
-	if ((sctx->family == CHIP_VEGA10 || sctx->family == CHIP_RAVEN) &&
-	    (context_roll ||
-	     sctx->dirty_atoms & si_atoms_that_roll_context() ||
-	     sctx->dirty_states & si_states_that_roll_context() ||
-	     si_prim_restart_index_changed(sctx, info))) {
-		sctx->scissors.dirty_mask = (1 << SI_MAX_VIEWPORTS) - 1;
-		si_mark_atom_dirty(sctx, &sctx->atoms.s.scissors);
-	}
+	sctx->context_roll_counter = 0;
 
 	/* Emit state atoms. */
 	unsigned mask = sctx->dirty_atoms & ~skip_atom_mask;
@@ -1232,6 +1239,12 @@ static void si_emit_all_states(struct si_context *sctx, const struct pipe_draw_i
 		sctx->emitted.array[i] = state;
 	}
 	sctx->dirty_states = 0;
+
+	if (handle_scissor_bug &&
+	    (context_roll || sctx->context_roll_counter)) {
+		sctx->scissors.dirty_mask = (1 << SI_MAX_VIEWPORTS) - 1;
+		sctx->atoms.s.scissors.emit(sctx);
+	}
 
 	/* Emit draw states. */
 	si_emit_vs_state(sctx, info);
@@ -1549,7 +1562,7 @@ void si_draw_rectangle(struct blitter_context *blitter,
 	case UTIL_BLITTER_ATTRIB_NONE:;
 	}
 
-	pipe->bind_vs_state(pipe, si_get_blit_vs(sctx, type, num_instances));
+	pipe->bind_vs_state(pipe, si_get_blitter_vs(sctx, type, num_instances));
 
 	struct pipe_draw_info info = {};
 	info.mode = SI_PRIM_RECTANGLE_LIST;

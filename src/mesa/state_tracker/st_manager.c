@@ -56,6 +56,7 @@
 #include "pipe/p_context.h"
 #include "pipe/p_screen.h"
 #include "util/u_format.h"
+#include "util/u_helpers.h"
 #include "util/u_pointer.h"
 #include "util/u_inlines.h"
 #include "util/u_atomic.h"
@@ -1029,8 +1030,6 @@ st_api_make_current(struct st_api *stapi, struct st_context_iface *stctxi,
    struct st_framebuffer *stdraw, *stread;
    boolean ret;
 
-   _glapi_check_multithread();
-
    if (st) {
       /* reuse or create the draw fb */
       stdraw = st_framebuffer_reuse_or_create(st,
@@ -1072,7 +1071,12 @@ st_api_make_current(struct st_api *stapi, struct st_context_iface *stctxi,
       st_framebuffers_purge(st);
    }
    else {
+      GET_CURRENT_CONTEXT(ctx);
+
       ret = _mesa_make_current(NULL, NULL, NULL);
+
+      if (ctx)
+         st_framebuffers_purge(ctx->st);
    }
 
    return ret;

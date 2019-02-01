@@ -181,6 +181,36 @@ static EGLBoolean EGLAPIENTRY dispatch_eglPostSubBufferNV(EGLDisplay dpy, EGLSur
     }
     return _ret;
 }
+static EGLBoolean EGLAPIENTRY dispatch_eglQueryDeviceAttribEXT(EGLDeviceEXT device, EGLint attribute, EGLAttrib *value)
+{
+    typedef EGLBoolean EGLAPIENTRY (* _pfn_eglQueryDeviceAttribEXT)(EGLDeviceEXT device, EGLint attribute, EGLAttrib *value);
+    EGLBoolean _ret = EGL_FALSE;
+    _pfn_eglQueryDeviceAttribEXT _ptr_eglQueryDeviceAttribEXT = (_pfn_eglQueryDeviceAttribEXT) __eglDispatchFetchByDevice(device, __EGL_DISPATCH_eglQueryDeviceAttribEXT);
+    if(_ptr_eglQueryDeviceAttribEXT != NULL) {
+        _ret = _ptr_eglQueryDeviceAttribEXT(device, attribute, value);
+    }
+    return _ret;
+}
+static const char * EGLAPIENTRY dispatch_eglQueryDeviceStringEXT(EGLDeviceEXT device, EGLint name)
+{
+    typedef const char * EGLAPIENTRY (* _pfn_eglQueryDeviceStringEXT)(EGLDeviceEXT device, EGLint name);
+    const char * _ret = NULL;
+    _pfn_eglQueryDeviceStringEXT _ptr_eglQueryDeviceStringEXT = (_pfn_eglQueryDeviceStringEXT) __eglDispatchFetchByDevice(device, __EGL_DISPATCH_eglQueryDeviceStringEXT);
+    if(_ptr_eglQueryDeviceStringEXT != NULL) {
+        _ret = _ptr_eglQueryDeviceStringEXT(device, name);
+    }
+    return _ret;
+}
+static EGLBoolean EGLAPIENTRY dispatch_eglQueryDisplayAttribEXT(EGLDisplay dpy, EGLint attribute, EGLAttrib *value)
+{
+    typedef EGLBoolean EGLAPIENTRY (* _pfn_eglQueryDisplayAttribEXT)(EGLDisplay dpy, EGLint attribute, EGLAttrib *value);
+    EGLBoolean _ret = EGL_FALSE;
+    _pfn_eglQueryDisplayAttribEXT _ptr_eglQueryDisplayAttribEXT = (_pfn_eglQueryDisplayAttribEXT) __eglDispatchFetchByDisplay(dpy, __EGL_DISPATCH_eglQueryDisplayAttribEXT);
+    if(_ptr_eglQueryDisplayAttribEXT != NULL) {
+        _ret = _ptr_eglQueryDisplayAttribEXT(dpy, attribute, value);
+    }
+    return _ret;
+}
 static EGLBoolean EGLAPIENTRY dispatch_eglQueryDmaBufFormatsEXT(EGLDisplay dpy, EGLint max_formats, EGLint *formats, EGLint *num_formats)
 {
     typedef EGLBoolean EGLAPIENTRY (* _pfn_eglQueryDmaBufFormatsEXT)(EGLDisplay dpy, EGLint max_formats, EGLint *formats, EGLint *num_formats);
@@ -332,6 +362,10 @@ const char * const __EGL_DISPATCH_FUNC_NAMES[__EGL_DISPATCH_COUNT + 1] = {
     "eglPostSubBufferNV",
     "eglQueryAPI",
     "eglQueryContext",
+    "eglQueryDeviceAttribEXT",
+    "eglQueryDeviceStringEXT",
+    "eglQueryDevicesEXT",
+    "eglQueryDisplayAttribEXT",
     "eglQueryDmaBufFormatsEXT",
     "eglQueryDmaBufModifiersEXT",
     "eglQueryString",
@@ -408,6 +442,10 @@ const __eglMustCastToProperFunctionPointerType __EGL_DISPATCH_FUNCS[__EGL_DISPAT
     (__eglMustCastToProperFunctionPointerType) dispatch_eglPostSubBufferNV,
     NULL, // eglQueryAPI
     NULL, // eglQueryContext
+    (__eglMustCastToProperFunctionPointerType) dispatch_eglQueryDeviceAttribEXT,
+    (__eglMustCastToProperFunctionPointerType) dispatch_eglQueryDeviceStringEXT,
+    NULL, // eglQueryDevicesEXT
+    (__eglMustCastToProperFunctionPointerType) dispatch_eglQueryDisplayAttribEXT,
     (__eglMustCastToProperFunctionPointerType) dispatch_eglQueryDmaBufFormatsEXT,
     (__eglMustCastToProperFunctionPointerType) dispatch_eglQueryDmaBufModifiersEXT,
     NULL, // eglQueryString
