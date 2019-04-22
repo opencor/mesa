@@ -1012,7 +1012,7 @@ VkResult anv_CreateDescriptorUpdateTemplate(
 
    template->entry_count = pCreateInfo->descriptorUpdateEntryCount;
    for (uint32_t i = 0; i < template->entry_count; i++) {
-      const VkDescriptorUpdateTemplateEntryKHR *pEntry =
+      const VkDescriptorUpdateTemplateEntry *pEntry =
          &pCreateInfo->pDescriptorUpdateEntries[i];
 
       template->entries[i] = (struct anv_descriptor_template_entry) {
