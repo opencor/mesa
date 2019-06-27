@@ -509,10 +509,10 @@ emit_rs_state(struct anv_pipeline *pipeline,
 
 #if GEN_GEN >= 9
    /* GEN9+ splits ViewportZClipTestEnable into near and far enable bits */
-   raster.ViewportZFarClipTestEnable = !pipeline->depth_clamp_enable;
-   raster.ViewportZNearClipTestEnable = !pipeline->depth_clamp_enable;
+   raster.ViewportZFarClipTestEnable = pipeline->depth_clip_enable;
+   raster.ViewportZNearClipTestEnable = pipeline->depth_clip_enable;
 #elif GEN_GEN >= 8
-   raster.ViewportZClipTestEnable = !pipeline->depth_clamp_enable;
+   raster.ViewportZClipTestEnable = pipeline->depth_clip_enable;
 #endif
 
    raster.GlobalDepthOffsetEnableSolid = rs_info->depthBiasEnable;
@@ -1118,7 +1118,7 @@ emit_3dstate_clip(struct anv_pipeline *pipeline,
 #if GEN_GEN == 7
       clip.FrontWinding            = vk_to_gen_front_face[rs_info->frontFace];
       clip.CullMode                = vk_to_gen_cullmode[rs_info->cullMode];
-      clip.ViewportZClipTestEnable = !pipeline->depth_clamp_enable;
+      clip.ViewportZClipTestEnable = pipeline->depth_clip_enable;
       clip.UserClipDistanceClipTestEnableBitmask = last->clip_distance_mask;
       clip.UserClipDistanceCullTestEnableBitmask = last->cull_distance_mask;
 #else
@@ -1162,10 +1162,10 @@ emit_3dstate_streamout(struct anv_pipeline *pipeline,
          so.RenderStreamSelect = stream_info ?
                                  stream_info->rasterizationStream : 0;
 
-         so.Buffer0SurfacePitch = xfb_info->strides[0];
-         so.Buffer1SurfacePitch = xfb_info->strides[1];
-         so.Buffer2SurfacePitch = xfb_info->strides[2];
-         so.Buffer3SurfacePitch = xfb_info->strides[3];
+         so.Buffer0SurfacePitch = xfb_info->buffers[0].stride;
+         so.Buffer1SurfacePitch = xfb_info->buffers[1].stride;
+         so.Buffer2SurfacePitch = xfb_info->buffers[2].stride;
+         so.Buffer3SurfacePitch = xfb_info->buffers[3].stride;
 
          int urb_entry_read_offset = 0;
          int urb_entry_read_length =
@@ -1761,7 +1761,7 @@ emit_3dstate_ps(struct anv_pipeline *pipeline,
                                brw_wm_prog_data_prog_offset(wm_prog_data, ps, 2);
 
       ps.SingleProgramFlow          = false;
-      ps.VectorMaskEnable           = true;
+      ps.VectorMaskEnable           = GEN_GEN >= 8;
       /* WA_1606682166 */
       ps.SamplerCount               = GEN_GEN == 11 ? 0 : get_sampler_count(fs_bin);
       /* Gen 11 workarounds table #2056 WABTPPrefetchDisable */
@@ -2087,9 +2087,29 @@ compute_pipeline_create(
       vfe.URBEntryAllocationSize = GEN_GEN <= 7 ? 0 : 2;
       vfe.CURBEAllocationSize    = vfe_curbe_allocation;
 
-      vfe.PerThreadScratchSpace = get_scratch_space(cs_bin);
-      vfe.ScratchSpaceBasePointer =
-         get_scratch_address(pipeline, MESA_SHADER_COMPUTE, cs_bin);
+      if (cs_bin->prog_data->total_scratch) {
+         if (GEN_GEN >= 8) {
+            /* Broadwell's Per Thread Scratch Space is in the range [0, 11]
+             * where 0 = 1k, 1 = 2k, 2 = 4k, ..., 11 = 2M.
+             */
+            vfe.PerThreadScratchSpace =
+               ffs(cs_bin->prog_data->total_scratch) - 11;
+         } else if (GEN_IS_HASWELL) {
+            /* Haswell's Per Thread Scratch Space is in the range [0, 10]
+             * where 0 = 2k, 1 = 4k, 2 = 8k, ..., 10 = 2M.
+             */
+            vfe.PerThreadScratchSpace =
+               ffs(cs_bin->prog_data->total_scratch) - 12;
+         } else {
+            /* IVB and BYT use the range [0, 11] to mean [1kB, 12kB]
+             * where 0 = 1kB, 1 = 2kB, 2 = 3kB, ..., 11 = 12kB.
+             */
+            vfe.PerThreadScratchSpace =
+               cs_bin->prog_data->total_scratch / 1024 - 1;
+         }
+         vfe.ScratchSpaceBasePointer =
+            get_scratch_address(pipeline, MESA_SHADER_COMPUTE, cs_bin);
+      }
    }
 
    struct GENX(INTERFACE_DESCRIPTOR_DATA) desc = {

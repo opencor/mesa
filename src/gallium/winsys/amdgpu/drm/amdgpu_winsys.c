@@ -92,6 +92,10 @@ static bool do_winsys_init(struct amdgpu_winsys *ws,
    if (!ac_query_gpu_info(fd, ws->dev, &ws->info, &ws->amdinfo))
       goto fail;
 
+   /* TODO: Enable this once the kernel handles it efficiently. */
+   if (ws->info.has_dedicated_vram)
+      ws->info.has_local_buffers = false;
+
    handle_env_var_force_family(ws);
 
    ws->addrlib = amdgpu_addr_create(&ws->info, &ws->amdinfo, &ws->info.max_alignment);
@@ -269,12 +273,6 @@ static bool amdgpu_winsys_unref(struct radeon_winsys *rws)
    return destroy;
 }
 
-static const char* amdgpu_get_chip_name(struct radeon_winsys *ws)
-{
-   amdgpu_device_handle dev = ((struct amdgpu_winsys *)ws)->dev;
-   return amdgpu_get_marketing_name(dev);
-}
-
 static void amdgpu_pin_threads_to_L3_cache(struct radeon_winsys *rws,
                                            unsigned cache)
 {
@@ -384,7 +382,6 @@ amdgpu_winsys_create(int fd, const struct pipe_screen_config *config,
    ws->base.cs_request_feature = amdgpu_cs_request_feature;
    ws->base.query_value = amdgpu_query_value;
    ws->base.read_registers = amdgpu_read_registers;
-   ws->base.get_chip_name = amdgpu_get_chip_name;
    ws->base.pin_threads_to_L3_cache = amdgpu_pin_threads_to_L3_cache;
 
    amdgpu_bo_init_functions(ws);
