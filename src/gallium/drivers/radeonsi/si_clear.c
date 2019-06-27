@@ -34,15 +34,6 @@ enum {
 	SI_CLEAR_SURFACE = SI_SAVE_FRAMEBUFFER | SI_SAVE_FRAGMENT_STATE,
 };
 
-enum si_dcc_clear_code
-{
-	DCC_CLEAR_COLOR_0000   = 0x00000000,
-	DCC_CLEAR_COLOR_0001   = 0x40404040,
-	DCC_CLEAR_COLOR_1110   = 0x80808080,
-	DCC_CLEAR_COLOR_1111   = 0xC0C0C0C0,
-	DCC_CLEAR_COLOR_REG    = 0x20202020,
-};
-
 static void si_alloc_separate_cmask(struct si_screen *sscreen,
 				    struct si_texture *tex)
 {
@@ -272,7 +263,7 @@ void vi_dcc_clear_level(struct si_context *sctx,
 	}
 
 	si_clear_buffer(sctx, dcc_buffer, dcc_offset, clear_size,
-			&clear_value, 4, SI_COHERENCY_CB_META);
+			&clear_value, 4, SI_COHERENCY_CB_META, false);
 }
 
 /* Set the same micro tile mode as the destination of the last MSAA resolve.
@@ -505,7 +496,7 @@ static void si_do_fast_color_clear(struct si_context *sctx,
 				uint32_t clear_value = 0xCCCCCCCC;
 				si_clear_buffer(sctx, &tex->cmask_buffer->b.b,
 						tex->cmask_offset, tex->surface.cmask_size,
-						&clear_value, 4, SI_COHERENCY_CB_META);
+						&clear_value, 4, SI_COHERENCY_CB_META, false);
 				fmask_decompress_needed = true;
 			}
 
@@ -533,7 +524,7 @@ static void si_do_fast_color_clear(struct si_context *sctx,
 			uint32_t clear_value = 0;
 			si_clear_buffer(sctx, &tex->cmask_buffer->b.b,
 					tex->cmask_offset, tex->surface.cmask_size,
-					&clear_value, 4, SI_COHERENCY_CB_META);
+					&clear_value, 4, SI_COHERENCY_CB_META, false);
 			eliminate_needed = true;
 		}
 
@@ -647,7 +638,7 @@ static void si_clear(struct pipe_context *ctx, unsigned buffers,
 		 * This hack decreases back-to-back ClearDepth performance.
 		 */
 		if ((sctx->db_depth_clear || sctx->db_stencil_clear) &&
-		    sctx->screen->clear_db_cache_before_clear)
+		    sctx->screen->options.clear_db_cache_before_clear)
 			sctx->flags |= SI_CONTEXT_FLUSH_AND_INV_DB;
 	}
 
@@ -680,6 +671,13 @@ static void si_clear_render_target(struct pipe_context *ctx,
 				   bool render_condition_enabled)
 {
 	struct si_context *sctx = (struct si_context *)ctx;
+	struct si_texture *sdst = (struct si_texture*)dst->texture;
+
+	if (dst->texture->nr_samples <= 1 && !sdst->dcc_offset) {
+		si_compute_clear_render_target(ctx, dst, color, dstx, dsty, width,
+					       height, render_condition_enabled);
+		return;
+	}
 
 	si_blitter_begin(sctx, SI_CLEAR_SURFACE |
 			 (render_condition_enabled ? 0 : SI_DISABLE_RENDER_COND));
@@ -773,8 +771,11 @@ static void si_clear_texture(struct pipe_context *pipe,
 
 void si_init_clear_functions(struct si_context *sctx)
 {
-	sctx->b.clear = si_clear;
 	sctx->b.clear_render_target = si_clear_render_target;
-	sctx->b.clear_depth_stencil = si_clear_depth_stencil;
 	sctx->b.clear_texture = si_clear_texture;
+
+	if (sctx->has_graphics) {
+		sctx->b.clear = si_clear;
+		sctx->b.clear_depth_stencil = si_clear_depth_stencil;
+	}
 }
