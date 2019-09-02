@@ -107,7 +107,7 @@ with_any_opengl = with_opengl or with_gles1 or with_gles2
 # Only build shared_glapi if at least one OpenGL API is enabled
 with_shared_glapi = get_option('shared-glapi') and with_any_opengl
 
-system_has_kms_drm = ['openbsd', 'netbsd', 'freebsd', 'dragonfly', 'linux'].contains(host_machine.system())
+system_has_kms_drm = ['openbsd', 'netbsd', 'freebsd', 'gnu/kfreebsd', 'dragonfly', 'linux'].contains(host_machine.system())
 
 dri_drivers = get_option('dri-drivers')
 if dri_drivers.contains('auto')
@@ -190,6 +190,12 @@ if cc.get_id() == 'intel'
   endif
 endif
 
+#This message is needed until we bump meson version to 0.46 because of known 0.45.0 and 0.45.1 issue
+#https://bugs.freedesktop.org/show_bug.cgi?id=109791
+if meson.version().version_compare('< 0.46.0')
+    warning('''Meson < 0.46 doesn't automatically define `NDEBUG`; please update meson to at least 0.46.''')
+endif
+
 with_gallium = gallium_drivers.length() != 0 and gallium_drivers != ['']
 
 if with_gallium and system_has_kms_drm
@@ -244,6 +250,7 @@ endif
 
 if host_machine.system() == 'darwin'
   with_dri_platform = 'apple'
+  pre_args += '-DBUILDING_MESA'
 elif ['windows', 'cygwin'].contains(host_machine.system())
   with_dri_platform = 'windows'
 elif system_has_kms_drm
@@ -312,7 +319,7 @@ if with_glx == 'dri'
    endif
 endif
 
-if not (with_dri or with_gallium or with_glx == 'xlib' or with_glx == 'gallium-xlib')
+if not (with_dri or with_gallium or with_glx != 'disabled')
   with_gles1 = false
   with_gles2 = false
   with_opengl = false
@@ -379,9 +386,7 @@ if with_glx != 'disabled'
       error('xlib conflicts with any dri driver')
     endif
   elif with_glx == 'dri'
-    if not with_dri
-      error('dri based GLX requires at least one DRI driver')
-    elif not with_shared_glapi
+    if not with_shared_glapi
       error('dri based GLX requires shared-glapi')
     endif
   endif
@@ -754,7 +759,11 @@ if with_platform_haiku
   pre_args += '-DHAVE_HAIKU_PLATFORM'
 endif
 
-prog_python = import('python3').find_python()
+if meson.version().version_compare('>=0.50')
+  prog_python = import('python').find_installation('python3')
+else
+  prog_python = import('python3').find_python()
+endif
 has_mako = run_command(
   prog_python, '-c',
   '''
@@ -836,7 +845,7 @@ if cc.compiles('int foo(void) __attribute__((__noreturn__));',
 endif
 
 # TODO: this is very incomplete
-if ['linux', 'cygwin', 'gnu'].contains(host_machine.system())
+if ['linux', 'cygwin', 'gnu', 'gnu/kfreebsd'].contains(host_machine.system())
   pre_args += '-D_GNU_SOURCE'
 endif
 
@@ -1040,7 +1049,7 @@ elif cc.has_header_symbol('sys/mkdev.h', 'major')
   pre_args += '-DMAJOR_IN_MKDEV'
 endif
 
-foreach h : ['xlocale.h', 'sys/sysctl.h', 'linux/futex.h', 'endian.h', 'dlfcn.h']
+foreach h : ['xlocale.h', 'sys/sysctl.h', 'linux/futex.h', 'endian.h', 'dlfcn.h', 'execinfo.h']
   if cc.compiles('#include <@0@>'.format(h), name : '@0@'.format(h))
     pre_args += '-DHAVE_@0@'.format(h.to_upper().underscorify())
   endif
@@ -1051,6 +1060,13 @@ foreach f : ['strtof', 'mkostemp', 'posix_memalign', 'timespec_get', 'memfd_crea
     pre_args += '-DHAVE_@0@'.format(f.to_upper())
   endif
 endforeach
+
+if cc.has_header_symbol('errno.h', 'program_invocation_name',
+                        args : '-D_GNU_SOURCE')
+   pre_args += '-DHAVE_PROGRAM_INVOCATION_NAME'
+elif with_tools.contains('intel')
+  error('Intel tools require the program_invocation_name variable')
+endif
 
 # strtod locale support
 if cc.links('''
@@ -1163,7 +1179,7 @@ _drm_radeon_ver = '2.4.71'
 _drm_nouveau_ver = '2.4.66'
 _drm_etnaviv_ver = '2.4.89'
 _drm_intel_ver = '2.4.75'
-_drm_ver = '2.4.75'
+_drm_ver = '2.4.81'
 
 _libdrm_checks = [
   ['intel', with_dri_i915 or with_gallium_i915],

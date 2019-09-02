@@ -1318,9 +1318,16 @@ fs_visitor::nir_emit_alu(const fs_builder &bld, nir_alu_instr *instr)
    case nir_op_ine32: {
       fs_reg dest = result;
 
+      /* On Gen11 we have an additional issue being that src1 cannot be a byte
+       * type. So we convert both operands for the comparison.
+       */
+      fs_reg temp_op[2];
+      temp_op[0] = bld.fix_byte_src(op[0]);
+      temp_op[1] = bld.fix_byte_src(op[1]);
+
       const uint32_t bit_size = nir_src_bit_size(instr->src[0].src);
       if (bit_size != 32)
-         dest = bld.vgrf(op[0].type, 1);
+         dest = bld.vgrf(temp_op[0].type, 1);
 
       brw_conditional_mod cond;
       switch (instr->op) {
@@ -1341,7 +1348,7 @@ fs_visitor::nir_emit_alu(const fs_builder &bld, nir_alu_instr *instr)
       default:
          unreachable("bad opcode");
       }
-      bld.CMP(dest, op[0], op[1], cond);
+      bld.CMP(dest, temp_op[0], temp_op[1], cond);
 
       if (bit_size > 32) {
          bld.MOV(result, subscript(dest, BRW_REGISTER_TYPE_UD, 0));
@@ -4822,16 +4829,29 @@ fs_visitor::nir_emit_intrinsic(const fs_builder &bld, nir_intrinsic_instr *instr
    case nir_intrinsic_quad_swap_horizontal: {
       const fs_reg value = get_nir_src(instr->src[0]);
       const fs_reg tmp = bld.vgrf(value.type);
-      const fs_builder ubld = bld.exec_all().group(dispatch_width / 2, 0);
+      if (devinfo->gen <= 7) {
+         /* The hardware doesn't seem to support these crazy regions with
+          * compressed instructions on gen7 and earlier so we fall back to
+          * using quad swizzles.  Fortunately, we don't support 64-bit
+          * anything in Vulkan on gen7.
+          */
+         assert(nir_src_bit_size(instr->src[0]) == 32);
+         const fs_builder ubld = bld.exec_all();
+         ubld.emit(SHADER_OPCODE_QUAD_SWIZZLE, tmp, value,
+                   brw_imm_ud(BRW_SWIZZLE4(1,0,3,2)));
+         bld.MOV(retype(dest, value.type), tmp);
+      } else {
+         const fs_builder ubld = bld.exec_all().group(dispatch_width / 2, 0);
 
-      const fs_reg src_left = horiz_stride(value, 2);
-      const fs_reg src_right = horiz_stride(horiz_offset(value, 1), 2);
-      const fs_reg tmp_left = horiz_stride(tmp, 2);
-      const fs_reg tmp_right = horiz_stride(horiz_offset(tmp, 1), 2);
+         const fs_reg src_left = horiz_stride(value, 2);
+         const fs_reg src_right = horiz_stride(horiz_offset(value, 1), 2);
+         const fs_reg tmp_left = horiz_stride(tmp, 2);
+         const fs_reg tmp_right = horiz_stride(horiz_offset(tmp, 1), 2);
 
-      ubld.MOV(tmp_left, src_right);
-      ubld.MOV(tmp_right, src_left);
+         ubld.MOV(tmp_left, src_right);
+         ubld.MOV(tmp_right, src_left);
 
+      }
       bld.MOV(retype(dest, value.type), tmp);
       break;
    }
