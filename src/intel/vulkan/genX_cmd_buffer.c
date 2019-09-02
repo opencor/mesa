@@ -76,6 +76,8 @@ genX(cmd_buffer_emit_state_base_address)(struct anv_cmd_buffer *cmd_buffer)
       sba.GeneralStateMOCS = GENX(MOCS);
       sba.GeneralStateBaseAddressModifyEnable = true;
 
+      sba.StatelessDataPortAccessMOCS = GENX(MOCS);
+
       sba.SurfaceStateBaseAddress =
          anv_cmd_buffer_surface_base_address(cmd_buffer);
       sba.SurfaceStateMOCS = GENX(MOCS);
@@ -3546,16 +3548,8 @@ anv_cmd_buffer_push_base_group_id(struct anv_cmd_buffer *cmd_buffer,
    if (anv_batch_has_error(&cmd_buffer->batch))
       return;
 
-   VkResult result =
-      anv_cmd_buffer_ensure_push_constant_field(cmd_buffer, MESA_SHADER_COMPUTE,
-                                                base_work_group_id);
-   if (result != VK_SUCCESS) {
-      cmd_buffer->batch.status = result;
-      return;
-   }
-
    struct anv_push_constants *push =
-      cmd_buffer->state.push_constants[MESA_SHADER_COMPUTE];
+      &cmd_buffer->state.push_constants[MESA_SHADER_COMPUTE];
    if (push->base_work_group_id[0] != baseGroupX ||
        push->base_work_group_id[1] != baseGroupY ||
        push->base_work_group_id[2] != baseGroupZ) {
@@ -3759,6 +3753,25 @@ genX(flush_pipeline_select)(struct anv_cmd_buffer *cmd_buffer,
     */
    if (pipeline == GPGPU)
       anv_batch_emit(&cmd_buffer->batch, GENX(3DSTATE_CC_STATE_POINTERS), t);
+#endif
+
+#if GEN_GEN == 9
+   if (pipeline == _3D) {
+      /* There is a mid-object preemption workaround which requires you to
+       * re-emit MEDIA_VFE_STATE after switching from GPGPU to 3D.  However,
+       * even without preemption, we have issues with geometry flickering when
+       * GPGPU and 3D are back-to-back and this seems to fix it.  We don't
+       * really know why.
+       */
+      const uint32_t subslices =
+         MAX2(cmd_buffer->device->instance->physicalDevice.subslice_total, 1);
+      anv_batch_emit(&cmd_buffer->batch, GENX(MEDIA_VFE_STATE), vfe) {
+         vfe.MaximumNumberofThreads =
+            devinfo->max_cs_threads * subslices - 1;
+         vfe.NumberofURBEntries     = 2;
+         vfe.URBEntryAllocationSize = 2;
+      }
+   }
 #endif
 
    /* From "BXML » GT » MI » vol1a GPU Overview » [Instruction]
@@ -4754,3 +4767,110 @@ void genX(CmdEndConditionalRenderingEXT)(
    cmd_state->conditional_render_enabled = false;
 }
 #endif
+
+/* Set of stage bits for which are pipelined, i.e. they get queued by the
+ * command streamer for later execution.
+ */
+#define ANV_PIPELINE_STAGE_PIPELINED_BITS \
+   (VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | \
+    VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | \
+    VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT | \
+    VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT | \
+    VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT | \
+    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | \
+    VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | \
+    VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | \
+    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | \
+    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | \
+    VK_PIPELINE_STAGE_TRANSFER_BIT | \
+    VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT | \
+    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | \
+    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT)
+
+void genX(CmdSetEvent)(
+    VkCommandBuffer                             commandBuffer,
+    VkEvent                                     _event,
+    VkPipelineStageFlags                        stageMask)
+{
+   ANV_FROM_HANDLE(anv_cmd_buffer, cmd_buffer, commandBuffer);
+   ANV_FROM_HANDLE(anv_event, event, _event);
+
+   anv_batch_emit(&cmd_buffer->batch, GENX(PIPE_CONTROL), pc) {
+      if (stageMask & ANV_PIPELINE_STAGE_PIPELINED_BITS) {
+         pc.StallAtPixelScoreboard = true;
+         pc.CommandStreamerStallEnable = true;
+      }
+
+      pc.DestinationAddressType  = DAT_PPGTT,
+      pc.PostSyncOperation       = WriteImmediateData,
+      pc.Address = (struct anv_address) {
+         cmd_buffer->device->dynamic_state_pool.block_pool.bo,
+         event->state.offset
+      };
+      pc.ImmediateData           = VK_EVENT_SET;
+   }
+}
+
+void genX(CmdResetEvent)(
+    VkCommandBuffer                             commandBuffer,
+    VkEvent                                     _event,
+    VkPipelineStageFlags                        stageMask)
+{
+   ANV_FROM_HANDLE(anv_cmd_buffer, cmd_buffer, commandBuffer);
+   ANV_FROM_HANDLE(anv_event, event, _event);
+
+   anv_batch_emit(&cmd_buffer->batch, GENX(PIPE_CONTROL), pc) {
+      if (stageMask & ANV_PIPELINE_STAGE_PIPELINED_BITS) {
+         pc.StallAtPixelScoreboard = true;
+         pc.CommandStreamerStallEnable = true;
+      }
+
+      pc.DestinationAddressType  = DAT_PPGTT;
+      pc.PostSyncOperation       = WriteImmediateData;
+      pc.Address = (struct anv_address) {
+         cmd_buffer->device->dynamic_state_pool.block_pool.bo,
+         event->state.offset
+      };
+      pc.ImmediateData           = VK_EVENT_RESET;
+   }
+}
+
+void genX(CmdWaitEvents)(
+    VkCommandBuffer                             commandBuffer,
+    uint32_t                                    eventCount,
+    const VkEvent*                              pEvents,
+    VkPipelineStageFlags                        srcStageMask,
+    VkPipelineStageFlags                        destStageMask,
+    uint32_t                                    memoryBarrierCount,
+    const VkMemoryBarrier*                      pMemoryBarriers,
+    uint32_t                                    bufferMemoryBarrierCount,
+    const VkBufferMemoryBarrier*                pBufferMemoryBarriers,
+    uint32_t                                    imageMemoryBarrierCount,
+    const VkImageMemoryBarrier*                 pImageMemoryBarriers)
+{
+#if GEN_GEN >= 8
+   ANV_FROM_HANDLE(anv_cmd_buffer, cmd_buffer, commandBuffer);
+
+   for (uint32_t i = 0; i < eventCount; i++) {
+      ANV_FROM_HANDLE(anv_event, event, pEvents[i]);
+
+      anv_batch_emit(&cmd_buffer->batch, GENX(MI_SEMAPHORE_WAIT), sem) {
+         sem.WaitMode            = PollingMode,
+         sem.CompareOperation    = COMPARE_SAD_EQUAL_SDD,
+         sem.SemaphoreDataDword  = VK_EVENT_SET,
+         sem.SemaphoreAddress = (struct anv_address) {
+            cmd_buffer->device->dynamic_state_pool.block_pool.bo,
+            event->state.offset
+         };
+      }
+   }
+#else
+   anv_finishme("Implement events on gen7");
+#endif
+
+   genX(CmdPipelineBarrier)(commandBuffer, srcStageMask, destStageMask,
+                            false, /* byRegion */
+                            memoryBarrierCount, pMemoryBarriers,
+                            bufferMemoryBarrierCount, pBufferMemoryBarriers,
+                            imageMemoryBarrierCount, pImageMemoryBarriers);
+}
