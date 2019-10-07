@@ -261,9 +261,9 @@ isl_genX(surf_fill_state_s)(const struct isl_device *dev, void *state,
        * S3TC workaround that requires us to do reinterpretation.  So assert
        * that they're at least the same bpb and block size.
        */
-      MAYBE_UNUSED const struct isl_format_layout *surf_fmtl =
+      ASSERTED const struct isl_format_layout *surf_fmtl =
          isl_format_get_layout(info->surf->format);
-      MAYBE_UNUSED const struct isl_format_layout *view_fmtl =
+      ASSERTED const struct isl_format_layout *view_fmtl =
          isl_format_get_layout(info->surf->format);
       assert(surf_fmtl->bpb == view_fmtl->bpb);
       assert(surf_fmtl->bw == view_fmtl->bw);
@@ -452,6 +452,15 @@ isl_genX(surf_fill_state_s)(const struct isl_device *dev, void *state,
    s.RenderCacheReadWriteMode = WriteOnlyCache;
 #else
    s.RenderCacheReadWriteMode = 0;
+#endif
+
+#if GEN_GEN >= 11
+   /* We've seen dEQP failures when enabling this bit with UINT formats,
+    * which particularly affects blorp_copy() operations.  It shouldn't
+    * have any effect on UINT textures anyway, so disable it for them.
+    */
+   s.EnableUnormPathInColorPipe =
+      !isl_format_has_int_channel(info->view->format);
 #endif
 
    s.CubeFaceEnablePositiveZ = 1;
