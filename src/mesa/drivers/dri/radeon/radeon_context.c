@@ -177,13 +177,13 @@ r100CreateContext( gl_api api,
 
    /* init exp fog table data */
    radeonInitStaticFogData();
-   
+
    /* Parse configuration files.
     * Do this here so that initialMaxAnisotropy is set before we create
     * the default textures.
     */
    driParseConfigFiles (&rmesa->radeon.optionCache, &screen->optionCache,
-			screen->driScreen->myNum, "radeon", NULL);
+			screen->driScreen->myNum, "radeon", NULL, NULL, 0);
    rmesa->radeon.initialMaxAnisotropy = driQueryOptionf(&rmesa->radeon.optionCache,
                                                  "def_max_anisotropy");
 
@@ -230,7 +230,7 @@ r100CreateContext( gl_api api,
 
    /* FIXME: When no memory manager is available we should set this 
     * to some reasonable value based on texture memory pool size */
-   ctx->Const.MaxTextureLevels = 12;
+   ctx->Const.MaxTextureSize = 2048;
    ctx->Const.Max3DTextureLevels = 9;
    ctx->Const.MaxCubeTextureLevels = 12;
    ctx->Const.MaxTextureRectSize = 2048;
