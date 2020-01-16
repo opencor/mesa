@@ -422,6 +422,9 @@ clone_tex(clone_state *state, const nir_tex_instr *tex)
    ntex->texture_array_size = tex->texture_array_size;
    ntex->sampler_index = tex->sampler_index;
 
+   ntex->texture_non_uniform = tex->texture_non_uniform;
+   ntex->sampler_non_uniform = tex->sampler_non_uniform;
+
    return ntex;
 }
 
@@ -629,7 +632,7 @@ fixup_phi_srcs(clone_state *state)
          list_addtail(&src->src.use_link, &src->src.reg.reg->uses);
       }
    }
-   assert(list_empty(&state->phi_srcs));
+   assert(list_is_empty(&state->phi_srcs));
 }
 
 void
@@ -669,7 +672,7 @@ clone_function_impl(clone_state *state, const nir_function_impl *fi)
    clone_reg_list(state, &nfi->registers, &fi->registers);
    nfi->reg_alloc = fi->reg_alloc;
 
-   assert(list_empty(&state->phi_srcs));
+   assert(list_is_empty(&state->phi_srcs));
 
    clone_cf_list(state, &nfi->body, &fi->body);
 
