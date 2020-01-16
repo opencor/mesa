@@ -588,6 +588,10 @@ static bool do_winsys_init(struct radeon_drm_winsys *ws)
     ws->info.has_read_registers_query = ws->info.drm_minor >= 42;
     ws->info.max_alignment = 1024*1024;
     ws->info.has_graphics = true;
+    ws->info.cpdma_prefetch_writes_memory = true;
+    ws->info.max_wave64_per_simd = 10;
+    ws->info.num_physical_sgprs_per_simd = 512;
+    ws->info.num_physical_wave64_vgprs_per_simd = 256;
 
     ws->check_vm = strstr(debug_get_option("R600_DEBUG", ""), "check_vm") != NULL ||
                    strstr(debug_get_option("AMD_DEBUG", ""), "check_vm") != NULL;
@@ -937,6 +941,7 @@ radeon_drm_winsys_create(int fd, const struct pipe_screen_config *config,
 
     /* TTM aligns the BO size to the CPU page size */
     ws->info.gart_page_size = sysconf(_SC_PAGESIZE);
+    ws->info.pte_fragment_size = 64 * 1024; /* GPUVM page size */
 
     if (ws->num_cpus > 1 && debug_get_option_thread())
         util_queue_init(&ws->cs_queue, "rcs", 8, 1, 0);

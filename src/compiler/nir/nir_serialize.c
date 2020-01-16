@@ -605,7 +605,9 @@ union packed_tex_data {
       unsigned is_shadow:1;
       unsigned is_new_style_shadow:1;
       unsigned component:2;
-      unsigned unused:10; /* Mark unused for valgrind. */
+      unsigned texture_non_uniform:1;
+      unsigned sampler_non_uniform:1;
+      unsigned unused:8; /* Mark unused for valgrind. */
    } u;
 };
 
@@ -628,6 +630,8 @@ write_tex(write_ctx *ctx, const nir_tex_instr *tex)
       .u.is_shadow = tex->is_shadow,
       .u.is_new_style_shadow = tex->is_new_style_shadow,
       .u.component = tex->component,
+      .u.texture_non_uniform = tex->texture_non_uniform,
+      .u.sampler_non_uniform = tex->sampler_non_uniform,
    };
    blob_write_uint32(ctx->blob, packed.u32);
 
@@ -659,6 +663,8 @@ read_tex(read_ctx *ctx)
    tex->is_shadow = packed.u.is_shadow;
    tex->is_new_style_shadow = packed.u.is_new_style_shadow;
    tex->component = packed.u.component;
+   tex->texture_non_uniform = packed.u.texture_non_uniform;
+   tex->sampler_non_uniform = packed.u.sampler_non_uniform;
 
    read_dest(ctx, &tex->dest, &tex->instr);
    for (unsigned i = 0; i < tex->num_srcs; i++) {
@@ -762,7 +768,7 @@ read_fixup_phis(read_ctx *ctx)
 
       list_addtail(&src->src.use_link, &src->src.ssa->uses);
    }
-   assert(list_empty(&ctx->phi_srcs));
+   assert(list_is_empty(&ctx->phi_srcs));
 }
 
 static void
@@ -1090,8 +1096,20 @@ read_function(read_ctx *ctx)
 }
 
 void
-nir_serialize(struct blob *blob, const nir_shader *nir)
+nir_serialize(struct blob *blob, const nir_shader *nir, bool strip)
 {
+   nir_shader *stripped = NULL;
+
+   if (strip) {
+      /* Drop unnecessary information (like variable names), so the serialized
+       * NIR is smaller, and also to let us detect more isomorphic shaders
+       * when hashing, increasing cache hits.
+       */
+      stripped = nir_shader_clone(NULL, nir);
+      nir_strip(stripped);
+      nir = stripped;
+   }
+
    write_ctx ctx;
    ctx.remap_table = _mesa_pointer_hash_table_create(NULL);
    ctx.next_idx = 0;
@@ -1145,6 +1163,9 @@ nir_serialize(struct blob *blob, const nir_shader *nir)
 
    _mesa_hash_table_destroy(ctx.remap_table, NULL);
    util_dynarray_fini(&ctx.phi_fixups);
+
+   if (strip)
+      ralloc_free(stripped);
 }
 
 nir_shader *
@@ -1213,7 +1234,7 @@ nir_shader_serialize_deserialize(nir_shader *shader)
 
    struct blob writer;
    blob_init(&writer);
-   nir_serialize(&writer, shader);
+   nir_serialize(&writer, shader, false);
 
    /* Delete all of dest's ralloc children but leave dest alone */
    void *dead_ctx = ralloc_context(NULL);

@@ -36,10 +36,13 @@ LOCAL_MODULE_CLASS := STATIC_LIBRARIES
 
 LOCAL_C_INCLUDES := \
 	$(MESA_TOP)/src/amd/common \
+	$(MESA_TOP)/src/amd/llvm \
 	$(call generated-sources-dir-for,STATIC_LIBRARIES,libmesa_amd_common,,)/common \
 	$(call generated-sources-dir-for,STATIC_LIBRARIES,libmesa_nir,,)/nir
 
-LOCAL_STATIC_LIBRARIES := libmesa_amd_common
+LOCAL_STATIC_LIBRARIES := \
+	libmesa_amd_common \
+	libmesa_galliumvl
 
 LOCAL_SHARED_LIBRARIES := libdrm_radeon
 LOCAL_MODULE := libmesa_pipe_radeonsi

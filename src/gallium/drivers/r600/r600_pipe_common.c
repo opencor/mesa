@@ -39,11 +39,7 @@
 #include <inttypes.h>
 #include <sys/utsname.h>
 
-#ifndef HAVE_LLVM
-#define HAVE_LLVM 0
-#endif
-
-#if HAVE_LLVM
+#ifdef LLVM_AVAILABLE
 #include <llvm-c/TargetMachine.h>
 #endif
 
@@ -302,7 +298,7 @@ void r600_need_dma_space(struct r600_common_context *ctx, unsigned num_dw,
 void r600_preflush_suspend_features(struct r600_common_context *ctx)
 {
 	/* suspend queries */
-	if (!LIST_IS_EMPTY(&ctx->active_queries))
+	if (!list_is_empty(&ctx->active_queries))
 		r600_suspend_queries(ctx);
 
 	ctx->streamout.suspended = false;
@@ -320,7 +316,7 @@ void r600_postflush_resume_features(struct r600_common_context *ctx)
 	}
 
 	/* resume queries */
-	if (!LIST_IS_EMPTY(&ctx->active_queries))
+	if (!list_is_empty(&ctx->active_queries))
 		r600_resume_queries(ctx);
 }
 
@@ -821,10 +817,7 @@ static float r600_get_paramf(struct pipe_screen* pscreen,
 	case PIPE_CAPF_MAX_LINE_WIDTH_AA:
 	case PIPE_CAPF_MAX_POINT_WIDTH:
 	case PIPE_CAPF_MAX_POINT_WIDTH_AA:
-		if (rscreen->family >= CHIP_CEDAR)
-			return 16384.0f;
-		else
-			return 8192.0f;
+         return 8191.0f;
 	case PIPE_CAPF_MAX_TEXTURE_ANISOTROPY:
 		return 16.0f;
 	case PIPE_CAPF_MAX_TEXTURE_LOD_BIAS:
@@ -1202,7 +1195,7 @@ bool r600_common_screen_init(struct r600_common_screen *rscreen,
 
 	snprintf(rscreen->renderer_string, sizeof(rscreen->renderer_string),
 		 "%s (%sDRM %i.%i.%i%s"
-#if HAVE_LLVM > 0
+#ifdef LLVM_AVAILABLE
 		 ", LLVM " MESA_LLVM_VERSION_STRING
 #endif
 		 ")",
