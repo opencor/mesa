@@ -113,6 +113,16 @@ struct gen_perf_query_result {
     * query.
     */
    uint64_t unslice_frequency[2];
+
+   /**
+    * Timestamp of the query.
+    */
+   uint64_t begin_timestamp;
+
+   /**
+    * Whether the query was interrupted by another workload (aka preemption).
+    */
+   bool query_disjoint;
 };
 
 struct gen_perf_query_counter {
@@ -219,16 +229,14 @@ struct gen_perf_config {
       bool (*batch_references)(void *batch, void *bo);
       void (*bo_wait_rendering)(void *bo);
       int (*bo_busy)(void *bo);
-      void (*emit_mi_flush)(void *ctx);
+      void (*emit_stall_at_pixel_scoreboard)(void *ctx);
       void (*emit_mi_report_perf_count)(void *ctx,
                                         void *bo,
                                         uint32_t offset_in_bytes,
                                         uint32_t report_id);
       void (*batchbuffer_flush)(void *ctx,
                                 const char *file, int line);
-      void (*capture_frequency_stat_register)(void *ctx, void *bo,
-                                              uint32_t bo_offset);
-      void (*store_register_mem64)(void *ctx, void *bo, uint32_t reg, uint32_t offset);
+      void (*store_register_mem)(void *ctx, void *bo, uint32_t reg, uint32_t reg_size, uint32_t offset);
 
    } vtbl;
 };

@@ -630,23 +630,28 @@ typedef enum
    SYSTEM_VALUE_VERTEX_CNT,
 
    /**
-    * Driver internal varying-coords, used for varying-fetch instructions.
-    * Not externally visible.
+    * Required for AMD_shader_explicit_vertex_parameter and also used for
+    * varying-fetch instructions.
     *
     * The _SIZE value is "primitive size", used to scale i/j in primitive
     * space to pixel space.
     */
-   SYSTEM_VALUE_BARYCENTRIC_PIXEL,
-   SYSTEM_VALUE_BARYCENTRIC_SAMPLE,
-   SYSTEM_VALUE_BARYCENTRIC_CENTROID,
-   SYSTEM_VALUE_BARYCENTRIC_SIZE,
+   SYSTEM_VALUE_BARYCENTRIC_PERSP_PIXEL,
+   SYSTEM_VALUE_BARYCENTRIC_PERSP_SAMPLE,
+   SYSTEM_VALUE_BARYCENTRIC_PERSP_CENTROID,
+   SYSTEM_VALUE_BARYCENTRIC_PERSP_SIZE,
+   SYSTEM_VALUE_BARYCENTRIC_LINEAR_PIXEL,
+   SYSTEM_VALUE_BARYCENTRIC_LINEAR_CENTROID,
+   SYSTEM_VALUE_BARYCENTRIC_LINEAR_SAMPLE,
+   SYSTEM_VALUE_BARYCENTRIC_PULL_MODEL,
 
    /**
-    * IR3 specific geometry shader system value that packs invocation id,
-    * thread id and vertex id.  Having this as a nir level system value lets
-    * us do the unpacking in nir.
+    * IR3 specific geometry shader and tesselation control shader system
+    * values that packs invocation id, thread id and vertex id.  Having this
+    * as a nir level system value lets us do the unpacking in nir.
     */
    SYSTEM_VALUE_GS_HEADER_IR3,
+   SYSTEM_VALUE_TCS_HEADER_IR3,
 
    SYSTEM_VALUE_MAX             /**< Number of values */
 } gl_system_value;
@@ -666,6 +671,7 @@ enum glsl_interp_mode
    INTERP_MODE_SMOOTH,
    INTERP_MODE_FLAT,
    INTERP_MODE_NOPERSPECTIVE,
+   INTERP_MODE_EXPLICIT,
    INTERP_MODE_COUNT /**< Number of interpolation qualifiers */
 };
 

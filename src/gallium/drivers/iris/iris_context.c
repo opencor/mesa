@@ -26,7 +26,7 @@
 #include "pipe/p_state.h"
 #include "util/ralloc.h"
 #include "util/u_inlines.h"
-#include "util/u_format.h"
+#include "util/format/u_format.h"
 #include "util/u_upload_mgr.h"
 #include "drm-uapi/i915_drm.h"
 #include "iris_context.h"
@@ -264,14 +264,13 @@ iris_create_context(struct pipe_screen *pscreen, void *priv, unsigned flags)
    ctx->get_device_reset_status = iris_get_device_reset_status;
    ctx->get_sample_position = iris_get_sample_position;
 
-   ice->shaders.urb_size = devinfo->urb.size;
-
    iris_init_context_fence_functions(ctx);
    iris_init_blit_functions(ctx);
    iris_init_clear_functions(ctx);
    iris_init_program_functions(ctx);
    iris_init_resource_functions(ctx);
    iris_init_flush_functions(ctx);
+   iris_init_perfquery_functions(ctx);
 
    iris_init_program_cache(ice);
    iris_init_border_color_pool(ice);
@@ -306,8 +305,7 @@ iris_create_context(struct pipe_screen *pscreen, void *priv, unsigned flags)
    for (int i = 0; i < IRIS_BATCH_COUNT; i++) {
       iris_init_batch(&ice->batches[i], screen, &ice->vtbl, &ice->dbg,
                       &ice->reset, ice->state.sizes,
-                      ice->batches, (enum iris_batch_name) i,
-                      I915_EXEC_RENDER, priority);
+                      ice->batches, (enum iris_batch_name) i, priority);
    }
 
    ice->vtbl.init_render_context(&ice->batches[IRIS_BATCH_RENDER]);

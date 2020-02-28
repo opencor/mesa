@@ -145,6 +145,15 @@ void update_renames(ra_ctx& ctx, std::array<uint32_t, 512>& reg_file,
       if (copy.second.isTemp())
          continue;
 
+      /* check if we we moved another parallelcopy definition */
+      for (std::pair<Operand, Definition>& other : parallelcopies) {
+         if (!other.second.isTemp())
+            continue;
+         if (copy.first.getTemp() == other.second.getTemp()) {
+            copy.first.setTemp(other.first.getTemp());
+            copy.first.setFixed(other.first.physReg());
+         }
+      }
       // FIXME: if a definition got moved, change the target location and remove the parallelcopy
       copy.second.setTemp(Temp(ctx.program->allocateId(), copy.second.regClass()));
       ctx.assignments[copy.second.tempId()] = {copy.second.physReg(), copy.second.regClass()};
@@ -1112,18 +1121,10 @@ void register_allocation(Program *program, std::vector<std::set<Temp>> live_out_
       std::vector<aco_ptr<Instruction>>::reverse_iterator rit;
       for (rit = block.instructions.rbegin(); rit != block.instructions.rend(); ++rit) {
          aco_ptr<Instruction>& instr = *rit;
-         if (!is_phi(instr)) {
-            for (const Operand& op : instr->operands) {
-               if (op.isTemp())
-                  live.emplace(op.getTemp());
-            }
-            if (instr->opcode == aco_opcode::p_create_vector) {
-               for (const Operand& op : instr->operands) {
-                  if (op.isTemp() && op.getTemp().type() == instr->definitions[0].getTemp().type())
-                     vectors[op.tempId()] = instr.get();
-               }
-            }
-         } else if (!instr->definitions[0].isKill() && !instr->definitions[0].isFixed()) {
+         if (is_phi(instr)) {
+            live.erase(instr->definitions[0].getTemp());
+            if (instr->definitions[0].isKill() || instr->definitions[0].isFixed())
+               continue;
             /* collect information about affinity-related temporaries */
             std::vector<Temp> affinity_related;
             /* affinity_related[0] is the last seen affinity-related temp */
@@ -1136,15 +1137,41 @@ void register_allocation(Program *program, std::vector<std::set<Temp>> live_out_
                }
             }
             phi_ressources.emplace_back(std::move(affinity_related));
+            continue;
          }
 
-         /* erase from live */
-         for (const Definition& def : instr->definitions) {
-            if (def.isTemp()) {
-               live.erase(def.getTemp());
-               std::map<unsigned, unsigned>::iterator it = temp_to_phi_ressources.find(def.tempId());
-               if (it != temp_to_phi_ressources.end() && def.regClass() == phi_ressources[it->second][0].regClass())
-                  phi_ressources[it->second][0] = def.getTemp();
+         /* add vector affinities */
+         if (instr->opcode == aco_opcode::p_create_vector) {
+            for (const Operand& op : instr->operands) {
+               if (op.isTemp() && op.getTemp().type() == instr->definitions[0].getTemp().type())
+                  vectors[op.tempId()] = instr.get();
+            }
+         }
+
+         /* add operands to live variables */
+         for (const Operand& op : instr->operands) {
+            if (op.isTemp())
+               live.emplace(op.getTemp());
+         }
+
+         /* erase definitions from live */
+         for (unsigned i = 0; i < instr->definitions.size(); i++) {
+            const Definition& def = instr->definitions[i];
+            if (!def.isTemp())
+               continue;
+            live.erase(def.getTemp());
+            /* mark last-seen phi operand */
+            std::map<unsigned, unsigned>::iterator it = temp_to_phi_ressources.find(def.tempId());
+            if (it != temp_to_phi_ressources.end() && def.regClass() == phi_ressources[it->second][0].regClass()) {
+               phi_ressources[it->second][0] = def.getTemp();
+               /* try to coalesce phi affinities with parallelcopies */
+               if (!def.isFixed() && instr->opcode == aco_opcode::p_parallelcopy) {
+                  Operand op = instr->operands[i];
+                  if (op.isTemp() && op.isFirstKill() && def.regClass() == op.regClass()) {
+                     phi_ressources[it->second].emplace_back(op.getTemp());
+                     temp_to_phi_ressources[op.tempId()] = it->second;
+                  }
+               }
             }
          }
       }
@@ -1347,7 +1374,7 @@ void register_allocation(Program *program, std::vector<std::set<Temp>> live_out_
       }
 
       /* fill in sgpr_live_in */
-      for (unsigned i = 0; i < ctx.max_used_sgpr; i++)
+      for (unsigned i = 0; i <= ctx.max_used_sgpr; i++)
          sgpr_live_in[block.index][i] = register_file[i];
       sgpr_live_in[block.index][127] = register_file[scc.reg];
 
@@ -1497,9 +1524,8 @@ void register_allocation(Program *program, std::vector<std::set<Temp>> live_out_
              instr->operands[1].getTemp().type() == RegType::vgpr) { /* TODO: swap src0 and src1 in this case */
             VOP3A_instruction* vop3 = static_cast<VOP3A_instruction*>(instr.get());
             bool can_use_mac = !(vop3->abs[0] || vop3->abs[1] || vop3->abs[2] ||
-                                 vop3->opsel[0] || vop3->opsel[1] || vop3->opsel[2] ||
                                  vop3->neg[0] || vop3->neg[1] || vop3->neg[2] ||
-                                 vop3->clamp || vop3->omod);
+                                 vop3->clamp || vop3->omod || vop3->opsel);
             if (can_use_mac) {
                instr->format = Format::VOP2;
                instr->opcode = aco_opcode::v_mac_f32;
@@ -1509,16 +1535,20 @@ void register_allocation(Program *program, std::vector<std::set<Temp>> live_out_
          /* handle definitions which must have the same register as an operand */
          if (instr->opcode == aco_opcode::v_interp_p2_f32 ||
              instr->opcode == aco_opcode::v_mac_f32 ||
-             instr->opcode == aco_opcode::v_writelane_b32) {
+             instr->opcode == aco_opcode::v_writelane_b32 ||
+             instr->opcode == aco_opcode::v_writelane_b32_e64) {
             instr->definitions[0].setFixed(instr->operands[2].physReg());
          } else if (instr->opcode == aco_opcode::s_addk_i32 ||
                     instr->opcode == aco_opcode::s_mulk_i32) {
             instr->definitions[0].setFixed(instr->operands[0].physReg());
-         } else if ((instr->format == Format::MUBUF ||
-                   instr->format == Format::MIMG) &&
-                  instr->definitions.size() == 1 &&
-                  instr->operands.size() == 4) {
+         } else if (instr->format == Format::MUBUF &&
+                    instr->definitions.size() == 1 &&
+                    instr->operands.size() == 4) {
             instr->definitions[0].setFixed(instr->operands[3].physReg());
+         } else if (instr->format == Format::MIMG &&
+                    instr->definitions.size() == 1 &&
+                    instr->operands[1].regClass().type() == RegType::vgpr) {
+            instr->definitions[0].setFixed(instr->operands[1].physReg());
          }
 
          ctx.defs_done.reset();
@@ -1719,17 +1749,15 @@ void register_allocation(Program *program, std::vector<std::set<Temp>> live_out_
 
                pc->operands[i] = parallelcopy[i].first;
                pc->definitions[i] = parallelcopy[i].second;
+               assert(pc->operands[i].size() == pc->definitions[i].size());
 
                /* it might happen that the operand is already renamed. we have to restore the original name. */
                std::map<unsigned, Temp>::iterator it = ctx.orig_names.find(pc->operands[i].tempId());
-               if (it != ctx.orig_names.end())
-                  pc->operands[i].setTemp(it->second);
-               unsigned orig_id = pc->operands[i].tempId();
-               ctx.orig_names[pc->definitions[i].tempId()] = pc->operands[i].getTemp();
-
-               pc->operands[i].setTemp(read_variable(pc->operands[i].getTemp(), block.index));
-               renames[block.index][orig_id] = pc->definitions[i].getTemp();
+               Temp orig = it != ctx.orig_names.end() ? it->second : pc->operands[i].getTemp();
+               ctx.orig_names[pc->definitions[i].tempId()] = orig;
+               renames[block.index][orig.id()] = pc->definitions[i].getTemp();
                renames[block.index][pc->definitions[i].tempId()] = pc->definitions[i].getTemp();
+
                std::map<unsigned, phi_info>::iterator phi = phi_map.find(pc->operands[i].tempId());
                if (phi != phi_map.end())
                   phi->second.uses.emplace(pc.get());
@@ -1791,7 +1819,7 @@ void register_allocation(Program *program, std::vector<std::set<Temp>> live_out_
          if (instr_needs_vop3) {
 
             /* if the first operand is a literal, we have to move it to a reg */
-            if (instr->operands.size() && instr->operands[0].isLiteral()) {
+            if (instr->operands.size() && instr->operands[0].isLiteral() && program->chip_class < GFX10) {
                bool can_sgpr = true;
                /* check, if we have to move to vgpr */
                for (const Operand& op : instr->operands) {

@@ -92,7 +92,8 @@ liveness_block_update(compiler_context *ctx, midgard_block *blk)
 
         liveness_block_live_out(ctx, blk);
 
-        uint16_t *live = mem_dup(blk->live_out, ctx->temp_count * sizeof(uint16_t));
+        uint16_t *live = ralloc_array(ctx, uint16_t, ctx->temp_count);
+        memcpy(live, blk->live_out, ctx->temp_count * sizeof(uint16_t));
 
         mir_foreach_instr_in_block_rev(blk, ins)
                 mir_liveness_ins_update(live, ins, ctx->temp_count);
@@ -102,7 +103,7 @@ liveness_block_update(compiler_context *ctx, midgard_block *blk)
         for (unsigned i = 0; (i < ctx->temp_count) && !progress; ++i)
                 progress |= (blk->live_in[i] != live[i]);
 
-        free(blk->live_in);
+        ralloc_free(blk->live_in);
         blk->live_in = live;
 
         return progress;
@@ -131,8 +132,8 @@ mir_compute_liveness(compiler_context *ctx)
         /* Allocate */
 
         mir_foreach_block(ctx, block) {
-                block->live_in = calloc(ctx->temp_count, sizeof(uint16_t));
-                block->live_out = calloc(ctx->temp_count, sizeof(uint16_t));
+                block->live_in = rzalloc_array(ctx, uint16_t, ctx->temp_count);
+                block->live_out = rzalloc_array(ctx, uint16_t, ctx->temp_count);
         }
 
         /* Initialize the work list with the exit block */
@@ -153,14 +154,20 @@ mir_compute_liveness(compiler_context *ctx)
 
                 /* If we made progress, we need to process the predecessors */
 
-                if (progress || (blk == exit)) {
+                if (progress || !blk->visited) {
                         mir_foreach_predecessor(blk, pred)
                                 _mesa_set_add(work_list, pred);
                 }
+
+                blk->visited = true;
         } while((cur = _mesa_set_next_entry(work_list, NULL)) != NULL);
 
         /* Liveness is now valid */
         ctx->metadata |= MIDGARD_METADATA_LIVENESS;
+
+        mir_foreach_block(ctx, block) {
+                block->visited = false;
+        }
 }
 
 /* Once liveness data is no longer valid, call this */
@@ -177,10 +184,10 @@ mir_invalidate_liveness(compiler_context *ctx)
 
         mir_foreach_block(ctx, block) {
                 if (block->live_in)
-                        free(block->live_in);
+                        ralloc_free(block->live_in);
 
                 if (block->live_out)
-                        free(block->live_out);
+                        ralloc_free(block->live_out);
 
                 block->live_in = NULL;
                 block->live_out = NULL;

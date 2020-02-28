@@ -28,7 +28,7 @@
 #include "util/u_string.h"
 #include "util/u_memory.h"
 #include "util/u_inlines.h"
-#include "util/u_format.h"
+#include "util/format/u_format.h"
 
 #include "freedreno_program.h"
 
@@ -208,7 +208,7 @@ fd4_program_emit(struct fd_ringbuffer *ring, struct fd4_emit *emit,
 	face_regid      = ir3_find_sysval_regid(s[FS].v, SYSTEM_VALUE_FRONT_FACE);
 	coord_regid     = ir3_find_sysval_regid(s[FS].v, SYSTEM_VALUE_FRAG_COORD);
 	zwcoord_regid   = (coord_regid == regid(63,0)) ? regid(63,0) : (coord_regid + 2);
-	vcoord_regid    = ir3_find_sysval_regid(s[FS].v, SYSTEM_VALUE_BARYCENTRIC_PIXEL);
+	vcoord_regid    = ir3_find_sysval_regid(s[FS].v, SYSTEM_VALUE_BARYCENTRIC_PERSP_PIXEL);
 
 	/* we could probably divide this up into things that need to be
 	 * emitted if frag-prog is dirty vs if vert-prog is dirty..
@@ -411,7 +411,7 @@ fd4_program_emit(struct fd_ringbuffer *ring, struct fd4_emit *emit,
 		OUT_RING(ring, A4XX_SP_FS_MRT_REG_REGID(color_regid[i]) |
 				A4XX_SP_FS_MRT_REG_MRTFORMAT(format) |
 				COND(srgb, A4XX_SP_FS_MRT_REG_COLOR_SRGB) |
-				COND(emit->key.half_precision,
+				COND(color_regid[i] & HALF_REG_ID,
 					A4XX_SP_FS_MRT_REG_HALF_PRECISION));
 	}
 

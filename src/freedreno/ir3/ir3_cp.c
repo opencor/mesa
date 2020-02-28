@@ -85,10 +85,10 @@ static bool is_eligible_mov(struct ir3_instruction *instr,
 		 * We could possibly do a bit better, and copy-propagation if
 		 * we can CP all components that are being fanned out.
 		 */
-		if (src_instr->opc == OPC_META_FO) {
+		if (src_instr->opc == OPC_META_SPLIT) {
 			if (!dst_instr)
 				return false;
-			if (dst_instr->opc == OPC_META_FI)
+			if (dst_instr->opc == OPC_META_COLLECT)
 				return false;
 			if (dst_instr->cp.left || dst_instr->cp.right)
 				return false;
@@ -238,6 +238,9 @@ static bool valid_flags(struct ir3_instruction *instr, unsigned n,
 			if (is_atomic(instr->opc) && !(instr->flags & IR3_INSTR_G))
 				return false;
 
+			if (instr->opc == OPC_STG && (instr->flags & IR3_INSTR_G) && (n != 2))
+				return false;
+
 			/* as with atomics, ldib on a6xx can only have immediate for
 			 * SSBO slot argument
 			 */
@@ -302,6 +305,12 @@ lower_immed(struct ir3_cp_ctx *ctx, struct ir3_register *reg, unsigned new_flags
 
 	reg = ir3_reg_clone(ctx->shader, reg);
 
+	/* Half constant registers seems to handle only 32-bit values
+	 * within floating-point opcodes. So convert back to 32-bit values.
+	 */
+	if (f_opcode && (new_flags & IR3_REG_HALF))
+		reg->uim_val = fui(_mesa_half_to_float(reg->uim_val));
+
 	/* in some cases, there are restrictions on (abs)/(neg) plus const..
 	 * so just evaluate those and clear the flags:
 	 */
@@ -346,12 +355,6 @@ lower_immed(struct ir3_cp_ctx *ctx, struct ir3_register *reg, unsigned new_flags
 		/* need to generate a new immediate: */
 		swiz = i % 4;
 		idx  = i / 4;
-
-		/* Half constant registers seems to handle only 32-bit values
-		 * within floating-point opcodes. So convert back to 32-bit values. */
-		if (f_opcode && (new_flags & IR3_REG_HALF)) {
-			reg->uim_val = fui(_mesa_half_to_float(reg->uim_val));
-		}
 
 		const_state->immediates[idx].val[swiz] = reg->uim_val;
 		const_state->immediates_count = idx + 1;
@@ -703,12 +706,12 @@ instr_cp(struct ir3_cp_ctx *ctx, struct ir3_instruction *instr)
 	 */
 	if (is_tex(instr) && (instr->flags & IR3_INSTR_S2EN) &&
 			!(ir3_shader_debug & IR3_DBG_FORCES2EN)) {
-		/* The first src will be a fan-in (collect), if both of it's
+		/* The first src will be a collect, if both of it's
 		 * two sources are mov from imm, then we can
 		 */
 		struct ir3_instruction *samp_tex = ssa(instr->regs[1]);
 
-		debug_assert(samp_tex->opc == OPC_META_FI);
+		debug_assert(samp_tex->opc == OPC_META_COLLECT);
 
 		struct ir3_instruction *samp = ssa(samp_tex->regs[1]);
 		struct ir3_instruction *tex  = ssa(samp_tex->regs[2]);
@@ -739,8 +742,8 @@ ir3_cp(struct ir3 *ir, struct ir3_shader_variant *so)
 	 * a mov, so we need to do a pass to first count consumers of a
 	 * mov.
 	 */
-	list_for_each_entry (struct ir3_block, block, &ir->block_list, node) {
-		list_for_each_entry (struct ir3_instruction, instr, &block->instr_list, node) {
+	foreach_block (block, &ir->block_list) {
+		foreach_instr (instr, &block->instr_list) {
 			struct ir3_instruction *src;
 
 			/* by the way, we don't account for false-dep's, so the CP
@@ -756,14 +759,13 @@ ir3_cp(struct ir3 *ir, struct ir3_shader_variant *so)
 
 	ir3_clear_mark(ir);
 
-	for (unsigned i = 0; i < ir->noutputs; i++) {
-		if (ir->outputs[i]) {
-			instr_cp(&ctx, ir->outputs[i]);
-			ir->outputs[i] = eliminate_output_mov(ir->outputs[i]);
-		}
+	struct ir3_instruction *out;
+	foreach_output_n(out, n, ir) {
+		instr_cp(&ctx, out);
+		ir->outputs[n] = eliminate_output_mov(out);
 	}
 
-	list_for_each_entry (struct ir3_block, block, &ir->block_list, node) {
+	foreach_block (block, &ir->block_list) {
 		if (block->condition) {
 			instr_cp(&ctx, block->condition);
 			block->condition = eliminate_output_mov(block->condition);

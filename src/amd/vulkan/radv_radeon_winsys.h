@@ -69,15 +69,6 @@ enum radeon_bo_usage { /* bitfield */
 	RADEON_USAGE_READWRITE = RADEON_USAGE_READ | RADEON_USAGE_WRITE
 };
 
-enum ring_type {
-	RING_GFX = 0,
-	RING_COMPUTE,
-	RING_DMA,
-	RING_UVD,
-	RING_VCE,
-	RING_LAST,
-};
-
 enum radeon_ctx_priority {
 	RADEON_CTX_PRIORITY_INVALID = -1,
 	RADEON_CTX_PRIORITY_LOW = 0,
@@ -153,6 +144,7 @@ struct radeon_bo_metadata {
 		struct {
 			/* surface flags */
 			unsigned swizzle_mode:5;
+			bool scanout;
 		} gfx9;
 	} u;
 
@@ -164,7 +156,6 @@ struct radeon_bo_metadata {
 	uint32_t                metadata[64];
 };
 
-uint32_t syncobj_handle;
 struct radeon_winsys_fence;
 
 struct radeon_winsys_bo {
