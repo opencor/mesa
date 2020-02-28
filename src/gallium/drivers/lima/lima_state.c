@@ -226,7 +226,7 @@ lima_set_vertex_buffers(struct pipe_context *pctx,
    struct lima_context *ctx = lima_context(pctx);
    struct lima_context_vertex_buffer *so = &ctx->vertex_buffers;
 
-   util_set_vertex_buffers_mask(so->vb + start_slot, &so->enabled_mask,
+   util_set_vertex_buffers_mask(so->vb, &so->enabled_mask,
                                 vb, start_slot, count);
    so->count = util_last_bit(so->enabled_mask);
 
@@ -248,8 +248,12 @@ lima_set_viewport_states(struct pipe_context *pctx,
    ctx->viewport.top = viewport->translate[1] + fabsf(viewport->scale[1]);
 
    /* reverse calculate the parameter of glDepthRange */
-   ctx->viewport.near = viewport->translate[2] - viewport->scale[2];
-   ctx->viewport.far = viewport->translate[2] + viewport->scale[2];
+   float near, far;
+   near = viewport->translate[2] - viewport->scale[2];
+   far = viewport->translate[2] + viewport->scale[2];
+
+   ctx->viewport.near = MIN2(near, far);
+   ctx->viewport.far = MAX2(near, far);
 
    ctx->viewport.transform = *viewport;
    ctx->dirty |= LIMA_CONTEXT_DIRTY_VIEWPORT;

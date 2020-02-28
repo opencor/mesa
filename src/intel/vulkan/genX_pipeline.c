@@ -259,25 +259,18 @@ void
 genX(emit_urb_setup)(struct anv_device *device, struct anv_batch *batch,
                      const struct gen_l3_config *l3_config,
                      VkShaderStageFlags active_stages,
-                     const unsigned entry_size[4])
+                     const unsigned entry_size[4],
+                     enum gen_urb_deref_block_size *deref_block_size)
 {
    const struct gen_device_info *devinfo = &device->info;
-#if GEN_IS_HASWELL
-   const unsigned push_constant_kb = devinfo->gt == 3 ? 32 : 16;
-#else
-   const unsigned push_constant_kb = GEN_GEN >= 8 ? 32 : 16;
-#endif
-
-   const unsigned urb_size_kb = gen_get_l3_config_urb_size(devinfo, l3_config);
 
    unsigned entries[4];
    unsigned start[4];
-   gen_get_urb_config(devinfo,
-                      1024 * push_constant_kb, 1024 * urb_size_kb,
+   gen_get_urb_config(devinfo, l3_config,
                       active_stages &
                          VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
                       active_stages & VK_SHADER_STAGE_GEOMETRY_BIT,
-                      entry_size, entries, start);
+                      entry_size, entries, start, deref_block_size);
 
 #if GEN_GEN == 7 && !GEN_IS_HASWELL
    /* From the IVB PRM Vol. 2, Part 1, Section 3.2.1:
@@ -291,7 +284,7 @@ genX(emit_urb_setup)(struct anv_device *device, struct anv_batch *batch,
    anv_batch_emit(batch, GEN7_PIPE_CONTROL, pc) {
       pc.DepthStallEnable  = true;
       pc.PostSyncOperation = WriteImmediateData;
-      pc.Address           = (struct anv_address) { &device->workaround_bo, 0 };
+      pc.Address           = (struct anv_address) { device->workaround_bo, 0 };
    }
 #endif
 
@@ -306,7 +299,8 @@ genX(emit_urb_setup)(struct anv_device *device, struct anv_batch *batch,
 }
 
 static void
-emit_urb_setup(struct anv_pipeline *pipeline)
+emit_urb_setup(struct anv_pipeline *pipeline,
+               enum gen_urb_deref_block_size *deref_block_size)
 {
    unsigned entry_size[4];
    for (int i = MESA_SHADER_VERTEX; i <= MESA_SHADER_GEOMETRY; i++) {
@@ -319,7 +313,8 @@ emit_urb_setup(struct anv_pipeline *pipeline)
 
    genX(emit_urb_setup)(pipeline->device, &pipeline->batch,
                         pipeline->urb.l3_config,
-                        pipeline->active_stages, entry_size);
+                        pipeline->active_stages, entry_size,
+                        deref_block_size);
 }
 
 static void
@@ -477,12 +472,6 @@ anv_raster_polygon_mode(struct anv_pipeline *pipeline,
                         const VkPipelineInputAssemblyStateCreateInfo *ia_info,
                         const VkPipelineRasterizationStateCreateInfo *rs_info)
 {
-   /* Points always override everything.  This saves us from having to handle
-    * rs_info->polygonMode in all of the line cases below.
-    */
-   if (rs_info->polygonMode == VK_POLYGON_MODE_POINT)
-      return VK_POLYGON_MODE_POINT;
-
    if (anv_pipeline_has_stage(pipeline, MESA_SHADER_GEOMETRY)) {
       switch (get_gs_prog_data(pipeline)->output_topology) {
       case _3DPRIM_POINTLIST:
@@ -579,7 +568,8 @@ emit_rs_state(struct anv_pipeline *pipeline,
               const VkPipelineMultisampleStateCreateInfo *ms_info,
               const VkPipelineRasterizationLineStateCreateInfoEXT *line_info,
               const struct anv_render_pass *pass,
-              const struct anv_subpass *subpass)
+              const struct anv_subpass *subpass,
+              enum gen_urb_deref_block_size urb_deref_block_size)
 {
    struct GENX(3DSTATE_SF) sf = {
       GENX(3DSTATE_SF_header),
@@ -595,6 +585,10 @@ emit_rs_state(struct anv_pipeline *pipeline,
 
 #if GEN_IS_HASWELL
    sf.LineStippleEnable = line_info && line_info->stippledLineEnable;
+#endif
+
+#if GEN_GEN >= 12
+   sf.DerefBlockSize = urb_deref_block_size;
 #endif
 
    const struct brw_vue_prog_data *last_vue_prog_data =
@@ -1117,7 +1111,6 @@ emit_cb_state(struct anv_pipeline *pipeline,
          continue;
       }
 
-      assert(binding->binding == 0);
       const VkPipelineColorBlendAttachmentState *a =
          &info->pAttachments[binding->index];
 
@@ -1170,7 +1163,7 @@ emit_cb_state(struct anv_pipeline *pipeline,
            is_dual_src_blend_factor(a->dstColorBlendFactor) ||
            is_dual_src_blend_factor(a->srcAlphaBlendFactor) ||
            is_dual_src_blend_factor(a->dstAlphaBlendFactor))) {
-         vk_debug_report(&device->instance->debug_report_callbacks,
+         vk_debug_report(&device->physical->instance->debug_report_callbacks,
                          VK_DEBUG_REPORT_WARNING_BIT_EXT,
                          VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT,
                          (uint64_t)(uintptr_t)device,
@@ -1415,11 +1408,23 @@ emit_3dstate_streamout(struct anv_pipeline *pipeline,
          next_offset[buffer] = output->offset +
                                __builtin_popcount(component_mask) * 4;
 
-         so_decl[stream][decls[stream]++] = (struct GENX(SO_DECL)) {
-            .OutputBufferSlot = buffer,
-            .RegisterIndex = vue_map->varying_to_slot[varying],
-            .ComponentMask = component_mask,
-         };
+         const int slot = vue_map->varying_to_slot[varying];
+         if (slot < 0) {
+            /* This can happen if the shader never writes to the varying.
+             * Insert a hole instead of actual varying data.
+             */
+            so_decl[stream][decls[stream]++] = (struct GENX(SO_DECL)) {
+               .HoleFlag = true,
+               .OutputBufferSlot = buffer,
+               .ComponentMask = component_mask,
+            };
+         } else {
+            so_decl[stream][decls[stream]++] = (struct GENX(SO_DECL)) {
+               .OutputBufferSlot = buffer,
+               .RegisterIndex = slot,
+               .ComponentMask = component_mask,
+            };
+         }
       }
 
       int max_decls = 0;
@@ -1523,11 +1528,7 @@ emit_3dstate_vs(struct anv_pipeline *pipeline)
        * programming 0xB000[30] to '1'.
        */
       vs.SamplerCount               = GEN_GEN == 11 ? 0 : get_sampler_count(vs_bin);
-     /* Gen 11 workarounds table #2056 WABTPPrefetchDisable suggests to
-      * disable prefetching of binding tables on A0 and B0 steppings.
-      * TODO: Revisit this WA on newer steppings.
-      */
-      vs.BindingTableEntryCount     = GEN_GEN == 11 ? 0 : get_binding_table_entry_count(vs_bin);
+      vs.BindingTableEntryCount     = get_binding_table_entry_count(vs_bin);
       vs.FloatingPointMode          = IEEE754;
       vs.IllegalOpcodeExceptionEnable = false;
       vs.SoftwareExceptionEnable    = false;
@@ -1599,8 +1600,18 @@ emit_3dstate_hs_te_ds(struct anv_pipeline *pipeline,
       hs.KernelStartPointer = tcs_bin->kernel.offset;
       /* WA_1606682166 */
       hs.SamplerCount = GEN_GEN == 11 ? 0 : get_sampler_count(tcs_bin);
-      /* Gen 11 workarounds table #2056 WABTPPrefetchDisable */
-      hs.BindingTableEntryCount = GEN_GEN == 11 ? 0 : get_binding_table_entry_count(tcs_bin);
+      hs.BindingTableEntryCount = get_binding_table_entry_count(tcs_bin);
+
+#if GEN_GEN >= 12
+      /* GEN:BUG:1604578095:
+       *
+       *    Hang occurs when the number of max threads is less than 2 times
+       *    the number of instance count. The number of max threads must be
+       *    more than 2 times the number of instance count.
+       */
+      assert((devinfo->max_tcs_threads / 2) > tcs_prog_data->instances);
+#endif
+
       hs.MaximumNumberofThreads = devinfo->max_tcs_threads - 1;
       hs.IncludeVertexHandles = true;
       hs.InstanceCount = tcs_prog_data->instances - 1;
@@ -1655,8 +1666,7 @@ emit_3dstate_hs_te_ds(struct anv_pipeline *pipeline,
       ds.KernelStartPointer = tes_bin->kernel.offset;
       /* WA_1606682166 */
       ds.SamplerCount = GEN_GEN == 11 ? 0 : get_sampler_count(tes_bin);
-      /* Gen 11 workarounds table #2056 WABTPPrefetchDisable */
-      ds.BindingTableEntryCount = GEN_GEN == 11 ? 0 : get_binding_table_entry_count(tes_bin);
+      ds.BindingTableEntryCount = get_binding_table_entry_count(tes_bin);
       ds.MaximumNumberofThreads = devinfo->max_tes_threads - 1;
 
       ds.ComputeWCoordinateEnable =
@@ -1714,8 +1724,7 @@ emit_3dstate_gs(struct anv_pipeline *pipeline)
       gs.VectorMaskEnable        = false;
       /* WA_1606682166 */
       gs.SamplerCount            = GEN_GEN == 11 ? 0 : get_sampler_count(gs_bin);
-      /* Gen 11 workarounds table #2056 WABTPPrefetchDisable */
-      gs.BindingTableEntryCount  = GEN_GEN == 11 ? 0 : get_binding_table_entry_count(gs_bin);
+      gs.BindingTableEntryCount  = get_binding_table_entry_count(gs_bin);
       gs.IncludeVertexHandles    = gs_prog_data->base.include_vue_handles;
       gs.IncludePrimitiveID      = gs_prog_data->include_primitive_id;
 
@@ -1950,8 +1959,7 @@ emit_3dstate_ps(struct anv_pipeline *pipeline,
       ps.VectorMaskEnable           = GEN_GEN >= 8;
       /* WA_1606682166 */
       ps.SamplerCount               = GEN_GEN == 11 ? 0 : get_sampler_count(fs_bin);
-      /* Gen 11 workarounds table #2056 WABTPPrefetchDisable */
-      ps.BindingTableEntryCount     = GEN_GEN == 11 ? 0 : get_binding_table_entry_count(fs_bin);
+      ps.BindingTableEntryCount     = get_binding_table_entry_count(fs_bin);
       ps.PushConstantEnable         = wm_prog_data->base.nr_params > 0 ||
                                       wm_prog_data->base.ubo_ranges[0].length;
       ps.PositionXYOffsetSelect     = wm_prog_data->uses_pos_offset ?
@@ -1993,8 +2001,7 @@ emit_3dstate_ps(struct anv_pipeline *pipeline,
 #if GEN_GEN >= 8
 static void
 emit_3dstate_ps_extra(struct anv_pipeline *pipeline,
-                      struct anv_subpass *subpass,
-                      const VkPipelineColorBlendStateCreateInfo *blend)
+                      struct anv_subpass *subpass)
 {
    const struct brw_wm_prog_data *wm_prog_data = get_wm_prog_data(pipeline);
 
@@ -2104,7 +2111,7 @@ genX(graphics_pipeline_create)(
    assert(pCreateInfo->sType == VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO);
 
    /* Use the default pipeline cache if none is specified */
-   if (cache == NULL && device->instance->pipeline_cache_enabled)
+   if (cache == NULL && device->physical->instance->pipeline_cache_enabled)
       cache = &device->default_pipeline_cache;
 
    pipeline = vk_alloc2(&device->alloc, pAllocator, sizeof(*pipeline), 8,
@@ -2141,18 +2148,20 @@ genX(graphics_pipeline_create)(
       vk_find_struct_const(pCreateInfo->pRasterizationState->pNext,
                            PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_EXT);
 
+   enum gen_urb_deref_block_size urb_deref_block_size;
+   emit_urb_setup(pipeline, &urb_deref_block_size);
+
    assert(pCreateInfo->pVertexInputState);
    emit_vertex_input(pipeline, pCreateInfo->pVertexInputState);
    assert(pCreateInfo->pRasterizationState);
    emit_rs_state(pipeline, pCreateInfo->pInputAssemblyState,
                            pCreateInfo->pRasterizationState,
-                           ms_info, line_info, pass, subpass);
+                           ms_info, line_info, pass, subpass,
+                           urb_deref_block_size);
    emit_ms_state(pipeline, ms_info);
    emit_ds_state(pipeline, ds_info, pass, subpass);
    emit_cb_state(pipeline, cb_info, ms_info);
    compute_kill_pixel(pipeline, ms_info, subpass);
-
-   emit_urb_setup(pipeline);
 
    emit_3dstate_clip(pipeline,
                      pCreateInfo->pInputAssemblyState,
@@ -2189,7 +2198,7 @@ genX(graphics_pipeline_create)(
                    cb_info, ms_info, line_info);
    emit_3dstate_ps(pipeline, cb_info, ms_info);
 #if GEN_GEN >= 8
-   emit_3dstate_ps_extra(pipeline, subpass, pCreateInfo->pColorBlendState);
+   emit_3dstate_ps_extra(pipeline, subpass);
    emit_3dstate_vf_topology(pipeline);
 #endif
    emit_3dstate_vf_statistics(pipeline);
@@ -2208,16 +2217,14 @@ compute_pipeline_create(
     VkPipeline*                                 pPipeline)
 {
    ANV_FROM_HANDLE(anv_device, device, _device);
-   const struct anv_physical_device *physical_device =
-      &device->instance->physicalDevice;
-   const struct gen_device_info *devinfo = &physical_device->info;
+   const struct gen_device_info *devinfo = &device->info;
    struct anv_pipeline *pipeline;
    VkResult result;
 
    assert(pCreateInfo->sType == VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO);
 
    /* Use the default pipeline cache if none is specified */
-   if (cache == NULL && device->instance->pipeline_cache_enabled)
+   if (cache == NULL && device->physical->instance->pipeline_cache_enabled)
       cache = &device->default_pipeline_cache;
 
    pipeline = vk_alloc2(&device->alloc, pAllocator, sizeof(*pipeline), 8,
@@ -2283,7 +2290,7 @@ compute_pipeline_create(
       ALIGN(cs_prog_data->push.per_thread.regs * cs_prog_data->threads +
             cs_prog_data->push.cross_thread.regs, 2);
 
-   const uint32_t subslices = MAX2(physical_device->subslice_total, 1);
+   const uint32_t subslices = MAX2(device->physical->subslice_total, 1);
 
    const struct anv_shader_bin *cs_bin =
       pipeline->shaders[MESA_SHADER_COMPUTE];
@@ -2335,12 +2342,10 @@ compute_pipeline_create(
       .KernelStartPointer     = cs_bin->kernel.offset,
       /* WA_1606682166 */
       .SamplerCount           = GEN_GEN == 11 ? 0 : get_sampler_count(cs_bin),
-      /* Gen 11 workarounds table #2056 WABTPPrefetchDisable
-       *
-       * We add 1 because the CS indirect parameters buffer isn't accounted
+      /* We add 1 because the CS indirect parameters buffer isn't accounted
        * for in bind_map.surface_count.
        */
-      .BindingTableEntryCount = GEN_GEN == 11 ? 0 : 1 + MIN2(cs_bin->bind_map.surface_count, 30),
+      .BindingTableEntryCount = 1 + MIN2(cs_bin->bind_map.surface_count, 30),
       .BarrierEnable          = cs_prog_data->uses_barrier,
       .SharedLocalMemorySize  =
          encode_slm_size(GEN_GEN, cs_prog_data->base.total_shared),

@@ -121,6 +121,10 @@ enum radv_mem_type {
 	RADV_MEM_TYPE_GTT_WRITE_COMBINE,
 	RADV_MEM_TYPE_VRAM_CPU_ACCESS,
 	RADV_MEM_TYPE_GTT_CACHED,
+	RADV_MEM_TYPE_VRAM_UNCACHED,
+	RADV_MEM_TYPE_GTT_WRITE_COMBINE_VRAM_UNCACHED,
+	RADV_MEM_TYPE_VRAM_CPU_ACCESS_UNCACHED,
+	RADV_MEM_TYPE_GTT_CACHED_VRAM_UNCACHED,
 	RADV_MEM_TYPE_COUNT
 };
 
@@ -412,6 +416,11 @@ struct radv_pipeline_key {
 	uint32_t has_multiview_view_index : 1;
 	uint32_t optimisations_disabled : 1;
 	uint8_t topology;
+
+	/* Non-zero if a required subgroup size is specified via
+	 * VK_EXT_subgroup_size_control.
+	 */
+	uint8_t compute_subgroup_size;
 };
 
 struct radv_shader_binary;
@@ -644,7 +653,7 @@ struct radv_meta_state {
 
 	struct {
 		VkPipelineLayout                          p_layout;
-		VkPipeline                                decompress_pipeline;
+		VkPipeline                                decompress_pipeline[NUM_DEPTH_DECOMPRESS_PIPELINES];
 		VkPipeline                                resummarize_pipeline;
 		VkRenderPass                              pass;
 	} depth_decomp[MAX_SAMPLES_LOG2];
@@ -712,6 +721,7 @@ struct radv_queue {
 	uint32_t gsvs_ring_size;
 	bool has_tess_rings;
 	bool has_gds;
+	bool has_gds_oa;
 	bool has_sample_positions;
 
 	struct radeon_winsys_bo *scratch_bo;
@@ -1186,6 +1196,7 @@ struct radv_attachment_state {
 	uint32_t                                     cleared_views;
 	VkClearValue                                 clear_value;
 	VkImageLayout                                current_layout;
+	VkImageLayout                                current_stencil_layout;
 	bool                                         current_in_render_loop;
 	struct radv_sample_locations_state	     sample_location;
 
@@ -1249,6 +1260,7 @@ struct radv_cmd_state {
 	unsigned                                     active_occlusion_queries;
 	bool                                         perfect_occlusion_queries_enabled;
 	unsigned                                     active_pipeline_queries;
+	unsigned                                     active_pipeline_gds_queries;
 	float					     offset_scale;
 	uint32_t                                      trace_id;
 	uint32_t                                      last_ia_multi_vgt_param;
@@ -1263,6 +1275,9 @@ struct radv_cmd_state {
 	/* Conditional rendering info. */
 	int predication_type; /* -1: disabled, 0: normal, 1: inverted */
 	uint64_t predication_va;
+
+	/* Inheritance info. */
+	VkQueryPipelineStatisticFlags inherited_pipeline_statistics;
 
 	bool context_roll_without_scissor_emitted;
 };
@@ -1322,7 +1337,8 @@ struct radv_cmd_buffer {
 	uint32_t esgs_ring_size_needed;
 	uint32_t gsvs_ring_size_needed;
 	bool tess_rings_needed;
-	bool gds_needed; /* for GFX10 streamout */
+	bool gds_needed; /* for GFX10 streamout and NGG GS queries */
+	bool gds_oa_needed; /* for GFX10 streamout */
 	bool sample_positions_needed;
 
 	VkResult record_result;
@@ -1412,11 +1428,11 @@ void radv_cmd_buffer_resolve_subpass(struct radv_cmd_buffer *cmd_buffer);
 void radv_cmd_buffer_resolve_subpass_cs(struct radv_cmd_buffer *cmd_buffer);
 void radv_depth_stencil_resolve_subpass_cs(struct radv_cmd_buffer *cmd_buffer,
 					   VkImageAspectFlags aspects,
-					   VkResolveModeFlagBitsKHR resolve_mode);
+					   VkResolveModeFlagBits resolve_mode);
 void radv_cmd_buffer_resolve_subpass_fs(struct radv_cmd_buffer *cmd_buffer);
 void radv_depth_stencil_resolve_subpass_fs(struct radv_cmd_buffer *cmd_buffer,
 					   VkImageAspectFlags aspects,
-					   VkResolveModeFlagBitsKHR resolve_mode);
+					   VkResolveModeFlagBits resolve_mode);
 void radv_emit_default_sample_locations(struct radeon_cmdbuf *cs, int nr_samples);
 unsigned radv_get_default_max_sample_dist(int log_samples);
 void radv_device_init_msaa(struct radv_device *device);
@@ -1512,12 +1528,11 @@ struct radv_shader_module;
 
 #define RADV_HASH_SHADER_IS_GEOM_COPY_SHADER (1 << 0)
 #define RADV_HASH_SHADER_SISCHED             (1 << 1)
-#define RADV_HASH_SHADER_UNSAFE_MATH         (1 << 2)
-#define RADV_HASH_SHADER_NO_NGG              (1 << 3)
-#define RADV_HASH_SHADER_CS_WAVE32           (1 << 4)
-#define RADV_HASH_SHADER_PS_WAVE32           (1 << 5)
-#define RADV_HASH_SHADER_GE_WAVE32           (1 << 6)
-#define RADV_HASH_SHADER_ACO                 (1 << 7)
+#define RADV_HASH_SHADER_NO_NGG              (1 << 2)
+#define RADV_HASH_SHADER_CS_WAVE32           (1 << 3)
+#define RADV_HASH_SHADER_PS_WAVE32           (1 << 4)
+#define RADV_HASH_SHADER_GE_WAVE32           (1 << 5)
+#define RADV_HASH_SHADER_ACO                 (1 << 6)
 
 void
 radv_hash_shaders(unsigned char *hash,
@@ -1646,6 +1661,8 @@ static inline bool radv_pipeline_has_tess(const struct radv_pipeline *pipeline)
 }
 
 bool radv_pipeline_has_ngg(const struct radv_pipeline *pipeline);
+
+bool radv_pipeline_has_ngg_passthrough(const struct radv_pipeline *pipeline);
 
 bool radv_pipeline_has_gs_copy_shader(const struct radv_pipeline *pipeline);
 
@@ -2129,6 +2146,7 @@ void radv_subpass_barrier(struct radv_cmd_buffer *cmd_buffer,
 struct radv_subpass_attachment {
 	uint32_t         attachment;
 	VkImageLayout    layout;
+	VkImageLayout    stencil_layout;
 	bool             in_render_loop;
 };
 
@@ -2143,8 +2161,8 @@ struct radv_subpass {
 	struct radv_subpass_attachment *             resolve_attachments;
 	struct radv_subpass_attachment *             depth_stencil_attachment;
 	struct radv_subpass_attachment *             ds_resolve_attachment;
-	VkResolveModeFlagBitsKHR                     depth_resolve_mode;
-	VkResolveModeFlagBitsKHR                     stencil_resolve_mode;
+	VkResolveModeFlagBits                        depth_resolve_mode;
+	VkResolveModeFlagBits                        stencil_resolve_mode;
 
 	/** Subpass has at least one color resolve attachment */
 	bool                                         has_color_resolve;
@@ -2155,6 +2173,9 @@ struct radv_subpass {
 	struct radv_subpass_barrier                  start_barrier;
 
 	uint32_t                                     view_mask;
+
+	VkSampleCountFlagBits                        color_sample_count;
+	VkSampleCountFlagBits                        depth_sample_count;
 	VkSampleCountFlagBits                        max_sample_count;
 };
 
@@ -2168,6 +2189,8 @@ struct radv_render_pass_attachment {
 	VkAttachmentLoadOp                           stencil_load_op;
 	VkImageLayout                                initial_layout;
 	VkImageLayout                                final_layout;
+	VkImageLayout                                stencil_initial_layout;
+	VkImageLayout                                stencil_final_layout;
 
 	/* The subpass id in which the attachment will be used first/last. */
 	uint32_t				     first_subpass_idx;
@@ -2299,21 +2322,18 @@ struct radv_fence {
 };
 
 /* radv_nir_to_llvm.c */
-struct radv_shader_info;
-struct radv_nir_compiler_options;
+struct radv_shader_args;
 
 void radv_compile_gs_copy_shader(struct ac_llvm_compiler *ac_llvm,
 				 struct nir_shader *geom_shader,
 				 struct radv_shader_binary **rbinary,
-				 struct radv_shader_info *info,
-				 const struct radv_nir_compiler_options *option);
+				 const struct radv_shader_args *args);
 
 void radv_compile_nir_shader(struct ac_llvm_compiler *ac_llvm,
 			     struct radv_shader_binary **rbinary,
-			     struct radv_shader_info *info,
+			     const struct radv_shader_args *args,
 			     struct nir_shader *const *nir,
-			     int nir_count,
-			     const struct radv_nir_compiler_options *options);
+			     int nir_count);
 
 unsigned radv_nir_get_max_workgroup_size(enum chip_class chip_class,
 					 gl_shader_stage stage,

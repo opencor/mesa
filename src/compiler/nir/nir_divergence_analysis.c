@@ -125,6 +125,11 @@ visit_intrinsic(bool *divergent, nir_intrinsic_instr *instr,
       else
          is_divergent = true;
       break;
+   case nir_intrinsic_load_input_vertex:
+      is_divergent = divergent[instr->src[1].ssa->index];
+      assert(stage == MESA_SHADER_FRAGMENT);
+      is_divergent |= !(options & nir_divergence_single_prim_per_subgroup);
+      break;
    case nir_intrinsic_load_output:
       assert(stage == MESA_SHADER_TESS_CTRL || stage == MESA_SHADER_FRAGMENT);
       is_divergent = divergent[instr->src[0].ssa->index];
@@ -157,6 +162,8 @@ visit_intrinsic(bool *divergent, nir_intrinsic_instr *instr,
          is_divergent = !(options & nir_divergence_single_patch_per_tcs_subgroup);
       else if (stage == MESA_SHADER_TESS_EVAL)
          is_divergent = !(options & nir_divergence_single_patch_per_tes_subgroup);
+      else if (stage == MESA_SHADER_GEOMETRY)
+         is_divergent = true;
       else
          unreachable("Invalid stage for load_primitive_id");
       break;
@@ -200,7 +207,6 @@ visit_intrinsic(bool *divergent, nir_intrinsic_instr *instr,
    case nir_intrinsic_ballot_find_lsb:
    case nir_intrinsic_ballot_find_msb:
    case nir_intrinsic_ballot_bit_count_reduce:
-   case nir_intrinsic_shuffle:
    case nir_intrinsic_shuffle_xor:
    case nir_intrinsic_shuffle_up:
    case nir_intrinsic_shuffle_down:
@@ -247,6 +253,11 @@ visit_intrinsic(bool *divergent, nir_intrinsic_instr *instr,
       break;
    }
 
+   case nir_intrinsic_shuffle:
+      is_divergent = divergent[instr->src[0].ssa->index] &&
+                     divergent[instr->src[1].ssa->index];
+      break;
+
    /* Intrinsics which are always divergent */
    case nir_intrinsic_load_color0:
    case nir_intrinsic_load_color1:
@@ -258,11 +269,13 @@ visit_intrinsic(bool *divergent, nir_intrinsic_instr *instr,
    case nir_intrinsic_load_barycentric_pixel:
    case nir_intrinsic_load_barycentric_centroid:
    case nir_intrinsic_load_barycentric_sample:
+   case nir_intrinsic_load_barycentric_model:
    case nir_intrinsic_load_barycentric_at_sample:
    case nir_intrinsic_load_barycentric_at_offset:
    case nir_intrinsic_interp_deref_at_offset:
    case nir_intrinsic_interp_deref_at_sample:
    case nir_intrinsic_interp_deref_at_centroid:
+   case nir_intrinsic_interp_deref_at_vertex:
    case nir_intrinsic_load_tess_coord:
    case nir_intrinsic_load_point_coord:
    case nir_intrinsic_load_frag_coord:

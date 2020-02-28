@@ -523,7 +523,8 @@ gather_varying_component_info(nir_shader *consumer,
          if (intr->intrinsic != nir_intrinsic_load_deref &&
              intr->intrinsic != nir_intrinsic_interp_deref_at_centroid &&
              intr->intrinsic != nir_intrinsic_interp_deref_at_sample &&
-             intr->intrinsic != nir_intrinsic_interp_deref_at_offset)
+             intr->intrinsic != nir_intrinsic_interp_deref_at_offset &&
+             intr->intrinsic != nir_intrinsic_interp_deref_at_vertex)
             continue;
 
          nir_deref_instr *deref = nir_src_as_deref(intr->src[0]);
@@ -1007,9 +1008,6 @@ nir_assign_io_var_locations(struct exec_list *var_list, unsigned *size,
 
    sort_varyings(var_list);
 
-   const int base = stage == MESA_SHADER_FRAGMENT ?
-      (int) FRAG_RESULT_DATA0 : (int) VARYING_SLOT_VAR0;
-
    int UNUSED last_loc = 0;
    bool last_partial = false;
    nir_foreach_variable(var, var_list) {
@@ -1018,6 +1016,15 @@ nir_assign_io_var_locations(struct exec_list *var_list, unsigned *size,
          assert(glsl_type_is_array(type));
          type = glsl_get_array_element(type);
       }
+
+      int base;
+      if (var->data.mode == nir_var_shader_in && stage == MESA_SHADER_VERTEX)
+         base = VERT_ATTRIB_GENERIC0;
+      else if (var->data.mode == nir_var_shader_out &&
+               stage == MESA_SHADER_FRAGMENT)
+         base = FRAG_RESULT_DATA0;
+      else
+         base = VARYING_SLOT_VAR0;
 
       unsigned var_size;
       if (var->data.compact) {

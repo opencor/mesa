@@ -39,7 +39,7 @@
 #include "pipe/p_screen.h"
 #include "util/debug.h"
 #include "util/u_inlines.h"
-#include "util/u_format.h"
+#include "util/format/u_format.h"
 #include "util/u_transfer_helper.h"
 #include "util/u_upload_mgr.h"
 #include "util/ralloc.h"
@@ -53,6 +53,7 @@
 #include "iris_screen.h"
 #include "intel/compiler/brw_compiler.h"
 #include "intel/common/gen_gem.h"
+#include "intel/common/gen_l3_config.h"
 #include "iris_monitor.h"
 
 static void
@@ -80,19 +81,12 @@ iris_get_name(struct pipe_screen *pscreen)
 {
    struct iris_screen *screen = (struct iris_screen *)pscreen;
    static char buf[128];
-   const char *chipset;
+   const char *name = gen_get_device_name(screen->pci_id);
 
-   switch (screen->pci_id) {
-#undef CHIPSET
-#define CHIPSET(id, symbol, str) case id: chipset = str; break;
-#include "pci_ids/i965_pci_ids.h"
-#include "pci_ids/iris_pci_ids.h"
-   default:
-      chipset = "Unknown Intel Chipset";
-      break;
-   }
+   if (!name)
+      name = "Intel Unknown";
 
-   snprintf(buf, sizeof(buf), "Mesa %s", chipset);
+   snprintf(buf, sizeof(buf), "Mesa %s", name);
    return buf;
 }
 
@@ -204,6 +198,7 @@ iris_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
    case PIPE_CAP_GL_SPIRV:
    case PIPE_CAP_GL_SPIRV_VARIABLE_POINTERS:
    case PIPE_CAP_DEMOTE_TO_HELPER_INVOCATION:
+   case PIPE_CAP_NATIVE_FENCE_FD:
       return true;
    case PIPE_CAP_FBFETCH:
       return BRW_MAX_DRAW_BUFFERS;
@@ -329,6 +324,10 @@ iris_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
       return 2;
    case PIPE_CAP_PCI_FUNCTION:
       return 0;
+
+   case PIPE_CAP_OPENCL_INTEGER_FUNCTIONS:
+   case PIPE_CAP_INTEGER_MULTIPLY_32X16:
+      return true;
 
    default:
       return u_pipe_screen_get_param_defaults(pscreen, param);
@@ -577,6 +576,17 @@ iris_getparam_integer(struct iris_screen *screen, int param)
    return -1;
 }
 
+static const struct gen_l3_config *
+iris_get_default_l3_config(const struct gen_device_info *devinfo,
+                           bool compute)
+{
+   bool wants_dc_cache = true;
+   bool has_slm = compute;
+   const struct gen_l3_weights w =
+      gen_get_default_l3_weights(devinfo, wants_dc_cache, has_slm);
+   return gen_get_l3_config(devinfo, w);
+}
+
 static void
 iris_shader_debug_log(void *data, const char *fmt, ...)
 {
@@ -673,6 +683,10 @@ iris_screen_create(int fd, const struct pipe_screen_config *config)
    screen->compiler->shader_perf_log = iris_shader_perf_log;
    screen->compiler->supports_pull_constants = false;
    screen->compiler->supports_shader_constants = true;
+   screen->compiler->compact_params = false;
+
+   screen->l3_config_3d = iris_get_default_l3_config(&screen->devinfo, false);
+   screen->l3_config_cs = iris_get_default_l3_config(&screen->devinfo, true);
 
    iris_disk_cache_init(screen);
 

@@ -55,6 +55,7 @@ struct radv_vs_out_key {
 	uint32_t as_es:1;
 	uint32_t as_ls:1;
 	uint32_t as_ngg:1;
+	uint32_t as_ngg_passthrough:1;
 	uint32_t export_prim_id:1;
 	uint32_t export_layer_id:1;
 	uint32_t export_clip_dists:1;
@@ -104,12 +105,17 @@ struct radv_fs_variant_key {
 	uint32_t is_int10;
 };
 
+struct radv_cs_variant_key {
+	uint8_t subgroup_size;
+};
+
 struct radv_shader_variant_key {
 	union {
 		struct radv_vs_variant_key vs;
 		struct radv_fs_variant_key fs;
 		struct radv_tes_variant_key tes;
 		struct radv_tcs_variant_key tcs;
+		struct radv_cs_variant_key cs;
 
 		/* A common prefix of the vs and tes keys. */
 		struct radv_vs_out_key vs_common_out;
@@ -120,8 +126,7 @@ struct radv_shader_variant_key {
 struct radv_nir_compiler_options {
 	struct radv_pipeline_layout *layout;
 	struct radv_shader_variant_key key;
-	bool unsafe_math;
-	bool supports_spill;
+	bool explicit_scratch_args;
 	bool clamp_shadow_reference;
 	bool robust_buffer_access;
 	bool dump_shader;
@@ -134,7 +139,6 @@ struct radv_nir_compiler_options {
 	enum chip_class chip_class;
 	uint32_t tess_offchip_block_dw_size;
 	uint32_t address32_hi;
-	uint8_t wave_size;
 };
 
 enum radv_ud_index {
@@ -144,7 +148,8 @@ enum radv_ud_index {
 	AC_UD_INDIRECT_DESCRIPTOR_SETS = 3,
 	AC_UD_VIEW_INDEX = 4,
 	AC_UD_STREAMOUT_BUFFERS = 5,
-	AC_UD_SHADER_START = 6,
+	AC_UD_NGG_GS_STATE = 6,
+	AC_UD_SHADER_START = 7,
 	AC_UD_VS_VERTEX_BUFFERS = AC_UD_SHADER_START,
 	AC_UD_VS_BASE_VERTEX_START_INSTANCE,
 	AC_UD_VS_MAX_UD,
@@ -238,6 +243,7 @@ struct radv_shader_info {
 	unsigned private_mem_vgprs;
 	bool need_indirect_descriptor_sets;
 	bool is_ngg;
+	bool is_ngg_passthrough;
 	struct {
 		uint64_t ls_outputs_written;
 		uint8_t input_usage_mask[VERT_ATTRIB_MAX];
@@ -289,6 +295,7 @@ struct radv_shader_info {
 		uint8_t num_input_clips_culls;
 		uint32_t input_mask;
 		uint32_t flat_shaded_mask;
+		uint32_t explicit_shaded_mask;
 		uint32_t float16_shaded_mask;
 		uint32_t num_interp;
 		bool can_discard;
@@ -437,7 +444,8 @@ struct radv_shader_variant *
 radv_create_gs_copy_shader(struct radv_device *device, struct nir_shader *nir,
 			   struct radv_shader_info *info,
 			   struct radv_shader_binary **binary_out,
-			   bool multiview,  bool keep_shader_info);
+			   bool multiview,  bool keep_shader_info,
+			   bool use_aco);
 
 void
 radv_shader_variant_destroy(struct radv_device *device,
@@ -473,8 +481,29 @@ bool
 radv_can_dump_shader_stats(struct radv_device *device,
 			   struct radv_shader_module *module);
 
-unsigned
-shader_io_get_unique_index(gl_varying_slot slot);
+static inline unsigned
+shader_io_get_unique_index(gl_varying_slot slot)
+{
+	/* handle patch indices separate */
+	if (slot == VARYING_SLOT_TESS_LEVEL_OUTER)
+		return 0;
+	if (slot == VARYING_SLOT_TESS_LEVEL_INNER)
+		return 1;
+	if (slot >= VARYING_SLOT_PATCH0 && slot <= VARYING_SLOT_TESS_MAX)
+		return 2 + (slot - VARYING_SLOT_PATCH0);
+	if (slot == VARYING_SLOT_POS)
+		return 0;
+	if (slot == VARYING_SLOT_PSIZ)
+		return 1;
+	if (slot == VARYING_SLOT_CLIP_DIST0)
+		return 2;
+	if (slot == VARYING_SLOT_CLIP_DIST1)
+		return 3;
+	/* 3 is reserved for clip dist as well */
+	if (slot >= VARYING_SLOT_VAR0 && slot <= VARYING_SLOT_VAR31)
+		return 4 + (slot - VARYING_SLOT_VAR0);
+	unreachable("illegal slot in get unique index\n");
+}
 
 void
 radv_lower_fs_io(nir_shader *nir);

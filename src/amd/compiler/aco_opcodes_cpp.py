@@ -28,19 +28,20 @@ template = """\
 
 namespace aco {
 
-const unsigned VOPC_to_GFX6[256] = {
-% for code in VOPC_GFX6:
-    ${code},
-% endfor
-};
 
 <%
 opcode_names = sorted(opcodes.keys())
 can_use_input_modifiers = "".join([opcodes[name].input_mod for name in reversed(opcode_names)])
 can_use_output_modifiers = "".join([opcodes[name].output_mod for name in reversed(opcode_names)])
+is_atomic = "".join([opcodes[name].is_atomic for name in reversed(opcode_names)])
 %>
 
 extern const aco::Info instr_info = {
+   .opcode_gfx7 = {
+      % for name in opcode_names:
+      ${opcodes[name].opcode_gfx7},
+      % endfor
+   },
    .opcode_gfx9 = {
       % for name in opcode_names:
       ${opcodes[name].opcode_gfx9},
@@ -53,6 +54,7 @@ extern const aco::Info instr_info = {
    },
    .can_use_input_modifiers = std::bitset<${len(opcode_names)}>("${can_use_input_modifiers}"),
    .can_use_output_modifiers = std::bitset<${len(opcode_names)}>("${can_use_output_modifiers}"),
+   .is_atomic = std::bitset<${len(opcode_names)}>("${is_atomic}"),
    .name = {
       % for name in opcode_names:
       "${name}",
@@ -68,7 +70,7 @@ extern const aco::Info instr_info = {
 }
 """
 
-from aco_opcodes import opcodes, VOPC_GFX6
+from aco_opcodes import opcodes
 from mako.template import Template
 
-print(Template(template).render(opcodes=opcodes, VOPC_GFX6=VOPC_GFX6))
+print(Template(template).render(opcodes=opcodes))

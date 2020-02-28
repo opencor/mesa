@@ -33,14 +33,16 @@
 
 #include "pipe/p_screen.h"
 
-#define LIMA_DEBUG_GP      (1 << 0)
-#define LIMA_DEBUG_PP      (1 << 1)
-#define LIMA_DEBUG_DUMP    (1 << 2)
-#define LIMA_DEBUG_SHADERDB (1 << 3)
-#define LIMA_DEBUG_NO_BO_CACHE (1 << 4)
+#define LIMA_DEBUG_GP             (1 << 0)
+#define LIMA_DEBUG_PP             (1 << 1)
+#define LIMA_DEBUG_DUMP           (1 << 2)
+#define LIMA_DEBUG_SHADERDB       (1 << 3)
+#define LIMA_DEBUG_NO_BO_CACHE    (1 << 4)
+#define LIMA_DEBUG_BO_CACHE       (1 << 5)
+#define LIMA_DEBUG_NO_TILING      (1 << 6)
+#define LIMA_DEBUG_NO_GROW_HEAP   (1 << 7)
 
 extern uint32_t lima_debug;
-extern FILE *lima_dump_command_stream;
 extern int lima_ctx_num_plb;
 extern int lima_plb_max_blk;
 extern int lima_ppir_force_spilling;
@@ -84,6 +86,7 @@ struct lima_screen {
    #define pp_clear_gl_pos_offset    0x0100
    #define pp_buffer_size            0x1000
 
+   bool has_growable_heap_buffer;
 };
 
 static inline struct lima_screen *

@@ -50,7 +50,7 @@
 
 #include "cso_cache/cso_context.h"
 
-#include "util/u_format.h"
+#include "util/format/u_format.h"
 
 
 /**
@@ -304,11 +304,13 @@ update_shader_samplers(struct st_context *st,
             st_get_texture_object(st->ctx, prog, unit);
       struct pipe_sampler_state *sampler = samplers + unit;
 
-      if (!stObj)
+      /* if resource format matches then YUV wasn't lowered */
+      if (!stObj || st_get_view_format(stObj) == stObj->pt->format)
          continue;
 
       switch (st_get_view_format(stObj)) {
       case PIPE_FORMAT_NV12:
+      case PIPE_FORMAT_P010:
       case PIPE_FORMAT_P016:
       case PIPE_FORMAT_YUYV:
       case PIPE_FORMAT_UYVY:
@@ -344,7 +346,9 @@ st_update_vertex_samplers(struct st_context *st)
 
    update_shader_samplers(st,
                           PIPE_SHADER_VERTEX,
-                          ctx->VertexProgram._Current, NULL, NULL);
+                          ctx->VertexProgram._Current,
+                          st->state.vert_samplers,
+                          &st->state.num_vert_samplers);
 }
 
 
