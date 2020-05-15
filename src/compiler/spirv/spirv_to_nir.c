@@ -3330,7 +3330,10 @@ vtn_ssa_transpose(struct vtn_builder *b, struct vtn_ssa_value *src)
 nir_ssa_def *
 vtn_vector_extract(struct vtn_builder *b, nir_ssa_def *src, unsigned index)
 {
-   return nir_channel(&b->nb, src, index);
+   if (index > src->num_components)
+      return nir_ssa_undef(&b->nb, src->num_components, src->bit_size);
+   else
+      return nir_channel(&b->nb, src, index);
 }
 
 nir_ssa_def *
@@ -3709,11 +3712,15 @@ vtn_handle_barrier(struct vtn_builder *b, SpvOp opcode,
 
       /* GLSLang, prior to commit 8297936dd6eb3, emitted OpControlBarrier with
        * memory semantics of None for GLSL barrier().
+       * And before that, prior to c3f1cdfa, emitted the OpControlBarrier with
+       * Device instead of Workgroup for execution scope.
        */
       if (b->wa_glslang_cs_barrier &&
           b->nb.shader->info.stage == MESA_SHADER_COMPUTE &&
-          execution_scope == SpvScopeWorkgroup &&
+          (execution_scope == SpvScopeWorkgroup ||
+           execution_scope == SpvScopeDevice) &&
           memory_semantics == SpvMemorySemanticsMaskNone) {
+         execution_scope = SpvScopeWorkgroup;
          memory_scope = SpvScopeWorkgroup;
          memory_semantics = SpvMemorySemanticsAcquireReleaseMask |
                             SpvMemorySemanticsWorkgroupMemoryMask;

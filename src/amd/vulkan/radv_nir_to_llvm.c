@@ -1889,6 +1889,7 @@ radv_build_param_exports(struct radv_shader_context *ctx,
 
 		if (slot_name != VARYING_SLOT_LAYER &&
 		    slot_name != VARYING_SLOT_PRIMITIVE_ID &&
+		    slot_name != VARYING_SLOT_VIEWPORT &&
 		    slot_name != VARYING_SLOT_CLIP_DIST0 &&
 		    slot_name != VARYING_SLOT_CLIP_DIST1 &&
 		    slot_name < VARYING_SLOT_VAR0)
@@ -3830,7 +3831,7 @@ ac_nir_eliminate_const_vs_outputs(struct radv_shader_context *ctx)
 	ac_optimize_vs_outputs(&ctx->ac,
 			       ctx->main_function,
 			       outinfo->vs_output_param_offset,
-			       VARYING_SLOT_MAX,
+			       VARYING_SLOT_MAX, 0,
 			       &outinfo->param_exports);
 }
 
@@ -4017,7 +4018,8 @@ LLVMModuleRef ac_translate_nir_to_llvm(struct ac_llvm_compiler *ac_llvm,
 
 	ac_llvm_context_init(&ctx.ac, ac_llvm, args->options->chip_class,
 			     args->options->family, float_mode,
-			     args->shader_info->wave_size, 64);
+			     args->shader_info->wave_size,
+			     args->shader_info->ballot_bit_size);
 	ctx.context = ctx.ac.context;
 
 	ctx.max_workgroup_size = 0;
