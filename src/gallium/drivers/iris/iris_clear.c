@@ -315,6 +315,7 @@ fast_clear_color(struct iris_context *ice,
     * conversion in convert_fast_clear_color().
     */
    blorp_fast_clear(&blorp_batch, &surf, isl_format_srgb_to_linear(format),
+                    ISL_SWIZZLE_IDENTITY,
                     level, box->z, box->depth,
                     box->x, box->y, box->x + box->width,
                     box->y + box->height);
@@ -696,7 +697,11 @@ iris_clear_texture(struct pipe_context *ctx,
 {
    struct iris_context *ice = (void *) ctx;
    struct iris_screen *screen = (void *) ctx->screen;
+   struct iris_resource *res = (void *) p_res;
    const struct gen_device_info *devinfo = &screen->devinfo;
+
+   if (iris_resource_unfinished_aux_import(res))
+      iris_resource_finish_aux_import(ctx->screen, res);
 
    if (util_format_is_depth_or_stencil(p_res->format)) {
       const struct util_format_description *fmt_desc =

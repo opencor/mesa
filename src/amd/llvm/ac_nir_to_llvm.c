@@ -688,8 +688,8 @@ static void visit_alu(struct ac_nir_context *ctx, const nir_alu_instr *instr)
 		result = LLVMBuildFMul(ctx->ac.builder, src[0], src[1], "");
 		break;
 	case nir_op_frcp:
-		src[0] = ac_to_float(&ctx->ac, src[0]);
-		result = ac_build_fdiv(&ctx->ac, LLVMConstReal(LLVMTypeOf(src[0]), 1.0), src[0]);
+		result = emit_intrin_1f_param(&ctx->ac, "llvm.amdgcn.rcp",
+					      ac_to_float_type(&ctx->ac, def_type), src[0]);
 		break;
 	case nir_op_iand:
 		result = LLVMBuildAnd(ctx->ac.builder, src[0], src[1], "");
@@ -834,9 +834,8 @@ static void visit_alu(struct ac_nir_context *ctx, const nir_alu_instr *instr)
 		                              ac_to_float_type(&ctx->ac, def_type), src[0]);
 		break;
 	case nir_op_frsq:
-		result = emit_intrin_1f_param(&ctx->ac, "llvm.sqrt",
-		                              ac_to_float_type(&ctx->ac, def_type), src[0]);
-		result = ac_build_fdiv(&ctx->ac, LLVMConstReal(LLVMTypeOf(result), 1.0), result);
+		result = emit_intrin_1f_param(&ctx->ac, "llvm.amdgcn.rsq",
+					      ac_to_float_type(&ctx->ac, def_type), src[0]);
 		break;
 	case nir_op_frexp_exp:
 		src[0] = ac_to_float(&ctx->ac, src[0]);
@@ -1735,6 +1734,16 @@ static void visit_store_ssbo(struct ac_nir_context *ctx,
 			count = 1;
 			num_bytes = 2;
 		}
+
+		/* Due to alignment issues, split stores of 8-bit/16-bit
+		 * vectors.
+		 */
+		if (ctx->ac.chip_class == GFX6 && count > 1 && elem_size_bytes < 4) {
+			writemask |= ((1u << (count - 1)) - 1u) << (start + 1);
+			count = 1;
+			num_bytes = elem_size_bytes;
+		}
+
 		data = extract_vector_range(&ctx->ac, base_data, start, count);
 
 		offset = LLVMBuildAdd(ctx->ac.builder, base_offset,
@@ -2311,14 +2320,19 @@ static LLVMValueRef visit_load_var(struct ac_nir_context *ctx,
 		break;
 	case nir_var_mem_global:  {
 		LLVMValueRef address = get_src(ctx, instr->src[0]);
+		LLVMTypeRef result_type = get_def_type(ctx, &instr->dest.ssa);
 		unsigned explicit_stride = glsl_get_explicit_stride(deref->type);
 		unsigned natural_stride = type_scalar_size_bytes(deref->type);
 		unsigned stride = explicit_stride ? explicit_stride : natural_stride;
+		int elem_size_bytes = ac_get_elem_bits(&ctx->ac, result_type) / 8;
+		bool split_loads = ctx->ac.chip_class == GFX6 && elem_size_bytes < 4;
 
-		LLVMTypeRef result_type = get_def_type(ctx, &instr->dest.ssa);
-		if (stride != natural_stride) {
-			LLVMTypeRef ptr_type =  LLVMPointerType(LLVMGetElementType(result_type),
-			                                        LLVMGetPointerAddressSpace(LLVMTypeOf(address)));
+		if (stride != natural_stride || split_loads) {
+			if (LLVMGetTypeKind(result_type) == LLVMVectorTypeKind)
+				result_type = LLVMGetElementType(result_type);
+
+			LLVMTypeRef ptr_type = LLVMPointerType(result_type,
+							       LLVMGetPointerAddressSpace(LLVMTypeOf(address)));
 			address = LLVMBuildBitCast(ctx->ac.builder, address, ptr_type , "");
 
 			for (unsigned i = 0; i < instr->dest.ssa.num_components; ++i) {
@@ -2466,23 +2480,29 @@ visit_store_var(struct ac_nir_context *ctx,
 		unsigned explicit_stride = glsl_get_explicit_stride(deref->type);
 		unsigned natural_stride = type_scalar_size_bytes(deref->type);
 		unsigned stride = explicit_stride ? explicit_stride : natural_stride;
+		int elem_size_bytes = ac_get_elem_bits(&ctx->ac, LLVMTypeOf(val)) / 8;
+		bool split_stores = ctx->ac.chip_class == GFX6 && elem_size_bytes < 4;
 
 		LLVMTypeRef ptr_type =  LLVMPointerType(LLVMTypeOf(val),
 							LLVMGetPointerAddressSpace(LLVMTypeOf(address)));
 		address = LLVMBuildBitCast(ctx->ac.builder, address, ptr_type , "");
 
 		if (writemask == (1u << ac_get_llvm_num_components(val)) - 1 &&
-		    stride == natural_stride) {
-			LLVMTypeRef ptr_type =  LLVMPointerType(LLVMTypeOf(val),
-			                                        LLVMGetPointerAddressSpace(LLVMTypeOf(address)));
+		    stride == natural_stride && !split_stores) {
+			LLVMTypeRef ptr_type = LLVMPointerType(LLVMTypeOf(val),
+			                                       LLVMGetPointerAddressSpace(LLVMTypeOf(address)));
 			address = LLVMBuildBitCast(ctx->ac.builder, address, ptr_type , "");
 
 			val = LLVMBuildBitCast(ctx->ac.builder, val,
 			                       LLVMGetElementType(LLVMTypeOf(address)), "");
 			LLVMBuildStore(ctx->ac.builder, val, address);
 		} else {
-			LLVMTypeRef ptr_type =  LLVMPointerType(LLVMGetElementType(LLVMTypeOf(val)),
-			                                        LLVMGetPointerAddressSpace(LLVMTypeOf(address)));
+			LLVMTypeRef val_type = LLVMTypeOf(val);
+			if (LLVMGetTypeKind(LLVMTypeOf(val)) == LLVMVectorTypeKind)
+				val_type = LLVMGetElementType(val_type);
+
+			LLVMTypeRef ptr_type = LLVMPointerType(val_type,
+							       LLVMGetPointerAddressSpace(LLVMTypeOf(address)));
 			address = LLVMBuildBitCast(ctx->ac.builder, address, ptr_type , "");
 			for (unsigned chan = 0; chan < 4; chan++) {
 				if (!(writemask & (1 << chan)))
@@ -3869,8 +3889,33 @@ static void visit_intrinsic(struct ac_nir_context *ctx,
 		break;
 	}
 	case nir_intrinsic_shuffle:
-		result = ac_build_shuffle(&ctx->ac, get_src(ctx, instr->src[0]),
-				get_src(ctx, instr->src[1]));
+		if (ctx->ac.chip_class == GFX8 ||
+		    ctx->ac.chip_class == GFX9 ||
+		    (ctx->ac.chip_class == GFX10 && ctx->ac.wave_size == 32)) {
+			result = ac_build_shuffle(&ctx->ac, get_src(ctx, instr->src[0]),
+						  get_src(ctx, instr->src[1]));
+		} else {
+			LLVMValueRef src = get_src(ctx, instr->src[0]);
+			LLVMValueRef index = get_src(ctx, instr->src[1]);
+			LLVMTypeRef type = LLVMTypeOf(src);
+	                struct waterfall_context wctx;
+	                LLVMValueRef index_val;
+
+	                index_val = enter_waterfall(ctx, &wctx, index, true);
+
+			src = LLVMBuildZExt(ctx->ac.builder, src,
+					    ctx->ac.i32, "");
+
+			result = ac_build_intrinsic(&ctx->ac, "llvm.amdgcn.readlane",
+						    ctx->ac.i32,
+						    (LLVMValueRef []) { src, index_val }, 2,
+						    AC_FUNC_ATTR_READNONE |
+						    AC_FUNC_ATTR_CONVERGENT);
+
+			result = LLVMBuildTrunc(ctx->ac.builder, result, type, "");
+
+		        result = exit_waterfall(ctx, &wctx, result);
+		}
 		break;
 	case nir_intrinsic_reduce:
 		result = ac_build_reduce(&ctx->ac,

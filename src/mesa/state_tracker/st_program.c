@@ -67,6 +67,8 @@
 #include "cso_cache/cso_context.h"
 
 
+static void
+destroy_program_variants(struct st_context *st, struct gl_program *target);
 
 static void
 set_affected_state_flags(uint64_t *states,
@@ -333,6 +335,19 @@ st_release_variants(struct st_context *st, struct st_program *p)
     */
 }
 
+/**
+ * Free all basic program variants and unref program.
+ */
+void
+st_release_program(struct st_context *st, struct st_program **p)
+{
+   if (!*p)
+      return;
+
+   destroy_program_variants(st, &((*p)->Base));
+   st_reference_prog(st, p, NULL);
+}
+
 void
 st_finalize_nir_before_variants(struct nir_shader *nir)
 {
@@ -477,8 +492,6 @@ st_translate_vertex_program(struct st_context *st,
    if (stp->Base.arb.IsPositionInvariant)
       _mesa_insert_mvp_code(st->ctx, &stp->Base);
 
-   st_prepare_vertex_program(stp);
-
    /* ARB_vp: */
    if (!stp->glsl_to_tgsi) {
       _mesa_remove_output_reads(&stp->Base, PROGRAM_OUTPUT);
@@ -505,13 +518,33 @@ st_translate_vertex_program(struct st_context *st,
          stp->state.type = PIPE_SHADER_IR_NIR;
          stp->Base.nir = st_translate_prog_to_nir(st, &stp->Base,
                                                   MESA_SHADER_VERTEX);
+
+         /* We must update stp->Base.info after translation and before
+          * st_prepare_vertex_program is called, because inputs_read
+          * may become outdated after NIR optimization passes.
+          *
+          * For ffvp/ARB_vp inputs_read is populated based
+          * on declared attributes without taking their usage into
+          * consideration. When creating shader variants we expect
+          * that their inputs_read would match the base ones for
+          * input mapping to work properly.
+          */
+         nir_shader_gather_info(stp->Base.nir,
+                                nir_shader_get_entrypoint(stp->Base.nir));
+         st_nir_assign_vs_in_locations(stp->Base.nir);
+         stp->Base.info = stp->Base.nir->info;
+
          /* For st_draw_feedback, we need to generate TGSI too if draw doesn't
           * use LLVM.
           */
-         if (draw_has_llvm())
+         if (draw_has_llvm()) {
+            st_prepare_vertex_program(stp);
             return true;
+         }
       }
    }
+
+   st_prepare_vertex_program(stp);
 
    /* Get semantic names and indices. */
    for (attr = 0; attr < VARYING_SLOT_MAX; attr++) {

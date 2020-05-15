@@ -370,7 +370,7 @@ radv_physical_device_init(struct radv_physical_device *device,
 	device->ws = radv_amdgpu_winsys_create(fd, instance->debug_flags,
 					       instance->perftest_flags);
 	if (!device->ws) {
-		result = vk_error(instance, VK_ERROR_INCOMPATIBLE_DRIVER);
+		result = vk_error(instance, VK_ERROR_INITIALIZATION_FAILED);
 		goto fail;
 	}
 
@@ -800,7 +800,7 @@ radv_enumerate_devices(struct radv_instance *instance)
 {
 	/* TODO: Check for more devices ? */
 	drmDevicePtr devices[8];
-	VkResult result = VK_ERROR_INCOMPATIBLE_DRIVER;
+	VkResult result = VK_SUCCESS;
 	int max_devices;
 
 	instance->physicalDeviceCount = 0;
@@ -811,7 +811,7 @@ radv_enumerate_devices(struct radv_instance *instance)
 		radv_logi("Found %d drm nodes", max_devices);
 
 	if (max_devices < 1)
-		return vk_error(instance, VK_ERROR_INCOMPATIBLE_DRIVER);
+		return vk_error(instance, VK_SUCCESS);
 
 	for (unsigned i = 0; i < (unsigned)max_devices; i++) {
 		if (devices[i]->available_nodes & 1 << DRM_NODE_RENDER &&
@@ -822,14 +822,22 @@ radv_enumerate_devices(struct radv_instance *instance)
 			                                   instance->physicalDeviceCount,
 			                                   instance,
 			                                   devices[i]);
-			if (result == VK_SUCCESS)
-				++instance->physicalDeviceCount;
-			else if (result != VK_ERROR_INCOMPATIBLE_DRIVER)
+			/* Incompatible DRM device, skip. */
+			if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
+				result = VK_SUCCESS;
+				continue;
+			}
+
+			/* Error creating the physical device, report the error. */
+			if (result != VK_SUCCESS)
 				break;
+
+			++instance->physicalDeviceCount;
 		}
 	}
 	drmFreeDevices(devices, max_devices);
 
+	/* If we successfully enumerated any devices, call it success */
 	return result;
 }
 
@@ -843,8 +851,7 @@ VkResult radv_EnumeratePhysicalDevices(
 
 	if (instance->physicalDeviceCount < 0) {
 		result = radv_enumerate_devices(instance);
-		if (result != VK_SUCCESS &&
-		    result != VK_ERROR_INCOMPATIBLE_DRIVER)
+		if (result != VK_SUCCESS)
 			return result;
 	}
 
@@ -870,8 +877,7 @@ VkResult radv_EnumeratePhysicalDeviceGroups(
 
 	if (instance->physicalDeviceCount < 0) {
 		result = radv_enumerate_devices(instance);
-		if (result != VK_SUCCESS &&
-		    result != VK_ERROR_INCOMPATIBLE_DRIVER)
+		if (result != VK_SUCCESS)
 			return result;
 	}
 
@@ -980,11 +986,10 @@ void radv_GetPhysicalDeviceFeatures2(
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES: {
 			VkPhysicalDevice16BitStorageFeatures *features =
 			    (VkPhysicalDevice16BitStorageFeatures*)ext;
-			bool enabled = pdevice->rad_info.chip_class >= GFX8 && !pdevice->use_aco;
-			features->storageBuffer16BitAccess = enabled;
-			features->uniformAndStorageBuffer16BitAccess = enabled;
-			features->storagePushConstant16 = enabled;
-			features->storageInputOutput16 = enabled && LLVM_VERSION_MAJOR >= 9;
+			features->storageBuffer16BitAccess = !pdevice->use_aco;
+			features->uniformAndStorageBuffer16BitAccess = !pdevice->use_aco;
+			features->storagePushConstant16 = !pdevice->use_aco;
+			features->storageInputOutput16 = pdevice->rad_info.chip_class >= GFX8 && !pdevice->use_aco && LLVM_VERSION_MAJOR >= 9;
 			break;
 		}
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES: {
@@ -1082,10 +1087,9 @@ void radv_GetPhysicalDeviceFeatures2(
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES: {
 			VkPhysicalDevice8BitStorageFeatures *features =
 			    (VkPhysicalDevice8BitStorageFeatures *)ext;
-			bool enabled = pdevice->rad_info.chip_class >= GFX8 && !pdevice->use_aco;
-			features->storageBuffer8BitAccess = enabled;
-			features->uniformAndStorageBuffer8BitAccess = enabled;
-			features->storagePushConstant8 = enabled;
+			features->storageBuffer8BitAccess = !pdevice->use_aco;
+			features->uniformAndStorageBuffer8BitAccess = !pdevice->use_aco;
+			features->storagePushConstant8 = !pdevice->use_aco;
 			break;
 		}
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES: {
@@ -1200,9 +1204,9 @@ void radv_GetPhysicalDeviceFeatures2(
 		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES: {
 			VkPhysicalDeviceVulkan11Features *features =
 				(VkPhysicalDeviceVulkan11Features *)ext;
-			features->storageBuffer16BitAccess = pdevice->rad_info.chip_class >= GFX8 && !pdevice->use_aco;
-			features->uniformAndStorageBuffer16BitAccess = pdevice->rad_info.chip_class >= GFX8 && !pdevice->use_aco;
-			features->storagePushConstant16 = pdevice->rad_info.chip_class >= GFX8 && !pdevice->use_aco;
+			features->storageBuffer16BitAccess = !pdevice->use_aco;
+			features->uniformAndStorageBuffer16BitAccess = !pdevice->use_aco;
+			features->storagePushConstant16 = !pdevice->use_aco;
 			features->storageInputOutput16 = pdevice->rad_info.chip_class >= GFX8 && !pdevice->use_aco && LLVM_VERSION_MAJOR >= 9;
 			features->multiview = true;
 			features->multiviewGeometryShader = true;
@@ -1219,9 +1223,9 @@ void radv_GetPhysicalDeviceFeatures2(
 				(VkPhysicalDeviceVulkan12Features *)ext;
 			features->samplerMirrorClampToEdge = true;
 			features->drawIndirectCount = true;
-			features->storageBuffer8BitAccess = pdevice->rad_info.chip_class >= GFX8 && !pdevice->use_aco;
-			features->uniformAndStorageBuffer8BitAccess = pdevice->rad_info.chip_class >= GFX8 && !pdevice->use_aco;
-			features->storagePushConstant8 = pdevice->rad_info.chip_class >= GFX8 && !pdevice->use_aco;
+			features->storageBuffer8BitAccess = !pdevice->use_aco;
+			features->uniformAndStorageBuffer8BitAccess = !pdevice->use_aco;
+			features->storagePushConstant8 = !pdevice->use_aco;
 			features->shaderBufferInt64Atomics = LLVM_VERSION_MAJOR >= 9;
 			features->shaderSharedInt64Atomics = LLVM_VERSION_MAJOR >= 9;
 			features->shaderFloat16 = pdevice->rad_info.chip_class >= GFX8 && !pdevice->use_aco;
@@ -1449,8 +1453,9 @@ radv_get_physical_device_properties_1_1(struct radv_physical_device *pdevice,
 					 VK_SUBGROUP_FEATURE_CLUSTERED_BIT |
 					 VK_SUBGROUP_FEATURE_QUAD_BIT;
 
-	if (pdevice->rad_info.chip_class == GFX8 ||
-	    pdevice->rad_info.chip_class == GFX9) {
+	if (((pdevice->rad_info.chip_class == GFX6 ||
+	      pdevice->rad_info.chip_class == GFX7) && !pdevice->use_aco) ||
+	    pdevice->rad_info.chip_class >= GFX8) {
 		p->subgroupSupportedOperations |= VK_SUBGROUP_FEATURE_SHUFFLE_BIT |
 						  VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT;
 	}
@@ -6893,6 +6898,7 @@ radv_init_sampler(struct radv_device *device,
 			   device->physical_device->rad_info.chip_class == GFX9;
 	unsigned filter_mode = V_008F30_SQ_IMG_FILTER_MODE_BLEND;
 	unsigned depth_compare_func = V_008F30_SQ_TEX_DEPTH_COMPARE_NEVER;
+	bool trunc_coord = pCreateInfo->minFilter == VK_FILTER_NEAREST && pCreateInfo->magFilter == VK_FILTER_NEAREST;
 
 	const struct VkSamplerReductionModeCreateInfo *sampler_reduction =
 		vk_find_struct_const(pCreateInfo->pNext,
@@ -6913,7 +6919,8 @@ radv_init_sampler(struct radv_device *device,
 			     S_008F30_ANISO_BIAS(max_aniso_ratio) |
 			     S_008F30_DISABLE_CUBE_WRAP(0) |
 			     S_008F30_COMPAT_MODE(compat_mode) |
-			     S_008F30_FILTER_MODE(filter_mode));
+			     S_008F30_FILTER_MODE(filter_mode) |
+			     S_008F30_TRUNC_COORD(trunc_coord));
 	sampler->state[1] = (S_008F34_MIN_LOD(S_FIXED(CLAMP(pCreateInfo->minLod, 0, 15), 8)) |
 			     S_008F34_MAX_LOD(S_FIXED(CLAMP(pCreateInfo->maxLod, 0, 15), 8)) |
 			     S_008F34_PERF_MIP(max_aniso_ratio ? max_aniso_ratio + 6 : 0));
@@ -7050,7 +7057,7 @@ VkResult radv_GetMemoryFdPropertiesKHR(VkDevice _device,
 
    switch (handleType) {
    case VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT:
-      pMemoryFdProperties->memoryTypeBits = (1 << RADV_MEM_TYPE_COUNT) - 1;
+      pMemoryFdProperties->memoryTypeBits = (1 << device->physical_device->memory_properties.memoryTypeCount) - 1;
       return VK_SUCCESS;
 
    default:

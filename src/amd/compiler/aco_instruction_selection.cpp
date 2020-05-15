@@ -90,7 +90,7 @@ struct if_context {
    Block BB_endif;
 };
 
-static void visit_cf_list(struct isel_context *ctx,
+static bool visit_cf_list(struct isel_context *ctx,
                           struct exec_list *list);
 
 static void add_logical_edge(unsigned pred_idx, Block *succ)
@@ -754,7 +754,8 @@ Temp emit_trunc_f64(isel_context *ctx, Builder& bld, Definition dst, Temp val)
    bld.pseudo(aco_opcode::p_split_vector, Definition(val_lo), Definition(val_hi), val);
 
    /* Extract the exponent and compute the unbiased value. */
-   Temp exponent = bld.vop1(aco_opcode::v_frexp_exp_i32_f64, bld.def(v1), val);
+   Temp exponent = bld.vop3(aco_opcode::v_bfe_u32, bld.def(v1), val_hi, Operand(20u), Operand(11u));
+   exponent = bld.vsub32(bld.def(v1), exponent, Operand(1023u));
 
    /* Extract the fractional part. */
    Temp fract_mask = bld.pseudo(aco_opcode::p_create_vector, bld.def(v2), Operand(-1u), Operand(0x000fffffu));
@@ -770,7 +771,7 @@ Temp emit_trunc_f64(isel_context *ctx, Builder& bld, Definition dst, Temp val)
    fract_hi = bld.vop2(aco_opcode::v_and_b32, bld.def(v1), val_hi, tmp);
 
    /* Get the sign bit. */
-   Temp sign = bld.vop2(aco_opcode::v_ashr_i32, bld.def(v1), Operand(31u), val_hi);
+   Temp sign = bld.vop2(aco_opcode::v_and_b32, bld.def(v1), Operand(0x80000000u), val_hi);
 
    /* Decide the operation to apply depending on the unbiased exponent. */
    Temp exp_lt0 = bld.vopc_e64(aco_opcode::v_cmp_lt_i32, bld.hint_vcc(bld.def(bld.lm)), exponent, Operand(0u));
@@ -3957,6 +3958,9 @@ void visit_discard(isel_context* ctx, nir_intrinsic_instr *instr)
       /* we add a break right behind the discard() instructions */
       ctx->block->kind |= block_kind_break;
       unsigned idx = ctx->block->index;
+
+      ctx->cf_info.parent_loop.has_divergent_branch = true;
+      ctx->cf_info.nir_to_aco[instr->instr.block->index] = idx;
 
       /* remove critical edges from linear CFG */
       bld.branch(aco_opcode::p_branch);
@@ -7217,7 +7221,7 @@ void visit_tex(isel_context *ctx, nir_tex_instr *instr)
       if (instr->sampler_dim == GLSL_SAMPLER_DIM_1D && ctx->options->chip_class == GFX9) {
          assert(has_ddx && has_ddy && ddy.size() == 1 && ddy.size() == 1);
          Temp zero = bld.copy(bld.def(v1), Operand(0u));
-         derivs = {ddy, zero, ddy, zero};
+         derivs = {ddx, zero, ddy, zero};
       } else {
          for (unsigned i = 0; has_ddx && i < ddx.size(); i++)
             derivs.emplace_back(emit_extract_vector(ctx, ddx, i, v1));
@@ -7682,6 +7686,10 @@ void visit_phi(isel_context *ctx, nir_phi_instr *instr)
             continue;
          }
       }
+      /* Handle missing predecessors at the end. This shouldn't happen with loop
+       * headers and we can't ignore these sources for loop header phis. */
+      if (!(ctx->block->kind & block_kind_loop_header) && cur_pred_idx >= preds.size())
+         continue;
       cur_pred_idx++;
       Operand op = get_phi_operand(ctx, src.second);
       operands[num_operands++] = op;
@@ -7935,7 +7943,7 @@ static void visit_loop(isel_context *ctx, nir_loop *loop)
    unsigned loop_header_idx = loop_header->index;
    loop_info_RAII loop_raii(ctx, loop_header_idx, &loop_exit);
    append_logical_start(ctx->block);
-   visit_cf_list(ctx, &loop->body);
+   bool unreachable = visit_cf_list(ctx, &loop->body);
 
    //TODO: what if a loop ends with a unconditional or uniformly branched continue and this branch is never taken?
    if (!ctx->cf_info.has_branch) {
@@ -7980,8 +7988,11 @@ static void visit_loop(isel_context *ctx, nir_loop *loop)
       bld.branch(aco_opcode::p_branch);
    }
 
-   /* fixup phis in loop header from unreachable blocks */
-   if (ctx->cf_info.has_branch || ctx->cf_info.parent_loop.has_divergent_branch) {
+   /* Fixup phis in loop header from unreachable blocks.
+    * has_branch/has_divergent_branch also indicates if the loop ends with a
+    * break/continue instruction, but we don't emit those if unreachable=true */
+   if (unreachable) {
+      assert(ctx->cf_info.has_branch || ctx->cf_info.parent_loop.has_divergent_branch);
       bool linear = ctx->cf_info.has_branch;
       bool logical = ctx->cf_info.has_branch || ctx->cf_info.parent_loop.has_divergent_branch;
       for (aco_ptr<Instruction>& instr : ctx->program->blocks[loop_header_idx].instructions) {
@@ -8173,7 +8184,7 @@ static void end_divergent_if(isel_context *ctx, if_context *ic)
    }
 }
 
-static void visit_if(isel_context *ctx, nir_if *if_stmt)
+static bool visit_if(isel_context *ctx, nir_if *if_stmt)
 {
    Temp cond = get_ssa_temp(ctx, if_stmt->condition.ssa);
    Builder bld(ctx->program, ctx->block);
@@ -8302,9 +8313,11 @@ static void visit_if(isel_context *ctx, nir_if *if_stmt)
 
       end_divergent_if(ctx, &ic);
    }
+
+   return !ctx->cf_info.has_branch && !ctx->block->logical_preds.empty();
 }
 
-static void visit_cf_list(isel_context *ctx,
+static bool visit_cf_list(isel_context *ctx,
                           struct exec_list *list)
 {
    foreach_list_typed(nir_cf_node, node, node, list) {
@@ -8313,7 +8326,8 @@ static void visit_cf_list(isel_context *ctx,
          visit_block(ctx, nir_cf_node_as_block(node));
          break;
       case nir_cf_node_if:
-         visit_if(ctx, nir_cf_node_as_if(node));
+         if (!visit_if(ctx, nir_cf_node_as_if(node)))
+            return true;
          break;
       case nir_cf_node_loop:
          visit_loop(ctx, nir_cf_node_as_loop(node));
@@ -8322,6 +8336,7 @@ static void visit_cf_list(isel_context *ctx,
          unreachable("unimplemented cf list type");
       }
    }
+   return false;
 }
 
 static void export_vs_varying(isel_context *ctx, int slot, bool is_pos, int *next_pos)
@@ -8423,8 +8438,10 @@ static void create_vs_exports(isel_context *ctx)
    }
 
    for (unsigned i = 0; i <= VARYING_SLOT_VAR31; ++i) {
-      if (i < VARYING_SLOT_VAR0 && i != VARYING_SLOT_LAYER &&
-          i != VARYING_SLOT_PRIMITIVE_ID)
+      if (i < VARYING_SLOT_VAR0 &&
+          i != VARYING_SLOT_LAYER &&
+          i != VARYING_SLOT_PRIMITIVE_ID &&
+          i != VARYING_SLOT_VIEWPORT)
          continue;
 
       export_vs_varying(ctx, i, false, NULL);
