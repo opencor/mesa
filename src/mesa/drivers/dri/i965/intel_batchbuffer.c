@@ -503,10 +503,16 @@ grow_buffer(struct brw_context *brw,
    new_bo->refcount = bo->refcount;
    bo->refcount = 1;
 
+   assert(list_is_empty(&bo->exports));
+   assert(list_is_empty(&new_bo->exports));
+
    struct brw_bo tmp;
    memcpy(&tmp, bo, sizeof(struct brw_bo));
    memcpy(bo, new_bo, sizeof(struct brw_bo));
    memcpy(new_bo, &tmp, sizeof(struct brw_bo));
+
+   list_inithead(&bo->exports);
+   list_inithead(&new_bo->exports);
 
    grow->partial_bo = new_bo; /* the one reference of the OLD bo */
    grow->partial_bytes = existing_bytes;
@@ -573,6 +579,8 @@ brw_new_batch(struct brw_context *brw)
     */
    if (INTEL_DEBUG & DEBUG_SHADER_TIME)
       brw_collect_and_report_shader_time(brw);
+
+   intel_batchbuffer_maybe_noop(brw);
 }
 
 /**
@@ -887,6 +895,17 @@ _intel_batchbuffer_flush_fence(struct brw_context *brw,
    brw_new_batch(brw);
 
    return ret;
+}
+
+void
+intel_batchbuffer_maybe_noop(struct brw_context *brw)
+{
+   if (!brw->frontend_noop || USED_BATCH(brw->batch) != 0)
+      return;
+
+   BEGIN_BATCH(1);
+   OUT_BATCH(MI_BATCH_BUFFER_END);
+   ADVANCE_BATCH();
 }
 
 bool

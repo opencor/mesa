@@ -45,6 +45,7 @@
 #include "utils.h"
 #include "util/disk_cache.h"
 #include "util/xmlpool.h"
+#include "util/u_memory.h"
 
 #include "common/gen_defines.h"
 
@@ -710,8 +711,7 @@ intel_create_image_common(__DRIscreen *dri_screen,
    bool ok;
 
    /* Callers of this may specify a modifier, or a dri usage, but not both. The
-    * newer modifier interface deprecates the older usage flags newer modifier
-    * interface deprecates the older usage flags.
+    * newer modifier interface deprecates the older usage flags.
     */
    assert(!(use && count));
 
@@ -901,9 +901,16 @@ intel_query_image(__DRIimage *image, int attrib, int *value)
    case __DRI_IMAGE_ATTRIB_STRIDE:
       *value = image->pitch;
       return true;
-   case __DRI_IMAGE_ATTRIB_HANDLE:
-      *value = brw_bo_export_gem_handle(image->bo);
+   case __DRI_IMAGE_ATTRIB_HANDLE: {
+      __DRIscreen *dri_screen = image->screen->driScrnPriv;
+      uint32_t handle;
+      if (brw_bo_export_gem_handle_for_device(image->bo,
+                                              dri_screen->fd,
+                                              &handle))
+         return false;
+      *value = handle;
       return true;
+   }
    case __DRI_IMAGE_ATTRIB_NAME:
       return !brw_bo_flink(image->bo, (uint32_t *) value);
    case __DRI_IMAGE_ATTRIB_FORMAT:
@@ -980,6 +987,7 @@ intel_dup_image(__DRIimage *orig_image, void *loaderPrivate)
       return NULL;
 
    brw_bo_reference(orig_image->bo);
+   image->screen          = orig_image->screen;
    image->bo              = orig_image->bo;
    image->internal_format = orig_image->internal_format;
    image->planar_format   = orig_image->planar_format;

@@ -195,6 +195,7 @@ etna_transfer_map(struct pipe_context *pctx, struct pipe_resource *prsc,
                   struct pipe_transfer **out_transfer)
 {
    struct etna_context *ctx = etna_context(pctx);
+   struct etna_screen *screen = ctx->screen;
    struct etna_resource *rsc = etna_resource(prsc);
    struct etna_transfer *trans;
    struct pipe_transfer *ptrans;
@@ -240,6 +241,17 @@ etna_transfer_map(struct pipe_context *pctx, struct pipe_resource *prsc,
 
    assert(level <= prsc->last_level);
 
+   /* This one is a little tricky: if we have a separate render resource, which
+    * is newer than the base resource we want the transfer to target this one,
+    * to get the most up-to-date content, but only if we don't have a texture
+    * target of the same age, as transfering in/out of the texture target is
+    * generally preferred for the reasons listed below */
+   if (rsc->render && etna_resource_newer(etna_resource(rsc->render), rsc) &&
+       (!rsc->texture || etna_resource_newer(etna_resource(rsc->render),
+                                             etna_resource(rsc->texture)))) {
+      rsc = etna_resource(rsc->render);
+   }
+
    if (rsc->texture && !etna_resource_newer(rsc, etna_resource(rsc->texture))) {
       /* We have a texture resource which is the same age or newer than the
        * render resource. Use the texture resource, which avoids bouncing
@@ -247,7 +259,7 @@ etna_transfer_map(struct pipe_context *pctx, struct pipe_resource *prsc,
       rsc = etna_resource(rsc->texture);
    } else if (rsc->ts_bo ||
               (rsc->layout != ETNA_LAYOUT_LINEAR &&
-               etna_resource_hw_tileable(ctx->specs.use_blt, prsc) &&
+               etna_resource_hw_tileable(screen->specs.use_blt, prsc) &&
                /* HALIGN 4 resources are incompatible with the resolve engine,
                 * so fall back to using software to detile this resource. */
                rsc->halign != TEXTURE_HALIGN_FOUR)) {
@@ -279,7 +291,7 @@ etna_transfer_map(struct pipe_context *pctx, struct pipe_resource *prsc,
          return NULL;
       }
 
-      if (!ctx->specs.use_blt) {
+      if (!screen->specs.use_blt) {
          /* Need to align the transfer region to satisfy RS restrictions, as we
           * really want to hit the RS blit path here.
           */
@@ -302,7 +314,7 @@ etna_transfer_map(struct pipe_context *pctx, struct pipe_resource *prsc,
       }
 
       if (!(usage & PIPE_TRANSFER_DISCARD_WHOLE_RESOURCE))
-         etna_copy_resource_box(pctx, trans->rsc, prsc, level, &ptrans->box);
+         etna_copy_resource_box(pctx, trans->rsc, &rsc->base, level, &ptrans->box);
 
       /* Switch to using the temporary resource instead */
       rsc = etna_resource(trans->rsc);

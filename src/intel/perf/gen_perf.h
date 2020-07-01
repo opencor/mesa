@@ -38,6 +38,8 @@
 #include "compiler/glsl/list.h"
 #include "util/ralloc.h"
 
+#include "drm-uapi/i915_drm.h"
+
 struct gen_device_info;
 
 struct gen_perf_config;
@@ -189,10 +191,14 @@ struct gen_perf_query_info {
 };
 
 struct gen_perf_config {
+   /* Whether i915 has DRM_I915_QUERY_PERF_CONFIG support. */
    bool i915_query_supported;
 
    /* Version of the i915-perf subsystem, refer to i915_drm.h. */
    int i915_perf_version;
+
+   /* Powergating configuration for the running the query. */
+   struct drm_i915_gem_context_param_sseu sseu;
 
    struct gen_perf_query_info *queries;
    int n_queries;

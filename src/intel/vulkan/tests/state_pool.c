@@ -21,11 +21,10 @@
  * IN THE SOFTWARE.
  */
 
-#undef NDEBUG
-
 #include <pthread.h>
 
 #include "anv_private.h"
+#include "test_common.h"
 
 #define NUM_THREADS 8
 #define STATES_PER_THREAD_LOG2 10

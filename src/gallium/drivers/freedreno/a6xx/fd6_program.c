@@ -289,10 +289,11 @@ setup_stateobj(struct fd_ringbuffer *ring, struct fd_screen *screen,
 	const struct ir3_shader_variant *gs = state->gs;
 	const struct ir3_shader_variant *fs = binning_pass ? &dummy_fs : state->fs;
 
-	if (binning_pass && state->ds)
-		ds = state->bs;
-	else if (binning_pass)
-		vs = state->bs;
+	/* binning VS is wrong when GS is present, so use nonbinning VS
+	 * TODO: compile both binning VS/GS variants correctly
+	 */
+	if (binning_pass && state->gs)
+		vs = state->vs;
 
 	bool sample_shading = fs->per_samp | key->sample_shading;
 
@@ -429,20 +430,15 @@ setup_stateobj(struct fd_ringbuffer *ring, struct fd_screen *screen,
 
 	struct ir3_shader_linkage l = {0};
 	const struct ir3_shader_variant *last_shader = fd6_last_shader(state);
-	ir3_link_shaders(&l, last_shader, fs);
+	ir3_link_shaders(&l, last_shader, fs, true);
 
-	BITSET_DECLARE(varbs, 128) = {0};
-	uint32_t *varmask = (uint32_t *)varbs;
-
-	for (i = 0; i < l.cnt; i++)
-		for (j = 0; j < util_last_bit(l.var[i].compmask); j++)
-			BITSET_SET(varbs, l.var[i].loc + j);
+	bool primid_passthru = l.primid_loc != 0xff;
 
 	OUT_PKT4(ring, REG_A6XX_VPC_VAR_DISABLE(0), 4);
-	OUT_RING(ring, ~varmask[0]);  /* VPC_VAR[0].DISABLE */
-	OUT_RING(ring, ~varmask[1]);  /* VPC_VAR[1].DISABLE */
-	OUT_RING(ring, ~varmask[2]);  /* VPC_VAR[2].DISABLE */
-	OUT_RING(ring, ~varmask[3]);  /* VPC_VAR[3].DISABLE */
+	OUT_RING(ring, ~l.varmask[0]);  /* VPC_VAR[0].DISABLE */
+	OUT_RING(ring, ~l.varmask[1]);  /* VPC_VAR[1].DISABLE */
+	OUT_RING(ring, ~l.varmask[2]);  /* VPC_VAR[2].DISABLE */
+	OUT_RING(ring, ~l.varmask[3]);  /* VPC_VAR[3].DISABLE */
 
 	/* Add stream out outputs after computing the VPC_VAR_DISABLE bitmask. */
 	if (last_shader->shader->stream_output.num_outputs > 0)
@@ -597,7 +593,8 @@ setup_stateobj(struct fd_ringbuffer *ring, struct fd_screen *screen,
 	OUT_PKT4(ring, REG_A6XX_VPC_CNTL_0, 1);
 	OUT_RING(ring, A6XX_VPC_CNTL_0_NUMNONPOSVAR(fs->total_in) |
 			 COND(enable_varyings, A6XX_VPC_CNTL_0_VARYING) |
-			 0xff00ff00);
+			 A6XX_VPC_CNTL_0_PRIMIDLOC(l.primid_loc) |
+			 A6XX_VPC_CNTL_0_UNKLOC(0xff));
 
 	OUT_PKT4(ring, REG_A6XX_PC_PRIMITIVE_CNTL_1, 1);
 	OUT_RING(ring, A6XX_PC_PRIMITIVE_CNTL_1_STRIDE_IN_VPC(l.max_loc) |
@@ -793,6 +790,9 @@ setup_stateobj(struct fd_ringbuffer *ring, struct fd_screen *screen,
 	if (fs->instrlen)
 		fd6_emit_shader(ring, fs);
 
+	OUT_PKT4(ring, REG_A6XX_PC_PRIMID_CNTL, 1);
+	OUT_RING(ring, COND(primid_passthru, A6XX_PC_PRIMID_CNTL_PRIMID_PASSTHRU));
+
 	OUT_PKT4(ring, REG_A6XX_VFD_CONTROL_1, 6);
 	OUT_RING(ring, A6XX_VFD_CONTROL_1_REGID4VTX(vertex_regid) |
 			A6XX_VFD_CONTROL_1_REGID4INST(instance_regid) |
@@ -807,7 +807,8 @@ setup_stateobj(struct fd_ringbuffer *ring, struct fd_screen *screen,
 	OUT_RING(ring, 0x000000fc);   /* VFD_CONTROL_4 */
 	OUT_RING(ring, A6XX_VFD_CONTROL_5_REGID_GSHEADER(gs_header_regid) |
 			0xfc00);   /* VFD_CONTROL_5 */
-	OUT_RING(ring, 0x00000000);   /* VFD_CONTROL_6 */
+	OUT_RING(ring,
+			 COND(primid_passthru, A6XX_VFD_CONTROL_6_PRIMID_PASSTHRU));   /* VFD_CONTROL_6 */
 
 	bool fragz = fs->no_earlyz | fs->writes_pos;
 

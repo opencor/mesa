@@ -174,21 +174,16 @@ _mesa_lookup_framebuffer_dsa(struct gl_context *ctx, GLuint id,
    /* Name exists but buffer is not initialized */
    if (fb == &DummyFramebuffer) {
       fb = ctx->Driver.NewFramebuffer(ctx, id);
-      _mesa_HashLockMutex(ctx->Shared->FrameBuffers);
       _mesa_HashInsert(ctx->Shared->FrameBuffers, id, fb);
-      _mesa_HashUnlockMutex(ctx->Shared->BufferObjects);
    }
    /* Name doesn't exist */
    else if (!fb) {
-      _mesa_HashLockMutex(ctx->Shared->FrameBuffers);
       fb = ctx->Driver.NewFramebuffer(ctx, id);
       if (!fb) {
-         _mesa_HashUnlockMutex(ctx->Shared->FrameBuffers);
          _mesa_error(ctx, GL_OUT_OF_MEMORY, "%s", func);
          return NULL;
       }
-      _mesa_HashInsertLocked(ctx->Shared->BufferObjects, id, fb);
-      _mesa_HashUnlockMutex(ctx->Shared->BufferObjects);
+      _mesa_HashInsert(ctx->Shared->FrameBuffers, id, fb);
    }
    return fb;
 }
@@ -3042,6 +3037,7 @@ _mesa_bind_framebuffers(struct gl_context *ctx,
       check_begin_texture_render(ctx, newDrawFb);
 
       _mesa_reference_framebuffer(&ctx->DrawBuffer, newDrawFb);
+      _mesa_update_allow_draw_out_of_order(ctx);
    }
 
    if ((bindDrawBuf || bindReadBuf) && ctx->Driver.BindFramebuffer) {
@@ -4763,9 +4759,7 @@ lookup_named_framebuffer_ext_dsa(struct gl_context *ctx, GLuint framebuffer, con
       /* Then, make sure it's initialized */
       if (fb == &DummyFramebuffer) {
          fb = ctx->Driver.NewFramebuffer(ctx, framebuffer);
-         _mesa_HashLockMutex(ctx->Shared->FrameBuffers);
          _mesa_HashInsert(ctx->Shared->FrameBuffers, framebuffer, fb);
-         _mesa_HashUnlockMutex(ctx->Shared->BufferObjects);
       }
    }
    else

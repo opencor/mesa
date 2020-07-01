@@ -609,23 +609,6 @@ vtn_pointer_dereference(struct vtn_builder *b,
    }
 }
 
-struct vtn_pointer *
-vtn_pointer_for_variable(struct vtn_builder *b,
-                         struct vtn_variable *var, struct vtn_type *ptr_type)
-{
-   struct vtn_pointer *pointer = rzalloc(b, struct vtn_pointer);
-
-   pointer->mode = var->mode;
-   pointer->type = var->type;
-   vtn_assert(ptr_type->base_type == vtn_base_type_pointer);
-   vtn_assert(ptr_type->deref->type == var->type->type);
-   pointer->ptr_type = ptr_type;
-   pointer->var = var;
-   pointer->access = var->access | var->type->access;
-
-   return pointer;
-}
-
 /* Returns an atomic_uint type based on the original uint type. The returned
  * type will be equivalent to the original one but will have an atomic_uint
  * type as leaf instead of an uint.
@@ -735,11 +718,7 @@ vtn_local_load(struct vtn_builder *b, nir_deref_instr *src,
 
    if (src_tail != src) {
       val->type = src->type;
-      if (nir_src_is_const(src->arr.index))
-         val->def = vtn_vector_extract(b, val->def,
-                                       nir_src_as_uint(src->arr.index));
-      else
-         val->def = vtn_vector_extract_dynamic(b, val->def, src->arr.index.ssa);
+      val->def = nir_vector_extract(&b->nb, val->def, src->arr.index.ssa);
    }
 
    return val;
@@ -755,12 +734,8 @@ vtn_local_store(struct vtn_builder *b, struct vtn_ssa_value *src,
       struct vtn_ssa_value *val = vtn_create_ssa_value(b, dest_tail->type);
       _vtn_local_load_store(b, true, dest_tail, val, access);
 
-      if (nir_src_is_const(dest->arr.index))
-         val->def = vtn_vector_insert(b, val->def, src->def,
-                                      nir_src_as_uint(dest->arr.index));
-      else
-         val->def = vtn_vector_insert_dynamic(b, val->def, src->def,
-                                              dest->arr.index.ssa);
+      val->def = nir_vector_insert(&b->nb, val->def, src->def,
+                                   dest->arr.index.ssa);
       _vtn_local_load_store(b, false, dest_tail, val, access);
    } else {
       _vtn_local_load_store(b, false, dest_tail, src, access);
@@ -1677,6 +1652,7 @@ apply_var_decoration(struct vtn_builder *b,
       break;
 
    case SpvDecorationUserSemantic:
+   case SpvDecorationUserTypeGOOGLE:
       /* User semantic decorations can safely be ignored by the driver. */
       break;
 
@@ -2155,7 +2131,7 @@ assign_missing_member_locations(struct vtn_variable *var)
 static void
 vtn_create_variable(struct vtn_builder *b, struct vtn_value *val,
                     struct vtn_type *ptr_type, SpvStorageClass storage_class,
-                    nir_constant *initializer)
+                    nir_constant *const_initializer, nir_variable *var_initializer)
 {
    vtn_assert(ptr_type->base_type == vtn_base_type_pointer);
    struct vtn_type *type = ptr_type->deref;
@@ -2219,8 +2195,12 @@ vtn_create_variable(struct vtn_builder *b, struct vtn_value *val,
    var->mode = mode;
    var->base_location = -1;
 
-   vtn_assert(val->value_type == vtn_value_type_pointer);
-   val->pointer = vtn_pointer_for_variable(b, var, ptr_type);
+   val->pointer = rzalloc(b, struct vtn_pointer);
+   val->pointer->mode = var->mode;
+   val->pointer->type = var->type;
+   val->pointer->ptr_type = ptr_type;
+   val->pointer->var = var;
+   val->pointer->access = var->type->access;
 
    switch (var->mode) {
    case vtn_variable_mode_function:
@@ -2378,13 +2358,20 @@ vtn_create_variable(struct vtn_builder *b, struct vtn_value *val,
       unreachable("Should have been caught before");
    }
 
-   if (initializer) {
+   /* We can only have one type of initializer */
+   assert(!(const_initializer && var_initializer));
+   if (const_initializer) {
       var->var->constant_initializer =
-         nir_constant_clone(initializer, var->var);
+         nir_constant_clone(const_initializer, var->var);
    }
+   if (var_initializer)
+      var->var->pointer_initializer = var_initializer;
 
    vtn_foreach_decoration(b, val, var_decoration_cb, var);
    vtn_foreach_decoration(b, val, ptr_decoration_cb, val->pointer);
+
+   /* Propagate access flags from the OpVariable decorations. */
+   val->pointer->access |= var->access;
 
    if ((var->mode == vtn_variable_mode_input ||
         var->mode == vtn_variable_mode_output) &&
@@ -2503,11 +2490,25 @@ vtn_handle_variables(struct vtn_builder *b, SpvOp opcode,
       struct vtn_value *val = vtn_push_value(b, w[2], vtn_value_type_pointer);
 
       SpvStorageClass storage_class = w[3];
-      nir_constant *initializer = NULL;
-      if (count > 4)
-         initializer = vtn_value(b, w[4], vtn_value_type_constant)->constant;
+      nir_constant *const_initializer = NULL;
+      nir_variable *var_initializer = NULL;
+      if (count > 4) {
+         struct vtn_value *init = vtn_untyped_value(b, w[4]);
+         switch (init->value_type) {
+         case vtn_value_type_constant:
+            const_initializer = init->constant;
+            break;
+         case vtn_value_type_pointer:
+            var_initializer = init->pointer->var->var;
+            break;
+         default:
+            vtn_fail("SPIR-V variable initializer %u must be constant or pointer",
+               w[4]);
+         }
+      }
 
-      vtn_create_variable(b, val, ptr_type, storage_class, initializer);
+      vtn_create_variable(b, val, ptr_type, storage_class, const_initializer, var_initializer);
+
       break;
    }
 

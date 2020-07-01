@@ -145,6 +145,11 @@ DRI_CONF_OPT_BEGIN_B(allow_glsl_layout_qualifier_on_function_parameters, def) \
         DRI_CONF_DESC(en,gettext("Allow layout qualifiers on function parameters.")) \
 DRI_CONF_OPT_END
 
+#define DRI_CONF_ALLOW_DRAW_OUT_OF_ORDER(def) \
+DRI_CONF_OPT_BEGIN_B(allow_draw_out_of_order, def) \
+        DRI_CONF_DESC(en,gettext("Allow out-of-order draw optimizations. Set when Z fighting doesn't have to be accurate.")) \
+DRI_CONF_OPT_END
+
 #define DRI_CONF_FORCE_GL_VENDOR(def) \
 DRI_CONF_OPT_BEGIN(force_gl_vendor, string, def) \
         DRI_CONF_DESC(en,gettext("Allow GPU vendor to be overridden.")) \
@@ -304,6 +309,11 @@ DRI_CONF_OPT_BEGIN_B(allow_fp16_configs, def) \
 DRI_CONF_DESC(en,gettext("Allow exposure of visuals and fbconfigs with fp16 formats")) \
 DRI_CONF_OPT_END
 
+#define DRI_CONF_FORCE_INTEGER_TEX_NEAREST(def) \
+DRI_CONF_OPT_BEGIN_B(force_integer_tex_nearest, def) \
+        DRI_CONF_DESC(en,gettext("Force integer textures to use nearest filtering")) \
+DRI_CONF_OPT_END
+
 /**
  * \brief Initialization configuration options
  */
@@ -373,11 +383,6 @@ DRI_CONF_OPT_END
  * \brief radeonsi specific configuration options
  */
 
-#define DRI_CONF_RADEONSI_ENABLE_SISCHED(def) \
-DRI_CONF_OPT_BEGIN_B(radeonsi_enable_sisched, def) \
-        DRI_CONF_DESC(en,gettext("Use the LLVM sisched option for shader compiles")) \
-DRI_CONF_OPT_END
-
 #define DRI_CONF_RADEONSI_ASSUME_NO_Z_FIGHTS(def) \
 DRI_CONF_OPT_BEGIN_B(radeonsi_assume_no_z_fights, def) \
         DRI_CONF_DESC(en,gettext("Assume no Z fights (enables aggressive out-of-order rasterization to improve performance; may cause rendering errors)")) \
@@ -415,4 +420,13 @@ DRI_CONF_OPT_END
 #define DRI_CONF_GLES_SAMPLES_PASSED_VALUE(def, minimum, maximum) \
 DRI_CONF_OPT_BEGIN_V(gles_samples_passed_value, def, minimum, maximum) \
         DRI_CONF_DESC(en,gettext("GL_SAMPLES_PASSED value when emulated by GL_ANY_SAMPLES_PASSED")) \
+DRI_CONF_OPT_END
+
+/**
+ * \brief RADV specific configuration options
+ */
+
+#define DRI_CONF_RADV_NO_DYNAMIC_BOUNDS(def) \
+DRI_CONF_OPT_BEGIN_B(radv_no_dynamic_bounds, def) \
+        DRI_CONF_DESC(en,gettext("Disabling bounds checking for dynamic buffer descriptors")) \
 DRI_CONF_OPT_END

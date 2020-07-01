@@ -179,6 +179,7 @@ iris_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
    case PIPE_CAP_TGSI_BALLOT:
    case PIPE_CAP_MULTISAMPLE_Z_RESOLVE:
    case PIPE_CAP_CLEAR_TEXTURE:
+   case PIPE_CAP_CLEAR_SCISSORED:
    case PIPE_CAP_TGSI_VOTE:
    case PIPE_CAP_TGSI_VS_WINDOW_SPACE_POSITION:
    case PIPE_CAP_TEXTURE_GATHER_SM5:
@@ -199,6 +200,7 @@ iris_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
    case PIPE_CAP_GL_SPIRV_VARIABLE_POINTERS:
    case PIPE_CAP_DEMOTE_TO_HELPER_INVOCATION:
    case PIPE_CAP_NATIVE_FENCE_FD:
+   case PIPE_CAP_MIXED_COLOR_DEPTH_BITS:
       return true;
    case PIPE_CAP_FBFETCH:
       return BRW_MAX_DRAW_BUFFERS;
@@ -210,6 +212,8 @@ iris_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
    case PIPE_CAP_FRAGMENT_SHADER_INTERLOCK:
    case PIPE_CAP_ATOMIC_FLOAT_MINMAX:
       return devinfo->gen >= 9;
+   case PIPE_CAP_DEPTH_BOUNDS_TEST:
+      return devinfo->gen >= 12;
    case PIPE_CAP_MAX_DUAL_SOURCE_RENDER_TARGETS:
       return 1;
    case PIPE_CAP_MAX_RENDER_TARGETS:
@@ -314,6 +318,9 @@ iris_get_param(struct pipe_screen *pscreen, enum pipe_cap param)
       return PIPE_CONTEXT_PRIORITY_LOW |
              PIPE_CONTEXT_PRIORITY_MEDIUM |
              PIPE_CONTEXT_PRIORITY_HIGH;
+
+   case PIPE_CAP_FRONTEND_NOOP:
+      return true;
 
    // XXX: don't hardcode 00:00:02.0 PCI here
    case PIPE_CAP_PCI_GROUP:
@@ -524,6 +531,7 @@ iris_screen_destroy(struct iris_screen *screen)
    u_transfer_helper_destroy(screen->base.transfer_helper);
    iris_bufmgr_unref(screen->bufmgr);
    disk_cache_destroy(screen->disk_cache);
+   close(screen->winsys_fd);
    ralloc_free(screen);
 }
 
@@ -674,6 +682,7 @@ iris_screen_create(int fd, const struct pipe_screen_config *config)
       return NULL;
 
    screen->fd = iris_bufmgr_get_fd(screen->bufmgr);
+   screen->winsys_fd = fd;
 
    screen->aperture_bytes = get_aperture_size(fd);
 

@@ -564,6 +564,9 @@ VkResult
 anv_queue_submit_simple_batch(struct anv_queue *queue,
                               struct anv_batch *batch)
 {
+   if (queue->device->no_hw)
+      return VK_SUCCESS;
+
    struct anv_device *device = queue->device;
    struct anv_queue_submit *submit = anv_queue_submit_alloc(device);
    if (!submit)
@@ -946,6 +949,9 @@ VkResult anv_QueueSubmit(
     VkFence                                     fence)
 {
    ANV_FROM_HANDLE(anv_queue, queue, _queue);
+
+   if (queue->device->no_hw)
+      return VK_SUCCESS;
 
    /* Query for device status prior to submitting.  Technically, we don't need
     * to do this.  However, if we have a client that's submitting piles of
@@ -1536,6 +1542,9 @@ VkResult anv_WaitForFences(
     uint64_t                                    timeout)
 {
    ANV_FROM_HANDLE(anv_device, device, _device);
+
+   if (device->no_hw)
+      return VK_SUCCESS;
 
    if (anv_device_is_lost(device))
       return VK_ERROR_DEVICE_LOST;
@@ -2229,9 +2238,10 @@ anv_timelines_wait(struct anv_device *device,
                    uint64_t abs_timeout_ns)
 {
    if (!wait_all && n_timelines > 1) {
+      pthread_mutex_lock(&device->mutex);
+
       while (1) {
          VkResult result;
-         pthread_mutex_lock(&device->mutex);
          for (uint32_t i = 0; i < n_timelines; i++) {
             result =
                anv_timeline_wait_locked(device, timelines[i], serials[i], 0);
@@ -2282,6 +2292,9 @@ VkResult anv_WaitSemaphores(
 {
    ANV_FROM_HANDLE(anv_device, device, _device);
 
+   if (device->no_hw)
+      return VK_SUCCESS;
+
    struct anv_timeline **timelines =
       vk_alloc(&device->alloc,
                pWaitInfo->semaphoreCount * sizeof(*timelines),
@@ -2318,7 +2331,7 @@ VkResult anv_WaitSemaphores(
    if (handle_count > 0) {
       result = anv_timelines_wait(device, timelines, values, handle_count,
                                   !(pWaitInfo->flags & VK_SEMAPHORE_WAIT_ANY_BIT_KHR),
-                                  timeout);
+                                  anv_get_absolute_timeout(timeout));
    }
 
    vk_free(&device->alloc, timelines);

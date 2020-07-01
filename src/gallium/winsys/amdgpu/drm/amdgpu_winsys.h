@@ -31,7 +31,6 @@
 #include "pipebuffer/pb_cache.h"
 #include "pipebuffer/pb_slab.h"
 #include "gallium/drivers/radeon/radeon_winsys.h"
-#include "addrlib/inc/addrinterface.h"
 #include "util/simple_mtx.h"
 #include "util/u_queue.h"
 #include <amdgpu.h>
@@ -79,7 +78,7 @@ struct amdgpu_winsys {
    struct util_queue cs_queue;
 
    struct amdgpu_gpu_info amdinfo;
-   ADDR_HANDLE addrlib;
+   struct ac_addrlib *addrlib;
 
    bool check_vm;
    bool debug_all_bos;
@@ -99,7 +98,7 @@ struct amdgpu_winsys {
 
    /* For returning the same amdgpu_winsys_bo instance for exported
     * and re-imported buffers. */
-   struct util_hash_table *bo_export_table;
+   struct hash_table *bo_export_table;
    simple_mtx_t bo_export_table_lock;
 };
 
