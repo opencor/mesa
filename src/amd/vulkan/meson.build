@@ -48,26 +48,8 @@ amd_vk_format_table_c = custom_target(
   capture : true,
 )
 
-radv_gfx10_format_table_h = custom_target(
-  'radv_gfx10_format_table.h',
-  input : ['gfx10_format_table.py', 'vk_format_layout.csv', '../registers/gfx10-rsrc.json'],
-  output : 'gfx10_format_table.h',
-  command : [prog_python, '@INPUT@'],
-  capture : true,
-  depend_files : files('../registers/regdb.py')
-)
-
 libradv_files = files(
   'layers/radv_sqtt_layer.c',
-  'winsys/amdgpu/radv_amdgpu_bo.c',
-  'winsys/amdgpu/radv_amdgpu_bo.h',
-  'winsys/amdgpu/radv_amdgpu_cs.c',
-  'winsys/amdgpu/radv_amdgpu_cs.h',
-  'winsys/amdgpu/radv_amdgpu_surface.c',
-  'winsys/amdgpu/radv_amdgpu_surface.h',
-  'winsys/amdgpu/radv_amdgpu_winsys.c',
-  'winsys/amdgpu/radv_amdgpu_winsys.h',
-  'winsys/amdgpu/radv_amdgpu_winsys_public.h',
   'winsys/null/radv_null_bo.c',
   'winsys/null/radv_null_bo.h',
   'winsys/null/radv_null_cs.c',
@@ -106,7 +88,6 @@ libradv_files = files(
   'radv_pipeline_cache.c',
   'radv_private.h',
   'radv_radeon_winsys.h',
-  'radv_rgp.c',
   'radv_shader.c',
   'radv_shader.h',
   'radv_shader_args.c',
@@ -122,8 +103,22 @@ libradv_files = files(
   'vk_format.h',
 )
 
+if not with_platform_windows
+  libradv_files += files(
+    'winsys/amdgpu/radv_amdgpu_bo.c',
+    'winsys/amdgpu/radv_amdgpu_bo.h',
+    'winsys/amdgpu/radv_amdgpu_cs.c',
+    'winsys/amdgpu/radv_amdgpu_cs.h',
+    'winsys/amdgpu/radv_amdgpu_surface.c',
+    'winsys/amdgpu/radv_amdgpu_surface.h',
+    'winsys/amdgpu/radv_amdgpu_winsys.c',
+    'winsys/amdgpu/radv_amdgpu_winsys.h',
+    'winsys/amdgpu/radv_amdgpu_winsys_public.h',
+  )
+endif
+
 radv_deps = []
-radv_flags = []
+radv_flags = cc.get_supported_arguments(['-Wimplicit-fallthrough', '-Wshadow'])
 
 if with_platform_x11
   radv_deps += dep_xcb_dri3
@@ -140,13 +135,13 @@ if with_platform_wayland
   libradv_files += files('radv_wsi_wayland.c')
 endif
 
-if with_platform_drm
+if system_has_kms_drm and not with_platform_android
   radv_flags += '-DVK_USE_PLATFORM_DISPLAY_KHR'
   libradv_files += files('radv_wsi_display.c')
 endif
 
 if with_xlib_lease
-  radv_deps += [dep_xcb_xrandr, dep_xlib_xrandr]
+  radv_deps += [dep_xlib_xrandr]
   radv_flags += '-DVK_USE_PLATFORM_XLIB_XRANDR_EXT'
 endif
 
@@ -157,9 +152,26 @@ if with_platform_android
   ]
 endif
 
+if with_platform_windows
+  radv_flags += [
+    '-DVK_USE_PLATFORM_WIN32_KHR',
+    '-DVK_NO_PROTOTYPES',
+  ]
+endif
+
+# When static linking LLVM, all its symbols are public API.
+# That may cause symbol collision, so explicitly demote everything.
+libvulkan_radeon_ld_args = []
+libvulkan_radeon_link_depends = []
+
+if with_llvm and with_ld_version_script
+  libvulkan_radeon_ld_args += ['-Wl,--version-script', join_paths(meson.current_source_dir(), 'vulkan.sym')]
+  libvulkan_radeon_link_depends += files('vulkan.sym')
+endif
+
 libvulkan_radeon = shared_library(
   'vulkan_radeon',
-  [libradv_files, radv_entrypoints, radv_extensions_c, amd_vk_format_table_c, sha1_h, radv_gfx10_format_table_h],
+  [libradv_files, radv_entrypoints, radv_extensions_c, amd_vk_format_table_c, sha1_h],
   include_directories : [
     inc_include, inc_src, inc_mapi, inc_mesa, inc_gallium, inc_gallium_aux, inc_amd, inc_amd_common, inc_amd_common_llvm, inc_compiler, inc_util, inc_vulkan_wsi,
   ],
@@ -171,9 +183,13 @@ libvulkan_radeon = shared_library(
     dep_valgrind, radv_deps, idep_aco,
     idep_mesautil, idep_nir, idep_vulkan_util, idep_amdgfxregs_h, idep_xmlconfig,
   ],
-  c_args : [c_vis_args, no_override_init_args, radv_flags],
-  cpp_args : [cpp_vis_args, radv_flags],
-  link_args : [ld_args_bsymbolic, ld_args_gc_sections],
+  c_args : [no_override_init_args, radv_flags],
+  cpp_args : [radv_flags],
+  link_args : [
+    ld_args_build_id, ld_args_bsymbolic, ld_args_gc_sections, libvulkan_radeon_ld_args,
+  ],
+  link_depends : [libvulkan_radeon_link_depends,],
+  gnu_symbol_visibility : 'hidden',
   install : true,
 )
 
@@ -184,6 +200,7 @@ if with_symbols_check
     args : [
       '--lib', libvulkan_radeon,
       '--symbols-file', vulkan_icd_symbols,
+      '--ignore-symbol', 'ac_init_shared_llvm_once',
       symbols_check_args,
     ],
     suite : ['amd'],

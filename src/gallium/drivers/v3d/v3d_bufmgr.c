@@ -35,14 +35,6 @@
 #include "v3d_context.h"
 #include "v3d_screen.h"
 
-#ifdef HAVE_VALGRIND
-#include <valgrind.h>
-#include <memcheck.h>
-#define VG(x) x
-#else
-#define VG(x)
-#endif
-
 static bool dump_stats = false;
 
 static void
@@ -80,8 +72,8 @@ v3d_bo_dump_stats(struct v3d_screen *screen)
 
                 struct timespec time;
                 clock_gettime(CLOCK_MONOTONIC, &time);
-                fprintf(stderr, "  now:               %ld\n",
-                        (long)time.tv_sec);
+                fprintf(stderr, "  now:               %jd\n",
+                        (intmax_t)time.tv_sec);
         }
 }
 

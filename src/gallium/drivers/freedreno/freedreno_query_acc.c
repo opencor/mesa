@@ -87,9 +87,9 @@ fd_acc_query_resume(struct fd_acc_query *aq, struct fd_batch *batch)
 	aq->batch = batch;
 	p->resume(aq, aq->batch);
 
-	mtx_lock(&batch->ctx->screen->lock);
-	fd_batch_resource_used(batch, fd_resource(aq->prsc), true);
-	mtx_unlock(&batch->ctx->screen->lock);
+	fd_screen_lock(batch->ctx->screen);
+	fd_batch_resource_write(batch, fd_resource(aq->prsc));
+	fd_screen_unlock(batch->ctx->screen);
 }
 
 static void
@@ -112,8 +112,12 @@ fd_acc_begin_query(struct fd_context *ctx, struct fd_query *q)
 	/* TIMESTAMP/GPU_FINISHED and don't do normal bracketing at draw time, we
 	 * need to just emit the capture at this moment.
 	 */
-	if (skip_begin_query(q->type))
-		fd_acc_query_resume(aq, fd_context_batch(ctx));
+	if (skip_begin_query(q->type)) {
+		struct fd_batch *batch = fd_context_batch_locked(ctx);
+		fd_acc_query_resume(aq, batch);
+		fd_batch_unlock_submit(batch);
+		fd_batch_reference(&batch, NULL);
+	}
 }
 
 static void

@@ -62,11 +62,11 @@ static bool
 brw_nir_lower_uniforms(nir_shader *nir, bool is_scalar)
 {
    if (is_scalar) {
-      nir_assign_var_locations(&nir->uniforms, &nir->num_uniforms,
+      nir_assign_var_locations(nir, nir_var_uniform, &nir->num_uniforms,
                                type_size_scalar_bytes);
       return nir_lower_io(nir, nir_var_uniform, type_size_scalar_bytes, 0);
    } else {
-      nir_assign_var_locations(&nir->uniforms, &nir->num_uniforms,
+      nir_assign_var_locations(nir, nir_var_uniform, &nir->num_uniforms,
                                type_size_vec4_bytes);
       return nir_lower_io(nir, nir_var_uniform, type_size_vec4_bytes, 0);
    }
@@ -106,7 +106,8 @@ brw_create_nir(struct brw_context *brw,
       }
       assert (nir);
 
-      nir_remove_dead_variables(nir, nir_var_shader_in | nir_var_shader_out);
+      nir_remove_dead_variables(nir, nir_var_shader_in | nir_var_shader_out,
+                                NULL);
       nir_validate_shader(nir, "after glsl_to_nir or spirv_to_nir");
       NIR_PASS_V(nir, nir_lower_io_to_temporaries,
                  nir_shader_get_entrypoint(nir), true, false);
@@ -118,7 +119,7 @@ brw_create_nir(struct brw_context *brw,
 
    nir_shader_gather_info(nir, nir_shader_get_entrypoint(nir));
 
-   if (!ctx->SoftFP64 && nir->info.uses_64bit &&
+   if (!ctx->SoftFP64 && ((nir->info.bit_sizes_int | nir->info.bit_sizes_float) & 64) &&
        (options->lower_doubles_options & nir_lower_fp64_full_software)) {
       ctx->SoftFP64 = glsl_float64_funcs_to_nir(ctx, options);
    }
@@ -147,7 +148,7 @@ brw_create_nir(struct brw_context *brw,
 
    if (stage == MESA_SHADER_FRAGMENT) {
       static const struct nir_lower_wpos_ytransform_options wpos_options = {
-         .state_tokens = {STATE_INTERNAL, STATE_FB_WPOS_Y_TRANSFORM, 0, 0, 0},
+         .state_tokens = {STATE_INTERNAL, STATE_FB_WPOS_Y_TRANSFORM, 0, 0},
          .fs_coord_pixel_center_integer = 1,
          .fs_coord_origin_upper_left = 1,
       };
@@ -159,8 +160,6 @@ brw_create_nir(struct brw_context *brw,
                                    wpos_options.state_tokens);
       }
    }
-
-   NIR_PASS_V(nir, brw_nir_lower_uniforms, is_scalar);
 
    return nir;
 }
@@ -182,6 +181,7 @@ brw_nir_lower_resources(nir_shader *nir, struct gl_shader_program *shader_prog,
                         struct gl_program *prog,
                         const struct gen_device_info *devinfo)
 {
+   NIR_PASS_V(nir, brw_nir_lower_uniforms, nir->options->lower_to_scalar);
    NIR_PASS_V(prog->nir, gl_nir_lower_samplers, shader_prog);
    prog->info.textures_used = prog->nir->info.textures_used;
    prog->info.textures_used_by_txf = prog->nir->info.textures_used_by_txf;

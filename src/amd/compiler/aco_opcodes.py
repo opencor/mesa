@@ -66,7 +66,7 @@ class Format(Enum):
          return [('uint32_t', 'block', '-1'),
                  ('uint32_t', 'imm', '0')]
       elif self == Format.SMEM:
-         return [('bool', 'can_reorder', 'true'),
+         return [('memory_sync_info', 'sync', 'memory_sync_info()'),
                  ('bool', 'glc', 'false'),
                  ('bool', 'dlc', 'false'),
                  ('bool', 'nv', 'false')]
@@ -88,6 +88,7 @@ class Format(Enum):
       elif self == Format.MUBUF:
          return [('unsigned', 'offset', None),
                  ('bool', 'offen', None),
+                 ('bool', 'swizzled', 'false'),
                  ('bool', 'idxen', 'false'),
                  ('bool', 'addr64', 'false'),
                  ('bool', 'disable_wqm', 'false'),
@@ -122,6 +123,9 @@ class Format(Enum):
       elif self == Format.PSEUDO_REDUCTION:
          return [('ReduceOp', 'op', None, 'reduce_op'),
                  ('unsigned', 'cluster_size', '0')]
+      elif self == Format.PSEUDO_BARRIER:
+         return [('memory_sync_info', 'sync', None),
+                 ('sync_scope', 'exec_scope', 'scope_invocation')]
       elif self == Format.VINTRP:
          return [('unsigned', 'attribute', None),
                  ('unsigned', 'component', None)]
@@ -129,10 +133,13 @@ class Format(Enum):
          return [('uint16_t', 'dpp_ctrl', None),
                  ('uint8_t', 'row_mask', '0xF'),
                  ('uint8_t', 'bank_mask', '0xF'),
-                 ('bool', 'bound_ctrl', 'false')]
+                 ('bool', 'bound_ctrl', 'true')]
+      elif self == Format.VOP3P:
+         return [('uint8_t', 'opsel_lo', None),
+                 ('uint8_t', 'opsel_hi', None)]
       elif self in [Format.FLAT, Format.GLOBAL, Format.SCRATCH]:
          return [('uint16_t', 'offset', 0),
-                 ('bool', 'can_reorder', 'true'),
+                 ('memory_sync_info', 'sync', 'memory_sync_info()'),
                  ('bool', 'glc', 'false'),
                  ('bool', 'slc', 'false'),
                  ('bool', 'lds', 'false'),
@@ -191,6 +198,42 @@ class Opcode(object):
       self.is_atomic = "1" if is_atomic else "0"
       self.format = format
 
+      parts = name.replace('_e64', '').rsplit('_', 2)
+      op_dtype = parts[-1]
+      def_dtype = parts[-2] if len(parts) > 1 else parts[-1]
+
+      def_dtype_sizes = {'{}{}'.format(prefix, size) : size for prefix in 'biuf' for size in [64, 32, 24, 16]}
+      op_dtype_sizes = {k:v for k, v in def_dtype_sizes.items()}
+      # inline constants are 32-bit for 16-bit integer/typeless instructions: https://reviews.llvm.org/D81841
+      op_dtype_sizes['b16'] = 32
+      op_dtype_sizes['i16'] = 32
+      op_dtype_sizes['u16'] = 32
+
+      # If we can't tell the definition size and the operand size, default to
+      # 32. Some opcodes can have a larger definition size, but
+      # get_subdword_definition_info() handles that.
+      self.operand_size = op_dtype_sizes.get(op_dtype, 32)
+      self.definition_size = def_dtype_sizes.get(def_dtype, self.operand_size)
+
+      # exceptions for operands:
+      if 'sad_' in name:
+        self.operand_size = 0
+      elif name in ['v_mad_u64_u32', 'v_mad_i64_i32']:
+        self.operand_size = 0
+      elif self.operand_size == 24:
+        self.operand_size = 32
+      elif op_dtype == 'u8' or op_dtype == 'i8':
+        self.operand_size = 32
+      elif name in ['v_cvt_f32_ubyte0', 'v_cvt_f32_ubyte1',
+                    'v_cvt_f32_ubyte2', 'v_cvt_f32_ubyte3']:
+        self.operand_size = 32
+
+      # exceptions for definitions:
+      if 'sad_' in name:
+        self.definition_size = 0
+      elif '_pk' in name:
+        self.definition_size = 32
+
 
 # global dictionary of opcodes
 opcodes = {}
@@ -205,6 +248,7 @@ opcode("p_startpgm")
 opcode("p_phi")
 opcode("p_linear_phi")
 opcode("p_as_uniform")
+opcode("p_unit_test")
 
 opcode("p_create_vector")
 opcode("p_extract_vector")
@@ -221,21 +265,13 @@ opcode("p_reduce", format=Format.PSEUDO_REDUCTION)
 opcode("p_inclusive_scan", format=Format.PSEUDO_REDUCTION)
 # e.g. subgroupExclusiveMin()
 opcode("p_exclusive_scan", format=Format.PSEUDO_REDUCTION)
-# simulates proper bpermute behavior on GFX10 wave64
-opcode("p_wave64_bpermute", format=Format.PSEUDO_REDUCTION)
 
 opcode("p_branch", format=Format.PSEUDO_BRANCH)
 opcode("p_cbranch", format=Format.PSEUDO_BRANCH)
 opcode("p_cbranch_z", format=Format.PSEUDO_BRANCH)
 opcode("p_cbranch_nz", format=Format.PSEUDO_BRANCH)
 
-opcode("p_memory_barrier_common", format=Format.PSEUDO_BARRIER) # atomic, buffer, image and shared
-opcode("p_memory_barrier_atomic", format=Format.PSEUDO_BARRIER)
-opcode("p_memory_barrier_buffer", format=Format.PSEUDO_BARRIER)
-opcode("p_memory_barrier_image", format=Format.PSEUDO_BARRIER)
-opcode("p_memory_barrier_shared", format=Format.PSEUDO_BARRIER)
-opcode("p_memory_barrier_gs_data", format=Format.PSEUDO_BARRIER)
-opcode("p_memory_barrier_gs_sendmsg", format=Format.PSEUDO_BARRIER)
+opcode("p_barrier", format=Format.PSEUDO_BARRIER)
 
 opcode("p_spill")
 opcode("p_reload")
@@ -251,8 +287,8 @@ opcode("p_demote_to_helper")
 opcode("p_is_helper")
 opcode("p_exit_early_if")
 
-opcode("p_fs_buffer_store_smem", format=Format.SMEM)
-
+# simulates proper bpermute behavior when it's unsupported, eg. GFX10 wave64
+opcode("p_bpermute")
 
 # SOP2 instructions: 2 scalar inputs, 1 scalar output (+optional scc)
 SOP2 = {
@@ -505,6 +541,7 @@ for (gfx6, gfx7, gfx8, gfx9, gfx10, name) in SOPP:
 
 
 # SMEM instructions: sbase input (2 sgpr), potentially 2 offset inputs, 1 sdata input/output
+# Unlike GFX10, GFX10.3 does not have SMEM store, atomic or scratch instructions
 SMEM = {
   # GFX6, GFX7, GFX8, GFX9, GFX10, name
    (0x00, 0x00, 0x00, 0x00, 0x00, "s_load_dword"),
@@ -534,7 +571,7 @@ SMEM = {
    (  -1,   -1, 0x21, 0x21, 0x21, "s_dcache_wb"),
    (  -1, 0x1d, 0x22, 0x22,   -1, "s_dcache_inv_vol"),
    (  -1,   -1, 0x23, 0x23,   -1, "s_dcache_wb_vol"),
-   (0x1e, 0x1e, 0x24, 0x24, 0x24, "s_memtime"),
+   (0x1e, 0x1e, 0x24, 0x24, 0x24, "s_memtime"), #GFX6-GFX10
    (  -1,   -1, 0x25, 0x25, 0x25, "s_memrealtime"),
    (  -1,   -1, 0x26, 0x26, 0x26, "s_atc_probe"),
    (  -1,   -1, 0x27, 0x27, 0x27, "s_atc_probe_buffer"),
@@ -635,6 +672,7 @@ VOP2 = {
    (0x1f, 0x1f, 0x16, 0x16, 0x1f, "v_mac_f32", True),
    (0x20, 0x20, 0x17, 0x17, 0x20, "v_madmk_f32", False),
    (0x21, 0x21, 0x18, 0x18, 0x21, "v_madak_f32", False),
+   (0x24, 0x24,   -1,   -1,   -1, "v_mbcnt_hi_u32_b32", False),
    (0x25, 0x25, 0x19, 0x19,   -1, "v_add_co_u32", False), # VOP3B only in RDNA
    (0x26, 0x26, 0x1a, 0x1a,   -1, "v_sub_co_u32", False), # VOP3B only in RDNA
    (0x27, 0x27, 0x1b, 0x1b,   -1, "v_subrev_co_u32", False), # VOP3B only in RDNA
@@ -644,6 +682,7 @@ VOP2 = {
    (  -1,   -1,   -1,   -1, 0x2b, "v_fmac_f32", True),
    (  -1,   -1,   -1,   -1, 0x2c, "v_fmamk_f32", True),
    (  -1,   -1,   -1,   -1, 0x2d, "v_fmaak_f32", True),
+   (0x2f, 0x2f,   -1,   -1, 0x2f, "v_cvt_pkrtz_f16_f32", True),
    (  -1,   -1, 0x1f, 0x1f, 0x32, "v_add_f16", True),
    (  -1,   -1, 0x20, 0x20, 0x33, "v_sub_f16", True),
    (  -1,   -1, 0x21, 0x21, 0x34, "v_subrev_f16", True),
@@ -665,9 +704,9 @@ VOP2 = {
    (  -1,   -1, 0x31, 0x31,   -1, "v_min_u16", False),
    (  -1,   -1, 0x32, 0x32,   -1, "v_min_i16", False),
    (  -1,   -1, 0x33, 0x33, 0x3b, "v_ldexp_f16", False),
-   (  -1,   -1, 0x34, 0x34, 0x25, "v_add_u32", False), # v_add_nc_u32 in RDNA
-   (  -1,   -1, 0x35, 0x35, 0x26, "v_sub_u32", False), # v_sub_nc_u32 in RDNA
-   (  -1,   -1, 0x36, 0x36, 0x27, "v_subrev_u32", False), # v_subrev_nc_u32 in RDNA
+   (  -1,   -1,   -1, 0x34, 0x25, "v_add_u32", False), # use v_add_co_u32 on GFX8, called v_add_nc_u32 in RDNA
+   (  -1,   -1,   -1, 0x35, 0x26, "v_sub_u32", False), # use v_sub_co_u32 on GFX8, called v_sub_nc_u32 in RDNA
+   (  -1,   -1,   -1, 0x36, 0x27, "v_subrev_u32", False), # use v_subrev_co_u32 on GFX8, called v_subrev_nc_u32 in RDNA
    (  -1,   -1,   -1,   -1, 0x36, "v_fmac_f16", False),
    (  -1,   -1,   -1,   -1, 0x37, "v_fmamk_f16", False),
    (  -1,   -1,   -1,   -1, 0x38, "v_fmaak_f16", False),
@@ -696,6 +735,7 @@ VOP1 = {
    (0x08, 0x08, 0x08, 0x08, 0x08, "v_cvt_i32_f32", True, False),
    (0x09, 0x09,   -1,   -1, 0x09, "v_mov_fed_b32", True, False), # LLVM mentions it for GFX8_9
    (0x0a, 0x0a, 0x0a, 0x0a, 0x0a, "v_cvt_f16_f32", True, True),
+   (  -1,   -1,   -1,   -1,   -1, "p_cvt_f16_f32_rtne", True, True),
    (0x0b, 0x0b, 0x0b, 0x0b, 0x0b, "v_cvt_f32_f16", True, True),
    (0x0c, 0x0c, 0x0c, 0x0c, 0x0c, "v_cvt_rpi_i32_f32", True, False),
    (0x0d, 0x0d, 0x0d, 0x0d, 0x0d, "v_cvt_flr_i32_f32", True, False),
@@ -866,33 +906,34 @@ for i in range(8):
 
 # VOPP instructions: packed 16bit instructions - 1 or 2 inputs and 1 output
 VOPP = {
-   (0x00, "v_pk_mad_i16"),
-   (0x01, "v_pk_mul_lo_u16"),
-   (0x02, "v_pk_add_i16"),
-   (0x03, "v_pk_sub_i16"),
-   (0x04, "v_pk_lshlrev_b16"),
-   (0x05, "v_pk_lshrrev_b16"),
-   (0x06, "v_pk_ashrrev_i16"),
-   (0x07, "v_pk_max_i16"),
-   (0x08, "v_pk_min_i16"),
-   (0x09, "v_pk_mad_u16"),
-   (0x0a, "v_pk_add_u16"),
-   (0x0b, "v_pk_sub_u16"),
-   (0x0c, "v_pk_max_u16"),
-   (0x0d, "v_pk_min_u16"),
-   (0x0e, "v_pk_fma_f16"),
-   (0x0f, "v_pk_add_f16"),
-   (0x10, "v_pk_mul_f16"),
-   (0x11, "v_pk_min_f16"),
-   (0x12, "v_pk_max_f16"),
-   (0x20, "v_pk_fma_mix_f32"), # v_mad_mix_f32 in VEGA ISA, v_fma_mix_f32 in RDNA ISA
-   (0x21, "v_pk_fma_mixlo_f16"), # v_mad_mixlo_f16 in VEGA ISA, v_fma_mixlo_f16 in RDNA ISA
-   (0x22, "v_pk_fma_mixhi_f16"), # v_mad_mixhi_f16 in VEGA ISA, v_fma_mixhi_f16 in RDNA ISA
+   # opcode, name, input/output modifiers
+   (0x00, "v_pk_mad_i16", False),
+   (0x01, "v_pk_mul_lo_u16", False),
+   (0x02, "v_pk_add_i16", False),
+   (0x03, "v_pk_sub_i16", False),
+   (0x04, "v_pk_lshlrev_b16", False),
+   (0x05, "v_pk_lshrrev_b16", False),
+   (0x06, "v_pk_ashrrev_i16", False),
+   (0x07, "v_pk_max_i16", False),
+   (0x08, "v_pk_min_i16", False),
+   (0x09, "v_pk_mad_u16", False),
+   (0x0a, "v_pk_add_u16", False),
+   (0x0b, "v_pk_sub_u16", False),
+   (0x0c, "v_pk_max_u16", False),
+   (0x0d, "v_pk_min_u16", False),
+   (0x0e, "v_pk_fma_f16", True),
+   (0x0f, "v_pk_add_f16", True),
+   (0x10, "v_pk_mul_f16", True),
+   (0x11, "v_pk_min_f16", True),
+   (0x12, "v_pk_max_f16", True),
+   (0x20, "v_fma_mix_f32", True), # v_mad_mix_f32 in VEGA ISA, v_fma_mix_f32 in RDNA ISA
+   (0x21, "v_fma_mixlo_f16", True), # v_mad_mixlo_f16 in VEGA ISA, v_fma_mixlo_f16 in RDNA ISA
+   (0x22, "v_fma_mixhi_f16", True), # v_mad_mixhi_f16 in VEGA ISA, v_fma_mixhi_f16 in RDNA ISA
 }
 # note that these are only supported on gfx9+ so we'll need to distinguish between gfx8 and gfx9 here
 # (gfx6, gfx7, gfx8, gfx9, gfx10, name) = (-1, -1, -1, code, code, name)
-for (code, name) in VOPP:
-   opcode(name, -1, code, code, Format.VOP3P)
+for (code, name, modifiers) in VOPP:
+   opcode(name, -1, code, code, Format.VOP3P, modifiers, modifiers)
 
 
 # VINTERP instructions: 
@@ -908,7 +949,7 @@ for (code, name) in VINTRP:
 # VOP3 instructions: 3 inputs, 1 output
 # VOP3b instructions: have a unique scalar output, e.g. VOP2 with vcc out
 VOP3 = {
-   (0x140, 0x140, 0x1c0, 0x1c0, 0x140, "v_mad_legacy_f32", True, True),
+   (0x140, 0x140, 0x1c0, 0x1c0, 0x140, "v_mad_legacy_f32", True, True), # GFX6-GFX10
    (0x141, 0x141, 0x1c1, 0x1c1, 0x141, "v_mad_f32", True, True),
    (0x142, 0x142, 0x1c2, 0x1c2, 0x142, "v_mad_i32_i24", False, False),
    (0x143, 0x143, 0x1c3, 0x1c3, 0x143, "v_mad_u32_u24", False, False),
@@ -1005,14 +1046,14 @@ VOP3 = {
    (   -1,    -1, 0x28a, 0x28a, 0x361, "v_writelane_b32_e64", False, False),
    (0x122, 0x122, 0x28b, 0x28b, 0x364, "v_bcnt_u32_b32", False, False),
    (0x123, 0x123, 0x28c, 0x28c, 0x365, "v_mbcnt_lo_u32_b32", False, False),
-   (0x124, 0x124, 0x28d, 0x28d, 0x366, "v_mbcnt_hi_u32_b32", False, False),
+   (   -1,    -1, 0x28d, 0x28d, 0x366, "v_mbcnt_hi_u32_b32_e64", False, False),
    (   -1,    -1, 0x28f, 0x28f, 0x2ff, "v_lshlrev_b64", False, False),
    (   -1,    -1, 0x290, 0x290, 0x300, "v_lshrrev_b64", False, False),
    (   -1,    -1, 0x291, 0x291, 0x301, "v_ashrrev_i64", False, False),
    (0x11e, 0x11e, 0x293, 0x293, 0x363, "v_bfm_b32", False, False),
    (0x12d, 0x12d, 0x294, 0x294, 0x368, "v_cvt_pknorm_i16_f32", True, False),
    (0x12e, 0x12e, 0x295, 0x295, 0x369, "v_cvt_pknorm_u16_f32", True, False),
-   (0x12f, 0x12f, 0x296, 0x296, 0x12f, "v_cvt_pkrtz_f16_f32", True, False), # GFX6_7_10 is VOP2 with opcode 0x02f
+   (0x12f, 0x12f, 0x296, 0x296, 0x12f, "v_cvt_pkrtz_f16_f32_e64", True, False), # GFX6_7_10 is VOP2 with opcode 0x02f
    (0x130, 0x130, 0x297, 0x297, 0x36a, "v_cvt_pk_u16_u32", False, False),
    (0x131, 0x131, 0x298, 0x298, 0x36b, "v_cvt_pk_i16_i32", False, False),
    (   -1,    -1,    -1, 0x299, 0x312, "v_cvt_pknorm_i16_f16", True, False),
@@ -1038,6 +1079,7 @@ VOP3 = {
    (   -1,    -1,    -1,    -1, 0x307, "v_lshrrev_b16_e64", False, False),
    (   -1,    -1,    -1,    -1, 0x308, "v_ashrrev_i16_e64", False, False),
    (   -1,    -1,    -1,    -1, 0x314, "v_lshlrev_b16_e64", False, False),
+   (   -1,    -1,    -1,    -1, 0x140, "v_fma_legacy_f32", True, True), #GFX10.3+
 }
 for (gfx6, gfx7, gfx8, gfx9, gfx10, name, in_mod, out_mod) in VOP3:
    opcode(name, gfx7, gfx9, gfx10, Format.VOP3A, in_mod, out_mod)
@@ -1285,6 +1327,7 @@ MUBUF = {
    (0x60, 0x60,   -1,   -1, 0x60, "buffer_atomic_fmax_x2"),
    (  -1,   -1,   -1,   -1, 0x71, "buffer_gl0_inv"),
    (  -1,   -1,   -1,   -1, 0x72, "buffer_gl1_inv"),
+   (  -1,   -1,   -1,   -1, 0x34, "buffer_atomic_csub"), #GFX10.3+. seems glc must be set
 }
 for (gfx6, gfx7, gfx8, gfx9, gfx10, name) in MUBUF:
     opcode(name, gfx7, gfx9, gfx10, Format.MUBUF, is_atomic = "atomic" in name)
@@ -1328,6 +1371,8 @@ IMAGE = {
 # (gfx6, gfx7, gfx8, gfx9, gfx10, name) = (code, code, code, code, code, name)
 for (code, name) in IMAGE:
    opcode(name, code, code, code, Format.MIMG)
+
+opcode("image_msaa_load", -1, -1, 0x80, Format.MIMG) #GFX10.3+
 
 IMAGE_ATOMIC = {
    (0x0f, 0x0f, 0x10, "image_atomic_swap"),
@@ -1549,6 +1594,9 @@ GLOBAL = {
    (  -1, 0x5e, "global_atomic_fcmpswap_x2"),
    (  -1, 0x5f, "global_atomic_fmin_x2"),
    (  -1, 0x60, "global_atomic_fmax_x2"),
+   (  -1, 0x16, "global_load_dword_addtid"), #GFX10.3+
+   (  -1, 0x17, "global_store_dword_addtid"), #GFX10.3+
+   (  -1, 0x34, "global_atomic_csub"), #GFX10.3+. seems glc must be set
 }
 for (gfx8, gfx10, name) in GLOBAL:
     opcode(name, -1, gfx8, gfx10, Format.GLOBAL, is_atomic = "atomic" in name)
@@ -1598,6 +1646,9 @@ for ver in ['gfx9', 'gfx10']:
             # exceptions
             names = set([op_to_name[key], op.name])
             if ver in ['gfx8', 'gfx9'] and names == set(['v_mul_lo_i32', 'v_mul_lo_u32']):
+                continue
+            # v_mad_legacy_f32 is replaced with v_fma_legacy_f32 on GFX10.3
+            if ver == 'gfx10' and names == set(['v_mad_legacy_f32', 'v_fma_legacy_f32']):
                 continue
 
             print('%s and %s share the same opcode number (%s)' % (op_to_name[key], op.name, ver))

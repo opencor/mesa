@@ -56,7 +56,7 @@ static void
 clear_unused_for_modes(struct util_dynarray *unused_writes, nir_variable_mode modes)
 {
    util_dynarray_foreach_reverse(unused_writes, struct write_entry, entry) {
-      if (entry->dst->mode & modes)
+      if (nir_deref_mode_may_be(entry->dst, modes))
          *entry = util_dynarray_pop(unused_writes, struct write_entry);
    }
 }
@@ -109,7 +109,7 @@ update_unused_writes(struct util_dynarray *unused_writes,
 }
 
 static bool
-remove_dead_write_vars_local(void *mem_ctx, nir_block *block)
+remove_dead_write_vars_local(void *mem_ctx, nir_shader *shader, nir_block *block)
 {
    bool progress = false;
 
@@ -155,7 +155,7 @@ remove_dead_write_vars_local(void *mem_ctx, nir_block *block)
          clear_unused_for_modes(&unused_writes, nir_var_shader_out);
          break;
 
-      case nir_intrinsic_scoped_memory_barrier: {
+      case nir_intrinsic_scoped_barrier: {
          if (nir_intrinsic_memory_semantics(intrin) & NIR_MEMORY_RELEASE) {
             clear_unused_for_modes(&unused_writes,
                                    nir_intrinsic_memory_modes(intrin));
@@ -171,6 +171,8 @@ remove_dead_write_vars_local(void *mem_ctx, nir_block *block)
 
       case nir_intrinsic_load_deref: {
          nir_deref_instr *src = nir_src_as_deref(intrin->src[0]);
+         if (nir_deref_mode_must_be(src, nir_var_read_only_modes))
+            break;
          clear_unused_for_read(&unused_writes, src);
          break;
       }
@@ -231,18 +233,20 @@ remove_dead_write_vars_local(void *mem_ctx, nir_block *block)
 }
 
 static bool
-remove_dead_write_vars_impl(void *mem_ctx, nir_function_impl *impl)
+remove_dead_write_vars_impl(void *mem_ctx, nir_shader *shader, nir_function_impl *impl)
 {
    bool progress = false;
 
    nir_metadata_require(impl, nir_metadata_block_index);
 
    nir_foreach_block(block, impl)
-      progress |= remove_dead_write_vars_local(mem_ctx, block);
+      progress |= remove_dead_write_vars_local(mem_ctx, shader, block);
 
    if (progress) {
       nir_metadata_preserve(impl, nir_metadata_block_index |
                                   nir_metadata_dominance);
+   } else {
+      nir_metadata_preserve(impl, nir_metadata_all);
    }
 
    return progress;
@@ -257,7 +261,7 @@ nir_opt_dead_write_vars(nir_shader *shader)
    nir_foreach_function(function, shader) {
       if (!function->impl)
          continue;
-      progress |= remove_dead_write_vars_impl(mem_ctx, function->impl);
+      progress |= remove_dead_write_vars_impl(mem_ctx, shader, function->impl);
    }
 
    ralloc_free(mem_ctx);

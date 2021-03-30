@@ -56,13 +56,14 @@ struct amdgpu_cs_buffer {
 };
 
 enum ib_type {
+   IB_PREAMBLE,
    IB_MAIN,
    IB_PARALLEL_COMPUTE,
    IB_NUM,
 };
 
 struct amdgpu_ib {
-   struct radeon_cmdbuf base;
+   struct radeon_cmdbuf *rcs; /* pointer to the driver-owned data */
 
    /* A buffer out of which new IBs are allocated. */
    struct pb_buffer        *big_ib_buffer;
@@ -122,11 +123,14 @@ struct amdgpu_cs_context {
 
    /* the error returned from cs_flush for non-async submissions */
    int                         error_code;
+
+   /* TMZ: will this command be submitted using the TMZ flag */
+   bool secure;
 };
 
 struct amdgpu_cs {
    struct amdgpu_ib main; /* must be first because this is inherited */
-   struct amdgpu_ib compute_ib; /* optional parallel compute IB */
+   struct amdgpu_ib compute_ib;      /* optional parallel compute IB */
    struct amdgpu_ctx *ctx;
    enum ring_type ring_type;
    struct drm_amdgpu_cs_chunk_fence fence_chunk;
@@ -145,9 +149,11 @@ struct amdgpu_cs {
    void (*flush_cs)(void *ctx, unsigned flags, struct pipe_fence_handle **fence);
    void *flush_data;
    bool stop_exec_on_failure;
+   bool noop;
 
    struct util_queue_fence flush_completed;
    struct pipe_fence_handle *next_fence;
+   struct pb_buffer *preamble_ib_bo;
 };
 
 struct amdgpu_fence {
@@ -204,34 +210,16 @@ static inline void amdgpu_fence_reference(struct pipe_fence_handle **dst,
 
 int amdgpu_lookup_buffer(struct amdgpu_cs_context *cs, struct amdgpu_winsys_bo *bo);
 
-static inline struct amdgpu_ib *
-amdgpu_ib(struct radeon_cmdbuf *base)
-{
-   return (struct amdgpu_ib *)base;
-}
-
 static inline struct amdgpu_cs *
-amdgpu_cs(struct radeon_cmdbuf *base)
+amdgpu_cs(struct radeon_cmdbuf *rcs)
 {
-   assert(amdgpu_ib(base)->ib_type == IB_MAIN);
-   return (struct amdgpu_cs*)base;
+   struct amdgpu_cs *cs = (struct amdgpu_cs*)rcs->priv;
+   assert(!cs || cs->main.ib_type == IB_MAIN);
+   return cs;
 }
 
 #define get_container(member_ptr, container_type, container_member) \
    (container_type *)((char *)(member_ptr) - offsetof(container_type, container_member))
-
-static inline struct amdgpu_cs *
-amdgpu_cs_from_ib(struct amdgpu_ib *ib)
-{
-   switch (ib->ib_type) {
-   case IB_MAIN:
-      return get_container(ib, struct amdgpu_cs, main);
-   case IB_PARALLEL_COMPUTE:
-      return get_container(ib, struct amdgpu_cs, compute_ib);
-   default:
-      unreachable("bad ib_type");
-   }
-}
 
 static inline bool
 amdgpu_bo_is_referenced_by_cs(struct amdgpu_cs *cs,
@@ -258,7 +246,7 @@ amdgpu_bo_is_referenced_by_cs_with_usage(struct amdgpu_cs *cs,
       return false;
 
    buffer = bo->bo ? &cs->csc->real_buffers[index] :
-            bo->sparse ? &cs->csc->sparse_buffers[index] :
+            bo->base.usage & RADEON_FLAG_SPARSE ? &cs->csc->sparse_buffers[index] :
             &cs->csc->slab_buffers[index];
 
    return (buffer->usage & usage) != 0;
@@ -277,6 +265,5 @@ void amdgpu_add_fences(struct amdgpu_winsys_bo *bo,
                        struct pipe_fence_handle **fences);
 void amdgpu_cs_sync_flush(struct radeon_cmdbuf *rcs);
 void amdgpu_cs_init_functions(struct amdgpu_screen_winsys *ws);
-void amdgpu_cs_submit_ib(void *job, int thread_index);
 
 #endif

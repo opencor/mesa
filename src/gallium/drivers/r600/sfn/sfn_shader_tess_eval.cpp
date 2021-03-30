@@ -4,9 +4,10 @@
 namespace r600 {
 
 TEvalShaderFromNir::TEvalShaderFromNir(r600_pipe_shader *sh, r600_pipe_shader_selector& sel,
-                                       const r600_shader_key& key, r600_shader *gs_shader):
+                                       const r600_shader_key& key, r600_shader *gs_shader,
+                                       enum chip_class chip_class):
    VertexStage(PIPE_SHADER_TESS_EVAL, sel, sh->shader,
-               sh->scratch_space_needed),
+               sh->scratch_space_needed, chip_class, key.tes.first_atomic_counter),
    m_reserved_registers(0),
    m_key(key)
 
@@ -59,13 +60,21 @@ bool TEvalShaderFromNir::scan_sysvalue_access(nir_instr *instr)
    case nir_intrinsic_load_tcs_rel_patch_id_r600:
       m_sv_values.set(es_rel_patch_id);
       break;
+   case nir_intrinsic_store_output:
+      m_export_processor->scan_store_output(ir);
+      break;
    default:
       ;
    }
    return true;
 }
 
-bool TEvalShaderFromNir::allocate_reserved_registers()
+void TEvalShaderFromNir::emit_shader_start()
+{
+   m_export_processor->emit_shader_start();
+}
+
+bool TEvalShaderFromNir::do_allocate_reserved_registers()
 {
    if (m_sv_values.test(es_tess_coord)) {
       m_reserved_registers = 1;
@@ -119,6 +128,8 @@ bool TEvalShaderFromNir::emit_intrinsic_instruction_override(nir_intrinsic_instr
       return load_preloaded_value(instr->dest, 0, m_primitive_id);
    case nir_intrinsic_load_tcs_rel_patch_id_r600:
       return load_preloaded_value(instr->dest, 0, m_rel_patch_id);
+   case nir_intrinsic_store_output:
+      return m_export_processor->store_output(instr);
    default:
       return false;
    }
@@ -132,7 +143,7 @@ bool TEvalShaderFromNir::do_process_outputs(nir_variable *output)
 
 bool TEvalShaderFromNir::do_emit_store_deref(const nir_variable *out_var, nir_intrinsic_instr* instr)
 {
-   return m_export_processor->store_deref(out_var, instr);
+   return false;
 }
 
 void TEvalShaderFromNir::do_finalize()

@@ -53,7 +53,7 @@ draw_impl(struct fd_context *ctx, struct fd_ringbuffer *ring,
 		fd5_emit_vertex_bufs(ring, emit);
 
 	OUT_PKT4(ring, REG_A5XX_VFD_INDEX_OFFSET, 2);
-	OUT_RING(ring, info->index_size ? info->index_bias : info->start); /* VFD_INDEX_OFFSET */
+	OUT_RING(ring, info->index_size ? info->index_bias : emit->draw->start); /* VFD_INDEX_OFFSET */
 	OUT_RING(ring, info->start_instance);   /* VFD_INSTANCE_START_OFFSET */
 
 	OUT_PKT4(ring, REG_A5XX_PC_RESTART_INDEX, 1);
@@ -63,7 +63,7 @@ draw_impl(struct fd_context *ctx, struct fd_ringbuffer *ring,
 	fd5_emit_render_cntl(ctx, false, emit->binning_pass);
 	fd5_draw_emit(ctx->batch, ring, primtype,
 			emit->binning_pass ? IGNORE_VISIBILITY : USE_VISIBILITY,
-			info, index_offset);
+			info, emit->indirect, emit->draw, index_offset);
 }
 
 /* fixup dirty shader state in case some "unrelated" (from the state-
@@ -93,6 +93,8 @@ fixup_shader_state(struct fd_context *ctx, struct ir3_shader_key *key)
 
 static bool
 fd5_draw_vbo(struct fd_context *ctx, const struct pipe_draw_info *info,
+             const struct pipe_draw_indirect_info *indirect,
+             const struct pipe_draw_start_count *draw,
              unsigned index_offset)
 {
 	struct fd5_context *fd5_ctx = fd5_context(ctx);
@@ -101,6 +103,8 @@ fd5_draw_vbo(struct fd_context *ctx, const struct pipe_draw_info *info,
 		.vtx  = &ctx->vtx,
 		.prog = &ctx->prog,
 		.info = info,
+                .indirect = indirect,
+                .draw = draw,
 		.key = {
 			.color_two_side = ctx->rasterizer->light_twoside,
 			.vclamp_color = ctx->rasterizer->clamp_vertex_color,
@@ -142,7 +146,7 @@ fd5_draw_vbo(struct fd_context *ctx, const struct pipe_draw_info *info,
 	/* figure out whether we need to disable LRZ write for binning
 	 * pass using draw pass's fp:
 	 */
-	emit.no_lrz_write = fp->writes_pos || fp->no_earlyz;
+	emit.no_lrz_write = fp->writes_pos || fp->no_earlyz || fp->has_kill;
 
 	emit.binning_pass = false;
 	emit.dirty = dirty;
@@ -190,17 +194,7 @@ fd5_clear_lrz(struct fd_batch *batch, struct fd_resource *zsbuf, double depth)
 	struct fd_ringbuffer *ring;
 	uint32_t clear = util_pack_z(PIPE_FORMAT_Z16_UNORM, depth);
 
-	// TODO mid-frame clears (ie. app doing crazy stuff)??  Maybe worth
-	// splitting both clear and lrz clear out into their own rb's.  And
-	// just throw away any draws prior to clear.  (Anything not fullscreen
-	// clear, just fallback to generic path that treats it as a normal
-	// draw
-
-	if (!batch->lrz_clear) {
-		batch->lrz_clear = fd_submit_new_ringbuffer(batch->submit, 0x1000, 0);
-	}
-
-	ring = batch->lrz_clear;
+	ring = fd_batch_get_prologue(batch);
 
 	OUT_WFI5(ring);
 
@@ -229,7 +223,7 @@ fd5_clear_lrz(struct fd_batch *batch, struct fd_resource *zsbuf, double depth)
 			A5XX_RB_MRT_BUF_INFO_COLOR_SWAP(WZYX));
 	OUT_RING(ring, A5XX_RB_MRT_PITCH(zsbuf->lrz_pitch * 2));
 	OUT_RING(ring, A5XX_RB_MRT_ARRAY_PITCH(fd_bo_size(zsbuf->lrz)));
-	OUT_RELOCW(ring, zsbuf->lrz, 0x1000, 0, 0);
+	OUT_RELOC(ring, zsbuf->lrz, 0x1000, 0, 0);
 
 	OUT_PKT4(ring, REG_A5XX_RB_RENDER_CNTL, 1);
 	OUT_RING(ring, 0x00000000);

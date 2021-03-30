@@ -47,7 +47,27 @@ lower_tex_src_to_offset(nir_builder *b,
 
       if (nir_src_is_const(deref->arr.index) && index == NULL) {
          /* We're still building a direct index */
-         base_index += nir_src_as_uint(deref->arr.index) * array_elements;
+         unsigned index_in_array = nir_src_as_uint(deref->arr.index);
+
+         /* Section 5.11 (Out-of-Bounds Accesses) of the GLSL 4.60 spec says:
+          *
+          *    In the subsections described above for array, vector, matrix and
+          *    structure accesses, any out-of-bounds access produced undefined
+          *    behavior.... Out-of-bounds reads return undefined values, which
+          *    include values from other variables of the active program or zero.
+          *
+          * Robustness extensions suggest to return zero on out-of-bounds
+          * accesses, however it's not applicable to the arrays of samplers,
+          * so just clamp the index.
+          *
+          * Otherwise instr->sampler_index or instr->texture_index would be out
+          * of bounds, and they are used as an index to arrays of driver state.
+          */
+         if (index_in_array < glsl_array_size(parent->type)) {
+            base_index += index_in_array * array_elements;
+         } else {
+            base_index = glsl_array_size(parent->type) - 1;
+         }
       } else {
          if (index == NULL) {
             /* We used to be direct but not anymore */
@@ -131,6 +151,13 @@ lower_impl(nir_function_impl *impl)
          if (instr->type == nir_instr_type_tex)
             progress |= lower_sampler(&b, nir_instr_as_tex(instr));
       }
+   }
+
+   if (progress) {
+      nir_metadata_preserve(impl, nir_metadata_block_index |
+                                  nir_metadata_dominance);
+   } else {
+      nir_metadata_preserve(impl, nir_metadata_all);
    }
 
    return progress;

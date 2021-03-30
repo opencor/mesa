@@ -426,7 +426,7 @@ _swrast_compute_lambda(GLfloat dsdx, GLfloat dsdy, GLfloat dtdx, GLfloat dtdy,
    GLfloat x = sqrtf(dudx * dudx + dvdx * dvdx);
    GLfloat y = sqrtf(dudy * dudy + dvdy * dvdy);
    GLfloat rho = MAX2(x, y);
-   GLfloat lambda = util_fast_log2(rho);
+   GLfloat lambda = log2f(rho);
    return lambda;
 }
 
@@ -453,7 +453,7 @@ _swrast_compute_lambda(GLfloat dsdx, GLfloat dsdy, GLfloat dtdx, GLfloat dtdy,
    maxU = MAX2(dsdx2, dsdy2) * texW;
    maxV = MAX2(dtdx2, dtdy2) * texH;
    rho = MAX2(maxU, maxV);
-   lambda = util_fast_log2(rho);
+   lambda = logf2(rho);
    return lambda;
 }
 #endif
@@ -504,13 +504,13 @@ interpolate_texcoords(struct gl_context *ctx, SWspan *span)
                swrast_texture_image_const(img);
             const struct gl_sampler_object *samp = _mesa_get_samplerobj(ctx, u);
 
-            needLambda = (samp->MinFilter != samp->MagFilter)
+            needLambda = (samp->Attrib.MinFilter != samp->Attrib.MagFilter)
                || _swrast_use_fragment_program(ctx);
             /* LOD is calculated directly in the ansiotropic filter, we can
              * skip the normal lambda function as the result is ignored.
              */
-            if (samp->MaxAnisotropy > 1.0F &&
-                samp->MinFilter == GL_LINEAR_MIPMAP_LINEAR) {
+            if (samp->Attrib.MaxAnisotropy > 1.0F &&
+                samp->Attrib.MinFilter == GL_LINEAR_MIPMAP_LINEAR) {
                needLambda = GL_FALSE;
             }
             texW = swImg->WidthScale;

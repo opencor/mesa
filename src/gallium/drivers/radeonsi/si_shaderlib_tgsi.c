@@ -278,6 +278,7 @@ void *si_create_dcc_retile_cs(struct pipe_context *ctx)
 
    void *cs = ctx->create_compute_state(ctx, &state);
    ureg_destroy(ureg);
+   ureg_free_tokens(state.prog);
    return cs;
 }
 
@@ -503,18 +504,16 @@ void *si_create_copy_image_compute_shader(struct pipe_context *ctx)
 {
    static const char text[] =
       "COMP\n"
-      "PROPERTY CS_FIXED_BLOCK_WIDTH 8\n"
-      "PROPERTY CS_FIXED_BLOCK_HEIGHT 8\n"
-      "PROPERTY CS_FIXED_BLOCK_DEPTH 1\n"
       "DCL SV[0], THREAD_ID\n"
       "DCL SV[1], BLOCK_ID\n"
+      "DCL SV[2], BLOCK_SIZE\n"
       "DCL IMAGE[0], 2D_ARRAY, PIPE_FORMAT_R32G32B32A32_FLOAT, WR\n"
       "DCL IMAGE[1], 2D_ARRAY, PIPE_FORMAT_R32G32B32A32_FLOAT, WR\n"
       "DCL CONST[0][0..1]\n" // 0:xyzw 1:xyzw
       "DCL TEMP[0..4], LOCAL\n"
-      "IMM[0] UINT32 {8, 1, 0, 0}\n"
+
       "MOV TEMP[0].xyz, CONST[0][0].xyzw\n"
-      "UMAD TEMP[1].xyz, SV[1].xyzz, IMM[0].xxyy, SV[0].xyzz\n"
+      "UMAD TEMP[1].xyz, SV[1].xyzz, SV[2].xyzz, SV[0].xyzz\n"
       "UADD TEMP[2].xyz, TEMP[1].xyzx, TEMP[0].xyzx\n"
       "LOAD TEMP[3], IMAGE[0], TEMP[2].xyzx, 2D_ARRAY, PIPE_FORMAT_R32G32B32A32_FLOAT\n"
       "MOV TEMP[4].xyz, CONST[0][1].xyzw\n"
@@ -557,6 +556,45 @@ void *si_create_copy_image_compute_shader_1d_array(struct pipe_context *ctx)
       "MOV TEMP[4].xy, CONST[0][1].xzzw\n"
       "UADD TEMP[2].xy, TEMP[1].xyzx, TEMP[4].xyzx\n"
       "STORE IMAGE[1], TEMP[2].xyzz, TEMP[3], 1D_ARRAY, PIPE_FORMAT_R32G32B32A32_FLOAT\n"
+      "END\n";
+
+   struct tgsi_token tokens[1024];
+   struct pipe_compute_state state = {0};
+
+   if (!tgsi_text_translate(text, tokens, ARRAY_SIZE(tokens))) {
+      assert(false);
+      return NULL;
+   }
+
+   state.ir_type = PIPE_SHADER_IR_TGSI;
+   state.prog = tokens;
+
+   return ctx->create_compute_state(ctx, &state);
+}
+
+/* Create a compute shader implementing DCC decompression via a blit.
+ * This is a trivial copy_image shader except that it has a variable block
+ * size and a barrier.
+ */
+void *si_create_dcc_decompress_cs(struct pipe_context *ctx)
+{
+   static const char text[] =
+      "COMP\n"
+      "DCL SV[0], THREAD_ID\n"
+      "DCL SV[1], BLOCK_ID\n"
+      "DCL SV[2], BLOCK_SIZE\n"
+      "DCL IMAGE[0], 2D_ARRAY, PIPE_FORMAT_R32G32B32A32_FLOAT, WR\n"
+      "DCL IMAGE[1], 2D_ARRAY, PIPE_FORMAT_R32G32B32A32_FLOAT, WR\n"
+      "DCL TEMP[0..1]\n"
+
+      "UMAD TEMP[0].xyz, SV[1].xyzz, SV[2].xyzz, SV[0].xyzz\n"
+      "LOAD TEMP[1], IMAGE[0], TEMP[0].xyzz, 2D_ARRAY, PIPE_FORMAT_R32G32B32A32_FLOAT\n"
+      /* Wait for the whole threadgroup (= DCC block) to load texels before
+       * overwriting them, because overwriting any pixel within a DCC block
+       * can break compression for the whole block.
+       */
+      "BARRIER\n"
+      "STORE IMAGE[1], TEMP[0].xyzz, TEMP[1], 2D_ARRAY, PIPE_FORMAT_R32G32B32A32_FLOAT\n"
       "END\n";
 
    struct tgsi_token tokens[1024];
@@ -779,7 +817,7 @@ void *gfx10_create_sh_query_result_cs(struct si_context *sctx)
                                    "DCL BUFFER[2]\n"
                                    "DCL CONST[0][0..0]\n"
                                    "DCL TEMP[0..5]\n"
-                                   "IMM[0] UINT32 {0, 7, 0, 4294967295}\n"
+                                   "IMM[0] UINT32 {0, 7, 256, 4294967295}\n"
                                    "IMM[1] UINT32 {1, 2, 4, 8}\n"
                                    "IMM[2] UINT32 {16, 32, 64, 128}\n"
 
@@ -818,13 +856,13 @@ void *gfx10_create_sh_query_result_cs(struct si_context *sctx)
                                    "UADD TEMP[1].x, TEMP[1].xxxx, IMM[0].wwww\n"
 
                                    /*
-                                   fence = buffer[0]@(base_offset + 32);
+                                   fence = buffer[0]@(base_offset + sizeof(gfx10_sh_query_buffer_mem.stream));
                                    if (!fence) {
                                            acc_missing = ~0u;
                                            break;
                                    }
                                    */
-                                   "UADD TEMP[5].x, TEMP[1].yyyy, IMM[2].yyyy\n"
+                                   "UADD TEMP[5].x, TEMP[1].yyyy, IMM[2].wwww\n"
                                    "LOAD TEMP[5].x, BUFFER[0], TEMP[5].xxxx\n"
                                    "USEQ TEMP[5], TEMP[5].xxxx, IMM[0].xxxx\n"
                                    "UIF TEMP[5]\n"
@@ -860,22 +898,21 @@ void *gfx10_create_sh_query_result_cs(struct si_context *sctx)
 
                                    /*
                                    do {
-                                           generated = buffer[0]@stream_offset;
-                                           emitted = buffer[0]@(stream_offset + 16);
+                                           generated = buffer[0]@(stream_offset + 2 * sizeof(uint64_t));
+                                           emitted = buffer[0]@(stream_offset + 3 * sizeof(uint64_t));
                                            if (generated != emitted) {
                                                    acc_result = 1;
                                                    result_remaining = 0;
                                                    break;
                                            }
 
-                                           stream_offset += 4;
+                                           stream_offset += sizeof(gfx10_sh_query_buffer_mem.stream[0]);
                                    } while (--count);
                                    */
                                    "BGNLOOP\n"
                                    "UADD TEMP[5].x, TEMP[2].xxxx, IMM[2].xxxx\n"
-                                   "LOAD TEMP[4].x, BUFFER[0], TEMP[2].xxxx\n"
-                                   "LOAD TEMP[4].y, BUFFER[0], TEMP[5].xxxx\n"
-                                   "USNE TEMP[5], TEMP[4].xxxx, TEMP[4].yyyy\n"
+                                   "LOAD TEMP[4].xyzw, BUFFER[0], TEMP[5].xxxx\n"
+                                   "USNE TEMP[5], TEMP[4].xyxy, TEMP[4].zwzw\n"
                                    "UIF TEMP[5]\n"
                                    "MOV TEMP[0].x, IMM[1].xxxx\n"
                                    "MOV TEMP[1].y, IMM[0].xxxx\n"
@@ -887,15 +924,15 @@ void *gfx10_create_sh_query_result_cs(struct si_context *sctx)
                                    "UIF TEMP[5]\n"
                                    "BRK\n"
                                    "ENDIF\n"
-                                   "UADD TEMP[2].x, TEMP[2].xxxx, IMM[1].zzzz\n"
+                                   "UADD TEMP[2].x, TEMP[2].xxxx, IMM[2].yyyy\n"
                                    "ENDLOOP\n"
                                    "ENDIF\n"
 
                                    /*
-                                           base_offset += 64;
+                                           base_offset += sizeof(gfx10_sh_query_buffer_mem);
                                    } // end outer loop
                                    */
-                                   "UADD TEMP[1].y, TEMP[1].yyyy, IMM[2].zzzz\n"
+                                   "UADD TEMP[1].y, TEMP[1].yyyy, IMM[0].zzzz\n"
                                    "ENDLOOP\n"
 
                                    /*

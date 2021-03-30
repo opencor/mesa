@@ -23,6 +23,8 @@
 
 #include <assert.h>
 
+#include "main/samplerobj.h"
+
 #include "dev/gen_device_info.h"
 #include "common/gen_sample_positions.h"
 #include "genxml/gen_macros.h"
@@ -52,7 +54,6 @@
 #include "main/fbobject.h"
 #include "main/framebuffer.h"
 #include "main/glformats.h"
-#include "main/samplerobj.h"
 #include "main/shaderapi.h"
 #include "main/stencil.h"
 #include "main/transformfeedback.h"
@@ -402,7 +403,7 @@ pinned_bo_high_bits(struct brw_bo *bo)
  * This HW issue is gone on Gen11+.
  */
 static void
-vf_invalidate_for_vb_48bit_transitions(struct brw_context *brw)
+vf_invalidate_for_vb_48bit_transitions(UNUSED struct brw_context *brw)
 {
 #if GEN_GEN >= 8 && GEN_GEN < 11
    bool need_invalidate = false;
@@ -441,7 +442,7 @@ vf_invalidate_for_vb_48bit_transitions(struct brw_context *brw)
 }
 
 static void
-vf_invalidate_for_ib_48bit_transition(struct brw_context *brw)
+vf_invalidate_for_ib_48bit_transition(UNUSED struct brw_context *brw)
 {
 #if GEN_GEN >= 8
    uint16_t high_bits = pinned_bo_high_bits(brw->ib.bo);
@@ -671,9 +672,9 @@ genX(emit_vertices)(struct brw_context *brw)
             upload_format_size(upload_format) : glformat->Size;
 
          switch (size) {
-            case 0: comp0 = VFCOMP_STORE_0;
-            case 1: comp1 = VFCOMP_STORE_0;
-            case 2: comp2 = VFCOMP_STORE_0;
+            case 0: comp0 = VFCOMP_STORE_0; /* fallthrough */
+            case 1: comp1 = VFCOMP_STORE_0; /* fallthrough */
+            case 2: comp2 = VFCOMP_STORE_0; /* fallthrough */
             case 3:
                if (GEN_GEN >= 8 && glformat->Doubles) {
                   comp3 = VFCOMP_STORE_0;
@@ -900,12 +901,10 @@ static const struct brw_tracked_state genX(index_buffer) = {
 static void
 genX(upload_cut_index)(struct brw_context *brw)
 {
-   const struct gl_context *ctx = &brw->ctx;
-
    brw_batch_emit(brw, GENX(3DSTATE_VF), vf) {
-      if (ctx->Array._PrimitiveRestart && brw->ib.ib) {
+      if (brw->prim_restart.enable_cut_index && brw->ib.ib) {
          vf.IndexedDrawCutIndexEnable = true;
-         vf.CutIndex = ctx->Array._RestartIndex[brw->ib.index_size - 1];
+         vf.CutIndex = brw->prim_restart.restart_index;
       }
    }
 }
@@ -2365,10 +2364,16 @@ genX(upload_scissor_state)(struct brw_context *brw)
 
    /* BRW_NEW_VIEWPORT_COUNT */
    const unsigned viewport_count = brw->clip.viewport_count;
-
+   /* GEN:BUG:1409725701:
+    *    "The viewport-specific state used by the SF unit (SCISSOR_RECT) is
+    *    stored as an array of up to 16 elements. The location of first
+    *    element of the array, as specified by Pointer to SCISSOR_RECT, should
+    *    be aligned to a 64-byte boundary.
+    */
+   const unsigned alignment = 64;
    scissor_map = brw_state_batch(
       brw, GENX(SCISSOR_RECT_length) * sizeof(uint32_t) * viewport_count,
-      32, &scissor_state_offset);
+      alignment, &scissor_state_offset);
 
    /* _NEW_SCISSOR | _NEW_BUFFERS | _NEW_VIEWPORT */
 
@@ -2843,7 +2848,8 @@ set_blend_entry_bits(struct brw_context *brw, BLEND_ENTRY_GENXML *entry, int i,
          entry->LogicOpEnable = true;
          entry->LogicOpFunction = ctx->Color._LogicOp;
       }
-   } else if (blend_enabled && !ctx->Color._AdvancedBlendMode
+   } else if (blend_enabled &&
+              ctx->Color._AdvancedBlendMode == BLEND_NONE
               && (GEN_GEN <= 5 || !integer)) {
       GLenum eqRGB = ctx->Color.Blend[i].EquationRGB;
       GLenum eqA = ctx->Color.Blend[i].EquationA;
@@ -4264,8 +4270,7 @@ genX(upload_cs_state)(struct brw_context *brw)
    struct brw_cs_prog_data *cs_prog_data = brw_cs_prog_data(prog_data);
    const struct gen_device_info *devinfo = &brw->screen->devinfo;
 
-   const unsigned threads =
-      DIV_ROUND_UP(brw_cs_group_size(brw), cs_prog_data->simd_size);
+   const struct brw_cs_parameters cs_params = brw_cs_get_parameters(brw);
 
    if (INTEL_DEBUG & DEBUG_SHADER_TIME) {
       brw_emit_buffer_surface_state(
@@ -4357,13 +4362,13 @@ genX(upload_cs_state)(struct brw_context *brw)
       vfe.URBEntryAllocationSize = GEN_GEN >= 8 ? 2 : 0;
 
       const uint32_t vfe_curbe_allocation =
-         ALIGN(cs_prog_data->push.per_thread.regs * threads +
+         ALIGN(cs_prog_data->push.per_thread.regs * cs_params.threads +
                cs_prog_data->push.cross_thread.regs, 2);
       vfe.CURBEAllocationSize = vfe_curbe_allocation;
    }
 
    const unsigned push_const_size =
-      brw_cs_push_const_total_size(cs_prog_data, threads);
+      brw_cs_push_const_total_size(cs_prog_data, cs_params.threads);
    if (push_const_size > 0) {
       brw_batch_emit(brw, GENX(MEDIA_CURBE_LOAD), curbe) {
          curbe.CURBETotalDataLength = ALIGN(push_const_size, 64);
@@ -4374,15 +4379,18 @@ genX(upload_cs_state)(struct brw_context *brw)
    /* BRW_NEW_SURFACES and BRW_NEW_*_CONSTBUF */
    memcpy(bind, stage_state->surf_offset,
           prog_data->binding_table.size_bytes);
+   const uint64_t ksp = brw->cs.base.prog_offset +
+                        brw_cs_prog_data_prog_offset(cs_prog_data,
+                                                     cs_params.simd_size);
    const struct GENX(INTERFACE_DESCRIPTOR_DATA) idd = {
-      .KernelStartPointer = brw->cs.base.prog_offset,
+      .KernelStartPointer = ksp,
       .SamplerStatePointer = stage_state->sampler_offset,
       /* WA_1606682166 */
       .SamplerCount = GEN_GEN == 11 ? 0 :
                       DIV_ROUND_UP(CLAMP(stage_state->sampler_count, 0, 16), 4),
       .BindingTablePointer = stage_state->bind_bo_offset,
       .ConstantURBEntryReadLength = cs_prog_data->push.per_thread.regs,
-      .NumberofThreadsinGPGPUThreadGroup = threads,
+      .NumberofThreadsinGPGPUThreadGroup = cs_params.threads,
       .SharedLocalMemorySize = encode_slm_size(GEN_GEN,
                                                prog_data->total_shared),
       .BarrierEnable = cs_prog_data->uses_barrier,
@@ -4479,31 +4487,24 @@ prepare_indirect_gpgpu_walker(struct brw_context *brw)
 static void
 genX(emit_gpgpu_walker)(struct brw_context *brw)
 {
-   const struct brw_cs_prog_data *prog_data =
-      brw_cs_prog_data(brw->cs.base.prog_data);
-
    const GLuint *num_groups = brw->compute.num_work_groups;
 
    bool indirect = brw->compute.num_work_groups_bo != NULL;
    if (indirect)
       prepare_indirect_gpgpu_walker(brw);
 
-   const unsigned group_size = brw_cs_group_size(brw);
-   const unsigned simd_size = prog_data->simd_size;
-   unsigned thread_width_max = DIV_ROUND_UP(group_size, simd_size);
+   const struct brw_cs_parameters cs_params = brw_cs_get_parameters(brw);
 
-   uint32_t right_mask = 0xffffffffu >> (32 - simd_size);
-   const unsigned right_non_aligned = group_size & (simd_size - 1);
-   if (right_non_aligned != 0)
-      right_mask >>= (simd_size - right_non_aligned);
+   const uint32_t right_mask =
+      brw_cs_right_mask(cs_params.group_size, cs_params.simd_size);
 
    brw_batch_emit(brw, GENX(GPGPU_WALKER), ggw) {
       ggw.IndirectParameterEnable      = indirect;
       ggw.PredicateEnable              = GEN_GEN <= 7 && indirect;
-      ggw.SIMDSize                     = prog_data->simd_size / 16;
+      ggw.SIMDSize                     = cs_params.simd_size / 16;
       ggw.ThreadDepthCounterMaximum    = 0;
       ggw.ThreadHeightCounterMaximum   = 0;
-      ggw.ThreadWidthCounterMaximum    = thread_width_max - 1;
+      ggw.ThreadWidthCounterMaximum    = cs_params.threads - 1;
       ggw.ThreadGroupIDXDimension      = num_groups[0];
       ggw.ThreadGroupIDYDimension      = num_groups[1];
       ggw.ThreadGroupIDZDimension      = num_groups[2];
@@ -4952,7 +4953,8 @@ has_component(mesa_format format, int i)
 static void
 genX(upload_default_color)(struct brw_context *brw,
                            const struct gl_sampler_object *sampler,
-                           mesa_format format, GLenum base_format,
+                           UNUSED mesa_format format,
+                           GLenum base_format,
                            bool is_integer_format, bool is_stencil_sampling,
                            uint32_t *sdc_offset)
 {
@@ -4964,40 +4966,40 @@ genX(upload_default_color)(struct brw_context *brw,
        * R channel, while the hardware uses A.  Spam R into all the
        * channels for safety.
        */
-      color.ui[0] = sampler->BorderColor.ui[0];
-      color.ui[1] = sampler->BorderColor.ui[0];
-      color.ui[2] = sampler->BorderColor.ui[0];
-      color.ui[3] = sampler->BorderColor.ui[0];
+      color.ui[0] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[1] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[2] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[3] = sampler->Attrib.BorderColor.ui[0];
       break;
    case GL_ALPHA:
       color.ui[0] = 0u;
       color.ui[1] = 0u;
       color.ui[2] = 0u;
-      color.ui[3] = sampler->BorderColor.ui[3];
+      color.ui[3] = sampler->Attrib.BorderColor.ui[3];
       break;
    case GL_INTENSITY:
-      color.ui[0] = sampler->BorderColor.ui[0];
-      color.ui[1] = sampler->BorderColor.ui[0];
-      color.ui[2] = sampler->BorderColor.ui[0];
-      color.ui[3] = sampler->BorderColor.ui[0];
+      color.ui[0] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[1] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[2] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[3] = sampler->Attrib.BorderColor.ui[0];
       break;
    case GL_LUMINANCE:
-      color.ui[0] = sampler->BorderColor.ui[0];
-      color.ui[1] = sampler->BorderColor.ui[0];
-      color.ui[2] = sampler->BorderColor.ui[0];
+      color.ui[0] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[1] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[2] = sampler->Attrib.BorderColor.ui[0];
       color.ui[3] = float_as_int(1.0);
       break;
    case GL_LUMINANCE_ALPHA:
-      color.ui[0] = sampler->BorderColor.ui[0];
-      color.ui[1] = sampler->BorderColor.ui[0];
-      color.ui[2] = sampler->BorderColor.ui[0];
-      color.ui[3] = sampler->BorderColor.ui[3];
+      color.ui[0] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[1] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[2] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[3] = sampler->Attrib.BorderColor.ui[3];
       break;
    default:
-      color.ui[0] = sampler->BorderColor.ui[0];
-      color.ui[1] = sampler->BorderColor.ui[1];
-      color.ui[2] = sampler->BorderColor.ui[2];
-      color.ui[3] = sampler->BorderColor.ui[3];
+      color.ui[0] = sampler->Attrib.BorderColor.ui[0];
+      color.ui[1] = sampler->Attrib.BorderColor.ui[1];
+      color.ui[2] = sampler->Attrib.BorderColor.ui[2];
+      color.ui[3] = sampler->Attrib.BorderColor.ui[3];
       break;
    }
 
@@ -5198,7 +5200,7 @@ genX(update_sampler_state)(struct brw_context *brw,
    struct GENX(SAMPLER_STATE) samp_st = { 0 };
 
    /* Select min and mip filters. */
-   switch (sampler->MinFilter) {
+   switch (sampler->Attrib.MinFilter) {
    case GL_NEAREST:
       samp_st.MinModeFilter = MAPFILTER_NEAREST;
       samp_st.MipModeFilter = MIPFILTER_NONE;
@@ -5228,21 +5230,21 @@ genX(update_sampler_state)(struct brw_context *brw,
    }
 
    /* Select mag filter. */
-   samp_st.MagModeFilter = sampler->MagFilter == GL_LINEAR ?
+   samp_st.MagModeFilter = sampler->Attrib.MagFilter == GL_LINEAR ?
       MAPFILTER_LINEAR : MAPFILTER_NEAREST;
 
    /* Enable anisotropic filtering if desired. */
    samp_st.MaximumAnisotropy = RATIO21;
 
-   if (sampler->MaxAnisotropy > 1.0f) {
+   if (sampler->Attrib.MaxAnisotropy > 1.0f) {
       if (samp_st.MinModeFilter == MAPFILTER_LINEAR)
          samp_st.MinModeFilter = MAPFILTER_ANISOTROPIC;
       if (samp_st.MagModeFilter == MAPFILTER_LINEAR)
          samp_st.MagModeFilter = MAPFILTER_ANISOTROPIC;
 
-      if (sampler->MaxAnisotropy > 2.0f) {
+      if (sampler->Attrib.MaxAnisotropy > 2.0f) {
          samp_st.MaximumAnisotropy =
-            MIN2((sampler->MaxAnisotropy - 2) / 2, RATIO161);
+            MIN2((sampler->Attrib.MaxAnisotropy - 2) / 2, RATIO161);
       }
    }
 
@@ -5260,10 +5262,10 @@ genX(update_sampler_state)(struct brw_context *brw,
    }
 
    bool either_nearest =
-      sampler->MinFilter == GL_NEAREST || sampler->MagFilter == GL_NEAREST;
-   unsigned wrap_s = translate_wrap_mode(sampler->WrapS, either_nearest);
-   unsigned wrap_t = translate_wrap_mode(sampler->WrapT, either_nearest);
-   unsigned wrap_r = translate_wrap_mode(sampler->WrapR, either_nearest);
+      sampler->Attrib.MinFilter == GL_NEAREST || sampler->Attrib.MagFilter == GL_NEAREST;
+   unsigned wrap_s = translate_wrap_mode(sampler->Attrib.WrapS, either_nearest);
+   unsigned wrap_t = translate_wrap_mode(sampler->Attrib.WrapT, either_nearest);
+   unsigned wrap_r = translate_wrap_mode(sampler->Attrib.WrapR, either_nearest);
 
    if (target == GL_TEXTURE_CUBE_MAP ||
        target == GL_TEXTURE_CUBE_MAP_ARRAY) {
@@ -5273,7 +5275,7 @@ genX(update_sampler_state)(struct brw_context *brw,
        * Ivybridge and Baytrail seem to have problems with CUBE mode and
        * integer formats.  Fall back to CLAMP for now.
        */
-      if ((tex_cube_map_seamless || sampler->CubeMapSeamless) &&
+      if ((tex_cube_map_seamless || sampler->Attrib.CubeMapSeamless) &&
           !(GEN_GEN == 7 && !GEN_IS_HASWELL && texObj->_IsIntegerFormat)) {
          wrap_s = TCM_CUBE;
          wrap_t = TCM_CUBE;
@@ -5297,8 +5299,8 @@ genX(update_sampler_state)(struct brw_context *brw,
    samp_st.TCZAddressControlMode = wrap_r;
 
    samp_st.ShadowFunction =
-      sampler->CompareMode == GL_COMPARE_R_TO_TEXTURE_ARB ?
-      intel_translate_shadow_compare_func(sampler->CompareFunc) : 0;
+      sampler->Attrib.CompareMode == GL_COMPARE_R_TO_TEXTURE_ARB ?
+      intel_translate_shadow_compare_func(sampler->Attrib.CompareFunc) : 0;
 
 #if GEN_GEN >= 7
    /* Set shadow function. */
@@ -5312,14 +5314,14 @@ genX(update_sampler_state)(struct brw_context *brw,
 #endif
 
    const float hw_max_lod = GEN_GEN >= 7 ? 14 : 13;
-   samp_st.MinLOD = CLAMP(sampler->MinLod, 0, hw_max_lod);
-   samp_st.MaxLOD = CLAMP(sampler->MaxLod, 0, hw_max_lod);
+   samp_st.MinLOD = CLAMP(sampler->Attrib.MinLod, 0, hw_max_lod);
+   samp_st.MaxLOD = CLAMP(sampler->Attrib.MaxLod, 0, hw_max_lod);
    samp_st.TextureLODBias =
-      CLAMP(tex_unit_lod_bias + sampler->LodBias, -16, 15);
+      CLAMP(tex_unit_lod_bias + sampler->Attrib.LodBias, -16, 15);
 
 #if GEN_GEN == 6
    samp_st.BaseMipLevel =
-      CLAMP(texObj->MinLevel + texObj->BaseLevel, 0, hw_max_lod);
+      CLAMP(texObj->MinLevel + texObj->Attrib.BaseLevel, 0, hw_max_lod);
    samp_st.MinandMagStateNotEqual =
       samp_st.MinModeFilter != samp_st.MagModeFilter;
 #endif
@@ -5334,7 +5336,7 @@ genX(update_sampler_state)(struct brw_context *brw,
        wrap_mode_needs_border_color(wrap_r)) {
       genX(upload_default_color)(brw, sampler, format, base_format,
                                  texObj->_IsIntegerFormat,
-                                 texObj->StencilSampling,
+                                 texObj->Attrib.StencilSampling,
                                  &border_color_offset);
    }
 #if GEN_GEN < 6
@@ -5367,7 +5369,7 @@ update_sampler_state(struct brw_context *brw,
    if (texObj->Target == GL_TEXTURE_BUFFER)
       return;
 
-   struct gl_texture_image *firstImage = texObj->Image[0][texObj->BaseLevel];
+   struct gl_texture_image *firstImage = texObj->Image[0][texObj->Attrib.BaseLevel];
    genX(update_sampler_state)(brw, texObj->Target,
                               ctx->Texture.CubeMapSeamless,
                               texUnit->LodBias,

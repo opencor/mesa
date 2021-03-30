@@ -95,6 +95,7 @@ draw_create_context(struct pipe_context *pipe, void *context,
 #endif
 
    draw->pipe = pipe;
+   draw->constant_buffer_stride = (sizeof(float) * 4);
 
    if (!draw_init(draw))
       goto err_destroy;
@@ -199,7 +200,7 @@ void draw_new_instance(struct draw_context *draw)
 void draw_destroy( struct draw_context *draw )
 {
    struct pipe_context *pipe;
-   unsigned i, j;
+   unsigned i, j, k;
 
    if (!draw)
       return;
@@ -210,8 +211,10 @@ void draw_destroy( struct draw_context *draw )
     */
    for (i = 0; i < 2; i++) {
       for (j = 0; j < 2; j++) {
-         if (draw->rasterizer_no_cull[i][j]) {
-            pipe->delete_rasterizer_state(pipe, draw->rasterizer_no_cull[i][j]);
+         for (k = 0; k < 2; k++) {
+            if (draw->rasterizer_no_cull[i][j][k]) {
+               pipe->delete_rasterizer_state(pipe, draw->rasterizer_no_cull[i][j][k]);
+            }
          }
       }
    }
@@ -1055,26 +1058,26 @@ draw_current_shader_num_written_culldistances(const struct draw_context *draw)
  */
 void *
 draw_get_rasterizer_no_cull( struct draw_context *draw,
-                             boolean scissor,
-                             boolean flatshade )
+                             const struct pipe_rasterizer_state *base_rast )
 {
-   if (!draw->rasterizer_no_cull[scissor][flatshade]) {
+   if (!draw->rasterizer_no_cull[base_rast->scissor][base_rast->flatshade][base_rast->rasterizer_discard]) {
       /* create now */
       struct pipe_context *pipe = draw->pipe;
       struct pipe_rasterizer_state rast;
 
       memset(&rast, 0, sizeof(rast));
-      rast.scissor = scissor;
-      rast.flatshade = flatshade;
+      rast.scissor = base_rast->scissor;
+      rast.flatshade = base_rast->flatshade;
+      rast.rasterizer_discard = base_rast->rasterizer_discard;
       rast.front_ccw = 1;
       rast.half_pixel_center = draw->rasterizer->half_pixel_center;
       rast.bottom_edge_rule = draw->rasterizer->bottom_edge_rule;
       rast.clip_halfz = draw->rasterizer->clip_halfz;
 
-      draw->rasterizer_no_cull[scissor][flatshade] =
+      draw->rasterizer_no_cull[base_rast->scissor][base_rast->flatshade][base_rast->rasterizer_discard] =
          pipe->create_rasterizer_state(pipe, &rast);
    }
-   return draw->rasterizer_no_cull[scissor][flatshade];
+   return draw->rasterizer_no_cull[base_rast->scissor][base_rast->flatshade][base_rast->rasterizer_discard];
 }
 
 void
@@ -1168,6 +1171,8 @@ draw_set_mapped_texture(struct draw_context *draw,
                         unsigned sview_idx,
                         uint32_t width, uint32_t height, uint32_t depth,
                         uint32_t first_level, uint32_t last_level,
+                        uint32_t num_samples,
+                        uint32_t sample_stride,
                         const void *base_ptr,
                         uint32_t row_stride[PIPE_MAX_TEXTURE_LEVELS],
                         uint32_t img_stride[PIPE_MAX_TEXTURE_LEVELS],
@@ -1179,7 +1184,7 @@ draw_set_mapped_texture(struct draw_context *draw,
                                    shader_stage,
                                    sview_idx,
                                    width, height, depth, first_level,
-                                   last_level, base_ptr,
+                                   last_level, num_samples, sample_stride, base_ptr,
                                    row_stride, img_stride, mip_offsets);
 #endif
 }
@@ -1191,7 +1196,9 @@ draw_set_mapped_image(struct draw_context *draw,
                       uint32_t width, uint32_t height, uint32_t depth,
                       const void *base_ptr,
                       uint32_t row_stride,
-                      uint32_t img_stride)
+                      uint32_t img_stride,
+                      uint32_t num_samples,
+                      uint32_t sample_stride)
 {
 #ifdef LLVM_AVAILABLE
    if (draw->llvm)
@@ -1200,7 +1207,8 @@ draw_set_mapped_image(struct draw_context *draw,
                                  idx,
                                  width, height, depth,
                                  base_ptr,
-                                 row_stride, img_stride);
+                                 row_stride, img_stride,
+                                 num_samples, sample_stride);
 #endif
 }
 
@@ -1330,4 +1338,24 @@ draw_set_tess_state(struct draw_context *draw,
       draw->default_outer_tess_level[i] = default_outer_level[i];
    for (unsigned i = 0; i < 2; i++)
       draw->default_inner_tess_level[i] = default_inner_level[i];
+}
+
+void
+draw_set_disk_cache_callbacks(struct draw_context *draw,
+                              void *data_cookie,
+                              void (*find_shader)(void *cookie,
+                                                  struct lp_cached_code *cache,
+                                                  unsigned char ir_sha1_cache_key[20]),
+                              void (*insert_shader)(void *cookie,
+                                                    struct lp_cached_code *cache,
+                                                    unsigned char ir_sha1_cache_key[20]))
+{
+   draw->disk_cache_find_shader = find_shader;
+   draw->disk_cache_insert_shader = insert_shader;
+   draw->disk_cache_cookie = data_cookie;
+}
+
+void draw_set_constant_buffer_stride(struct draw_context *draw, unsigned num_bytes)
+{
+   draw->constant_buffer_stride = num_bytes;
 }

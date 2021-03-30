@@ -46,6 +46,7 @@
 #include <vector>
 #include <set>
 #include <stack>
+#include <unordered_map>
 
 struct nir_instr;
 
@@ -56,32 +57,38 @@ extern SfnLog sfn_log;
 class ShaderFromNirProcessor : public ValuePool {
 public:
    ShaderFromNirProcessor(pipe_shader_type ptype, r600_pipe_shader_selector& sel,
-                          r600_shader& sh_info, int scratch_size);
+                          r600_shader& sh_info, int scratch_size, enum chip_class _chip_class,
+                          int atomic_base);
    virtual ~ShaderFromNirProcessor();
 
    void emit_instruction(Instruction *ir);
 
-   PValue from_nir_with_fetch_constant(const nir_src& src, unsigned component);
-   GPRVector *vec_from_nir_with_fetch_constant(const nir_src& src, unsigned mask,
-                                               const GPRVector::Swizzle& swizzle);
+   PValue from_nir_with_fetch_constant(const nir_src& src, unsigned component, int channel = -1);
+   GPRVector vec_from_nir_with_fetch_constant(const nir_src& src, unsigned mask,
+                                              const GPRVector::Swizzle& swizzle, bool match = false);
 
    bool emit_instruction(EAluOp opcode, PValue dest,
                          std::vector<PValue> src0,
                          const std::set<AluModifiers>& m_flags);
    void emit_export_instruction(WriteoutInstruction *ir);
+   void emit_instruction(AluInstruction *ir);
 
    void split_constants(nir_alu_instr* instr);
-   void load_uniform(const nir_alu_src& src);
-
    void remap_registers();
 
    const nir_variable *get_deref_location(const nir_src& src) const;
 
    r600_shader& sh_info() {return m_sh_info;}
    void add_param_output_reg(int loc, const GPRVector *gpr);
-   void set_output(unsigned pos, PValue var);
+   void set_output(unsigned pos, int sel);
    const GPRVector *output_register(unsigned location) const;
    void evaluate_spi_sid(r600_shader_io &io);
+
+   enum chip_class get_chip_class() const;
+
+   int remap_atomic_base(int base) {
+      return m_atomic_base_map[base];
+   }
 
 protected:
 
@@ -103,6 +110,7 @@ protected:
    bool emit_load_tcs_param_base(nir_intrinsic_instr* instr, int offset);
    bool emit_load_local_shared(nir_intrinsic_instr* instr);
    bool emit_store_local_shared(nir_intrinsic_instr* instr);
+   bool emit_atomic_local_shared(nir_intrinsic_instr* instr);
 
    bool emit_barrier(nir_intrinsic_instr* instr);
 
@@ -120,17 +128,25 @@ protected:
       es_rel_patch_id,
       es_sample_mask_in,
       es_sample_id,
+      es_sample_pos,
       es_tess_factor_base,
       es_vertexid,
       es_tess_coord,
       es_primitive_id,
+      es_helper_invocation,
       es_last
    };
 
    std::bitset<es_last> m_sv_values;
 
+   bool allocate_reserved_registers();
+
+
 private:
-   virtual bool allocate_reserved_registers() = 0;
+   virtual bool do_allocate_reserved_registers() = 0;
+
+
+   void emit_instruction_internal(Instruction *ir);
 
    bool emit_alu_instruction(nir_instr *instr);
    bool emit_deref_instruction(nir_deref_instr* instr);
@@ -138,7 +154,7 @@ private:
    virtual bool emit_intrinsic_instruction_override(nir_intrinsic_instr* instr);
    bool emit_tex_instruction(nir_instr* instr);
    bool emit_discard_if(nir_intrinsic_instr* instr);
-   bool emit_load_ubo(nir_intrinsic_instr* instr);
+   bool emit_load_ubo_vec4(nir_intrinsic_instr* instr);
    bool emit_ssbo_atomic_add(nir_intrinsic_instr* instr);
    bool load_uniform_indirect(nir_intrinsic_instr* instr, PValue addr, int offest, int bufid);
 
@@ -149,12 +165,10 @@ private:
 
    bool emit_store_deref(nir_intrinsic_instr* instr);
 
-   bool reserve_uniform(nir_intrinsic_instr* instr);
+   bool load_uniform(nir_intrinsic_instr* instr);
    bool process_uniforms(nir_variable *uniform);
    bool process_inputs(nir_variable *input);
    bool process_outputs(nir_variable *output);
-
-   void add_array_deref(nir_deref_instr* instr);
 
    void append_block(int nesting_change);
 
@@ -165,8 +179,10 @@ private:
    virtual bool do_emit_load_deref(const nir_variable *in_var, nir_intrinsic_instr* instr) = 0;
    virtual bool do_emit_store_deref(const nir_variable *out_var, nir_intrinsic_instr* instr) = 0;
 
+
    bool emit_store_scratch(nir_intrinsic_instr* instr);
    bool emit_load_scratch(nir_intrinsic_instr* instr);
+   bool emit_shader_clock(nir_intrinsic_instr* instr);
    virtual void do_finalize() = 0;
 
    void finalize();
@@ -175,7 +191,7 @@ private:
    std::set<nir_variable*> m_arrays;
 
    std::map<unsigned, PValue> m_inputs;
-   std::map<unsigned, PValue> m_outputs;
+   std::map<unsigned, int> m_outputs;
 
    std::map<unsigned, nir_variable*> m_var_derefs;
    std::map<const nir_variable *, nir_variable_mode> m_var_mode;
@@ -191,7 +207,7 @@ private:
    unsigned m_block_number;
    InstructionBlock m_export_output;
    r600_shader& m_sh_info;
-
+   enum chip_class m_chip_class;
    EmitTexInstruction m_tex_instr;
    EmitAluInstruction m_alu_instr;
    EmitSSBOInstruction m_ssbo_instr;
@@ -202,6 +218,11 @@ private:
    int m_next_hwatomic_loc;
 
    r600_pipe_shader_selector& m_sel;
+   int m_atomic_base ;
+   int m_image_count;
+
+   std::unordered_map<int, int> m_atomic_base_map;
+   AluInstruction *last_emitted_alu;
 };
 
 }

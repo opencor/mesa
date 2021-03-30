@@ -54,10 +54,10 @@ fd_set_blend_color(struct pipe_context *pctx,
 
 static void
 fd_set_stencil_ref(struct pipe_context *pctx,
-		const struct pipe_stencil_ref *stencil_ref)
+		const struct pipe_stencil_ref stencil_ref)
 {
 	struct fd_context *ctx = fd_context(pctx);
-	ctx->stencil_ref =* stencil_ref;
+	ctx->stencil_ref = stencil_ref;
 	ctx->dirty |= FD_DIRTY_STENCIL_REF;
 }
 
@@ -104,7 +104,7 @@ fd_set_constant_buffer(struct pipe_context *pctx,
 
 	util_copy_constant_buffer(&so->cb[index], cb);
 
-	/* Note that the state tracker can unbind constant buffers by
+	/* Note that gallium frontends can unbind constant buffers by
 	 * passing NULL here.
 	 */
 	if (unlikely(!cb)) {
@@ -224,6 +224,15 @@ fd_set_framebuffer_state(struct pipe_context *pctx,
 
 	if (util_framebuffer_state_equal(cso, framebuffer))
 		return;
+
+	/* Do this *after* checking that the framebuffer state is actually
+	 * changing.  In the fd_blitter_clear() path, we get a pfb update
+	 * to restore the current pfb state, which should not trigger us
+	 * to flush (as that can cause the batch to be freed at a point
+	 * before fd_clear() returns, but after the point where it expects
+	 * flushes to potentially happen.
+	 */
+	fd_context_switch_from(ctx);
 
 	util_copy_framebuffer_state(cso, framebuffer);
 
@@ -395,9 +404,16 @@ fd_rasterizer_state_bind(struct pipe_context *pctx, void *hwcso)
 {
 	struct fd_context *ctx = fd_context(pctx);
 	struct pipe_scissor_state *old_scissor = fd_context_get_scissor(ctx);
+	bool discard = ctx->rasterizer && ctx->rasterizer->rasterizer_discard;
 
 	ctx->rasterizer = hwcso;
 	ctx->dirty |= FD_DIRTY_RASTERIZER;
+
+	if (ctx->rasterizer && ctx->rasterizer->scissor) {
+		ctx->current_scissor = &ctx->scissor;
+	} else {
+		ctx->current_scissor = &ctx->disabled_scissor;
+	}
 
 	/* if scissor enable bit changed we need to mark scissor
 	 * state as dirty as well:
@@ -406,6 +422,9 @@ fd_rasterizer_state_bind(struct pipe_context *pctx, void *hwcso)
 	 */
 	if (old_scissor != fd_context_get_scissor(ctx))
 		ctx->dirty |= FD_DIRTY_SCISSOR;
+
+	if (ctx->rasterizer && (discard != ctx->rasterizer->rasterizer_discard))
+		ctx->dirty |= FD_DIRTY_RASTERIZER_DISCARD;
 }
 
 static void
@@ -462,32 +481,39 @@ fd_create_stream_output_target(struct pipe_context *pctx,
 		struct pipe_resource *prsc, unsigned buffer_offset,
 		unsigned buffer_size)
 {
-	struct pipe_stream_output_target *target;
+	struct fd_stream_output_target *target;
 	struct fd_resource *rsc = fd_resource(prsc);
 
-	target = CALLOC_STRUCT(pipe_stream_output_target);
+	target = CALLOC_STRUCT(fd_stream_output_target);
 	if (!target)
 		return NULL;
 
-	pipe_reference_init(&target->reference, 1);
-	pipe_resource_reference(&target->buffer, prsc);
+	pipe_reference_init(&target->base.reference, 1);
+	pipe_resource_reference(&target->base.buffer, prsc);
 
-	target->context = pctx;
-	target->buffer_offset = buffer_offset;
-	target->buffer_size = buffer_size;
+	target->base.context = pctx;
+	target->base.buffer_offset = buffer_offset;
+	target->base.buffer_size = buffer_size;
+
+	target->offset_buf = pipe_buffer_create(pctx->screen,
+			PIPE_BIND_CUSTOM, PIPE_USAGE_IMMUTABLE, sizeof(uint32_t));
 
 	assert(rsc->base.target == PIPE_BUFFER);
 	util_range_add(&rsc->base, &rsc->valid_buffer_range,
 		buffer_offset, buffer_offset + buffer_size);
 
-	return target;
+	return &target->base;
 }
 
 static void
 fd_stream_output_target_destroy(struct pipe_context *pctx,
 		struct pipe_stream_output_target *target)
 {
-	pipe_resource_reference(&target->buffer, NULL);
+	struct fd_stream_output_target *cso = fd_stream_output_target(target);
+
+	pipe_resource_reference(&cso->base.buffer, NULL);
+	pipe_resource_reference(&cso->offset_buf, NULL);
+
 	FREE(target);
 }
 
@@ -578,10 +604,6 @@ fd_set_global_binding(struct pipe_context *pctx,
 
 		for (unsigned i = 0; i < count; i++) {
 			unsigned n = i + first;
-			if (so->buf[n]) {
-				struct fd_resource *rsc = fd_resource(so->buf[n]);
-				fd_bo_put_iova(rsc->bo);
-			}
 			pipe_resource_reference(&so->buf[n], NULL);
 		}
 
@@ -617,7 +639,8 @@ fd_state_init(struct pipe_context *pctx)
 	pctx->bind_depth_stencil_alpha_state = fd_zsa_state_bind;
 	pctx->delete_depth_stencil_alpha_state = fd_zsa_state_delete;
 
-	pctx->create_vertex_elements_state = fd_vertex_state_create;
+	if (!pctx->create_vertex_elements_state)
+		pctx->create_vertex_elements_state = fd_vertex_state_create;
 	pctx->delete_vertex_elements_state = fd_vertex_state_delete;
 	pctx->bind_vertex_elements_state = fd_vertex_state_bind;
 

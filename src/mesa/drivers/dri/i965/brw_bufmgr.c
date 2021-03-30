@@ -31,10 +31,6 @@
  *          Dave Airlie <airlied@linux.ie>
  */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include <xf86drm.h>
 #include <util/u_atomic.h>
 #include <fcntl.h>
@@ -1859,7 +1855,7 @@ brw_bufmgr_create(struct gen_device_info *devinfo, int fd, bool bo_reuse)
     * Don't do this! Ensure that each library/bufmgr has its own device
     * fd so that its namespace does not clash with another.
     */
-   bufmgr->fd = dup(fd);
+   bufmgr->fd = os_dupfd_cloexec(fd);
    if (bufmgr->fd < 0) {
       free(bufmgr);
       return NULL;
@@ -1951,7 +1947,8 @@ brw_bufmgr_get_for_fd(struct gen_device_info *devinfo, int fd, bool bo_reuse)
    }
 
    bufmgr = brw_bufmgr_create(devinfo, fd, bo_reuse);
-   list_addtail(&bufmgr->link, &global_bufmgr_list);
+   if (bufmgr)
+      list_addtail(&bufmgr->link, &global_bufmgr_list);
 
  unlock:
    mtx_unlock(&global_bufmgr_list_mutex);

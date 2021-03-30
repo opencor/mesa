@@ -929,6 +929,9 @@ intel_blit_framebuffer(struct gl_context *ctx,
    if (mask == 0x0)
       return;
 
+   /* brw_blorp_framebuffer should always be successful for color blits. */
+   assert(!(mask & GL_COLOR_BUFFER_BIT));
+
    mask = _mesa_meta_BlitFramebuffer(ctx, readFb, drawFb,
                                      srcX0, srcY0, srcX1, srcY1,
                                      dstX0, dstY0, dstX1, dstY1,
@@ -1129,8 +1132,8 @@ intel_fbo_init(struct brw_context *brw)
    dd->EGLImageTargetRenderbufferStorage =
       intel_image_target_renderbuffer_storage;
 
-   brw->render_cache = _mesa_hash_table_create(brw, _mesa_hash_pointer,
+   brw->render_cache = _mesa_hash_table_create(brw->mem_ctx, _mesa_hash_pointer,
                                                _mesa_key_pointer_equal);
-   brw->depth_cache = _mesa_set_create(brw, _mesa_hash_pointer,
+   brw->depth_cache = _mesa_set_create(brw->mem_ctx, _mesa_hash_pointer,
                                        _mesa_key_pointer_equal);
 }

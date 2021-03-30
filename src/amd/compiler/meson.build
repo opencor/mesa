@@ -57,11 +57,14 @@ libaco_files = files(
   'aco_dead_code_analysis.cpp',
   'aco_dominance.cpp',
   'aco_instruction_selection.cpp',
+  'aco_instruction_selection.h',
   'aco_instruction_selection_setup.cpp',
   'aco_interface.cpp',
   'aco_interface.h',
+  'aco_ir.cpp',
   'aco_ir.h',
   'aco_assembler.cpp',
+  'aco_form_hard_clauses.cpp',
   'aco_insert_exec_mask.cpp',
   'aco_insert_NOPs.cpp',
   'aco_insert_waitcnt.cpp',
@@ -83,6 +86,8 @@ libaco_files = files(
   'aco_validate.cpp',
 )
 
+cpp_args_aco = cpp.get_supported_arguments(['-fno-exceptions', '-fno-rtti', '-Wimplicit-fallthrough', '-Wshadow', '-DNOMINMAX'])
+
 _libaco = static_library(
   'aco',
   [libaco_files, aco_opcodes_c, aco_opcodes_h, aco_builder_h],
@@ -96,9 +101,9 @@ _libaco = static_library(
     dep_llvm, dep_thread, dep_elf, dep_libdrm_amdgpu, dep_valgrind,
     idep_nir_headers, idep_amdgfxregs_h,
   ],
-  c_args : [c_vis_args],
-  cpp_args : [cpp_vis_args],
+  gnu_symbol_visibility : 'hidden',
   build_by_default : true,
+  cpp_args : cpp_args_aco,
 )
 
 # Also link with aco

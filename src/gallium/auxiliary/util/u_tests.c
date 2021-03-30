@@ -38,7 +38,7 @@
 #include "tgsi/tgsi_strings.h"
 #include "tgsi/tgsi_text.h"
 #include "cso_cache/cso_context.h"
-#include "state_tracker/winsys_handle.h"
+#include "frontend/winsys_handle.h"
 #include <stdio.h>
 
 #define TOLERANCE 0.01
@@ -97,7 +97,7 @@ util_set_blend_normal(struct cso_context *cso)
 static void
 util_set_dsa_disable(struct cso_context *cso)
 {
-   struct pipe_depth_stencil_alpha_state dsa = {{0}};
+   struct pipe_depth_stencil_alpha_state dsa = {{{0}}};
 
    cso_set_depth_stencil_alpha(cso, &dsa);
 }
@@ -126,6 +126,10 @@ util_set_max_viewport(struct cso_context *cso, struct pipe_resource *tex)
    viewport.translate[0] = 0.5f * tex->width0;
    viewport.translate[1] = 0.5f * tex->height0;
    viewport.translate[2] = 0.0f;
+   viewport.swizzle_x = PIPE_VIEWPORT_SWIZZLE_POSITIVE_X;
+   viewport.swizzle_y = PIPE_VIEWPORT_SWIZZLE_POSITIVE_Y;
+   viewport.swizzle_z = PIPE_VIEWPORT_SWIZZLE_POSITIVE_Z;
+   viewport.swizzle_w = PIPE_VIEWPORT_SWIZZLE_POSITIVE_W;
 
    cso_set_viewport(cso, &viewport);
 }
@@ -227,7 +231,7 @@ util_probe_rect_rgba_multi(struct pipe_context *ctx, struct pipe_resource *tex,
    unsigned x,y,e,c;
    bool pass = true;
 
-   map = pipe_transfer_map(ctx, tex, 0, 0, PIPE_TRANSFER_READ,
+   map = pipe_transfer_map(ctx, tex, 0, 0, PIPE_MAP_READ,
                            offx, offy, w, h, &transfer);
    pipe_get_tile_rgba(transfer, map, 0, 0, w, h, tex->format, pixels);
    pipe_transfer_unmap(ctx, transfer);
@@ -907,7 +911,7 @@ test_nv12(struct pipe_screen *screen)
          struct pipe_resource *res = i == 2 ? tex->next : tex;
          unsigned plane = i == 2 ? 0 : i;
 
-         if (!screen->resource_get_param(screen, NULL, res, plane, 0,
+         if (!screen->resource_get_param(screen, NULL, res, plane, 0, 0,
                                          PIPE_RESOURCE_PARAM_HANDLE_TYPE_KMS,
                                          0, &handle[i].handle)) {
             printf("resource_get_param failed\n");
@@ -915,7 +919,7 @@ test_nv12(struct pipe_screen *screen)
             goto cleanup;
          }
 
-         if (!screen->resource_get_param(screen, NULL, res, plane, 0,
+         if (!screen->resource_get_param(screen, NULL, res, plane, 0, 0,
                                          PIPE_RESOURCE_PARAM_HANDLE_TYPE_FD,
                                          0, &handle[i].dmabuf)) {
             printf("resource_get_param failed\n");
@@ -923,7 +927,7 @@ test_nv12(struct pipe_screen *screen)
             goto cleanup;
          }
 
-         if (!screen->resource_get_param(screen, NULL, res, plane, 0,
+         if (!screen->resource_get_param(screen, NULL, res, plane, 0, 0,
                                          PIPE_RESOURCE_PARAM_OFFSET,
                                          0, &handle[i].offset)) {
             printf("resource_get_param failed\n");
@@ -931,7 +935,7 @@ test_nv12(struct pipe_screen *screen)
             goto cleanup;
          }
 
-         if (!screen->resource_get_param(screen, NULL, res, plane, 0,
+         if (!screen->resource_get_param(screen, NULL, res, plane, 0, 0,
                                          PIPE_RESOURCE_PARAM_STRIDE,
                                          0, &handle[i].stride)) {
             printf("resource_get_param failed\n");
@@ -939,7 +943,7 @@ test_nv12(struct pipe_screen *screen)
             goto cleanup;
          }
 
-         if (!screen->resource_get_param(screen, NULL, res, plane, 0,
+         if (!screen->resource_get_param(screen, NULL, res, plane, 0, 0,
                                          PIPE_RESOURCE_PARAM_NPLANES,
                                          0, &handle[i].planes)) {
             printf("resource_get_param failed\n");

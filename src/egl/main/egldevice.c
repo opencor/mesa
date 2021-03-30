@@ -28,6 +28,7 @@
 #ifdef HAVE_LIBDRM
 #include <xf86drm.h>
 #endif
+#include "util/compiler.h"
 #include "util/macros.h"
 
 #include "eglcurrent.h"
@@ -239,8 +240,8 @@ _eglQueryDeviceStringEXT(_EGLDevice *dev, EGLint name)
    case EGL_DRM_DEVICE_FILE_EXT:
       if (_eglDeviceSupports(dev, _EGL_DEVICE_DRM))
          return dev->device->nodes[DRM_NODE_PRIMARY];
-      /* fall through */
 #endif
+      FALLTHROUGH;
    default:
       _eglError(EGL_BAD_PARAMETER, "eglQueryDeviceStringEXT");
       return NULL;

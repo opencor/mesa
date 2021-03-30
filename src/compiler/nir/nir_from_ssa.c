@@ -44,17 +44,50 @@ struct from_ssa_state {
    bool progress;
 };
 
+/* Returns if def @a comes after def @b.
+ *
+ * The core observation that makes the Boissinot algorithm efficient
+ * is that, given two properly sorted sets, we can check for
+ * interference in these sets via a linear walk. This is accomplished
+ * by doing single combined walk over union of the two sets in DFS
+ * order. It doesn't matter what DFS we do so long as we're
+ * consistent. Fortunately, the dominance algorithm we ran prior to
+ * this pass did such a walk and recorded the pre- and post-indices in
+ * the blocks.
+ *
+ * We treat SSA undefs as always coming before other instruction types.
+ */
+static bool
+def_after(nir_ssa_def *a, nir_ssa_def *b)
+{
+   if (a->parent_instr->type == nir_instr_type_ssa_undef)
+      return false;
+
+   if (b->parent_instr->type == nir_instr_type_ssa_undef)
+      return true;
+
+   /* If they're in the same block, we can rely on whichever instruction
+    * comes first in the block.
+    */
+   if (a->parent_instr->block == b->parent_instr->block)
+      return a->parent_instr->index > b->parent_instr->index;
+
+   /* Otherwise, if blocks are distinct, we sort them in DFS pre-order */
+   return a->parent_instr->block->dom_pre_index >
+          b->parent_instr->block->dom_pre_index;
+}
+
 /* Returns true if a dominates b */
 static bool
 ssa_def_dominates(nir_ssa_def *a, nir_ssa_def *b)
 {
-   if (a->live_index == 0) {
+   if (a->parent_instr->type == nir_instr_type_ssa_undef) {
       /* SSA undefs always dominate */
       return true;
-   } else if (b->live_index < a->live_index) {
+   } if (def_after(a, b)) {
       return false;
    } else if (a->parent_instr->block == b->parent_instr->block) {
-      return a->live_index <= b->live_index;
+      return def_after(b, a);
    } else {
       return nir_block_dominates(a->parent_instr->block,
                                  b->parent_instr->block);
@@ -157,7 +190,7 @@ merge_merge_sets(merge_set *a, merge_set *b)
       merge_node *b_node = exec_node_data(merge_node, bn, node);
 
       if (exec_node_is_tail_sentinel(an) ||
-          a_node->def->live_index > b_node->def->live_index) {
+          def_after(a_node->def, b_node->def)) {
          struct exec_node *next = bn->next;
          exec_node_remove(bn);
          exec_node_insert_node_before(an, bn);
@@ -202,7 +235,7 @@ merge_sets_interfere(merge_set *a, merge_set *b)
          merge_node *a_node = exec_node_data(merge_node, an, node);
          merge_node *b_node = exec_node_data(merge_node, bn, node);
 
-         if (a_node->def->live_index <= b_node->def->live_index) {
+         if (def_after(b_node->def, a_node->def)) {
             current = a_node;
             an = an->next;
          } else {
@@ -785,7 +818,8 @@ nir_convert_from_ssa_impl(nir_function_impl *impl, bool phi_webs_only)
    nir_metadata_preserve(impl, nir_metadata_block_index |
                                nir_metadata_dominance);
 
-   nir_metadata_require(impl, nir_metadata_live_ssa_defs |
+   nir_metadata_require(impl, nir_metadata_instr_index |
+                              nir_metadata_live_ssa_defs |
                               nir_metadata_dominance);
 
    nir_foreach_block(block, impl) {
@@ -828,7 +862,7 @@ nir_convert_from_ssa(nir_shader *shader, bool phi_webs_only)
 
 
 static void
-place_phi_read(nir_shader *shader, nir_register *reg,
+place_phi_read(nir_builder *b, nir_register *reg,
                nir_ssa_def *def, nir_block *block, unsigned depth)
 {
    if (block != def->parent_instr->block) {
@@ -857,18 +891,14 @@ place_phi_read(nir_shader *shader, nir_register *reg,
           * that way.
           */
          set_foreach(block->predecessors, entry) {
-            place_phi_read(shader, reg, def, (nir_block *)entry->key,
-                           depth + 1);
+            place_phi_read(b, reg, def, (nir_block *)entry->key, depth + 1);
          }
          return;
       }
    }
 
-   nir_alu_instr *mov = nir_alu_instr_create(shader, nir_op_mov);
-   mov->src[0].src = nir_src_for_ssa(def);
-   mov->dest.dest = nir_dest_for_reg(reg);
-   mov->dest.write_mask = (1 << reg->num_components) - 1;
-   nir_instr_insert(nir_after_block_before_jump(block), &mov->instr);
+   b->cursor = nir_after_block_before_jump(block);
+   nir_store_reg(b, reg, def, ~0);
 }
 
 /** Lower all of the phi nodes in a block to imovs to and from a register
@@ -888,8 +918,8 @@ place_phi_read(nir_shader *shader, nir_register *reg,
 bool
 nir_lower_phis_to_regs_block(nir_block *block)
 {
-   nir_function_impl *impl = nir_cf_node_get_function(&block->cf_node);
-   nir_shader *shader = impl->function->shader;
+   nir_builder b;
+   nir_builder_init(&b, nir_cf_node_get_function(&block->cf_node));
 
    bool progress = false;
    nir_foreach_instr_safe(instr, block) {
@@ -899,22 +929,16 @@ nir_lower_phis_to_regs_block(nir_block *block)
       nir_phi_instr *phi = nir_instr_as_phi(instr);
       assert(phi->dest.is_ssa);
 
-      nir_register *reg = create_reg_for_ssa_def(&phi->dest.ssa, impl);
+      nir_register *reg = create_reg_for_ssa_def(&phi->dest.ssa, b.impl);
 
-      nir_alu_instr *mov = nir_alu_instr_create(shader, nir_op_mov);
-      mov->src[0].src = nir_src_for_reg(reg);
-      mov->dest.write_mask = (1 << phi->dest.ssa.num_components) - 1;
-      nir_ssa_dest_init(&mov->instr, &mov->dest.dest,
-                        phi->dest.ssa.num_components, phi->dest.ssa.bit_size,
-                        phi->dest.ssa.name);
-      nir_instr_insert(nir_after_instr(&phi->instr), &mov->instr);
+      b.cursor = nir_after_instr(&phi->instr);
+      nir_ssa_def *def = nir_load_reg(&b, reg);
 
-      nir_ssa_def_rewrite_uses(&phi->dest.ssa,
-                               nir_src_for_ssa(&mov->dest.dest.ssa));
+      nir_ssa_def_rewrite_uses(&phi->dest.ssa, nir_src_for_ssa(def));
 
       nir_foreach_phi_src(src, phi) {
          assert(src->src.is_ssa);
-         place_phi_read(shader, reg, src->src.ssa, src->pred, 0);
+         place_phi_read(&b, reg, src->src.ssa, src->pred, 0);
       }
 
       nir_instr_remove(&phi->instr);

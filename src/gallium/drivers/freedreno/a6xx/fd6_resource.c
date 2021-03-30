@@ -39,24 +39,22 @@
 static bool
 ok_ubwc_format(struct fd_resource *rsc, enum pipe_format pfmt)
 {
-	/* NOTE: both x24s8 and z24s8 map to RB6_X8Z24_UNORM, but UBWC
-	 * does not seem to work properly when sampling x24s8.. possibly
-	 * because we sample it as TFMT6_8_8_8_8_UINT.
-	 *
-	 * This could possibly be a hw limitation, or maybe something
-	 * else wrong somewhere (although z24s8 blits and sampling with
-	 * UBWC seem fine).  Recheck on a later revision of a6xx
-	 */
-	if (pfmt == PIPE_FORMAT_X24S8_UINT)
-		return false;
+	switch (pfmt) {
+	case PIPE_FORMAT_X24S8_UINT:
+	case PIPE_FORMAT_Z24_UNORM_S8_UINT:
+		/* We can't sample stencil with UBWC on a630, and we may need to be able
+		 * to sample stencil at some point.  We can't just use
+		 * fd_resource_uncompress() at the point of stencil sampling because
+		 * that itself uses stencil sampling in the fd_blitter_blit path.
+		 */
+		return fd_screen(rsc->base.screen)->info.a6xx.has_z24uint_s8uint;
 
-	/* We don't fully understand what's going wrong with this combination, but
-	 * we haven't been able to make it work.  It's enough of a corner-case
-	 * that we can just disable UBWC for these resources.
-	 */
-	if (rsc->base.target != PIPE_TEXTURE_2D &&
-			pfmt == PIPE_FORMAT_Z24_UNORM_S8_UINT)
-		return false;
+	case PIPE_FORMAT_R8_G8B8_420_UNORM:
+		return true;
+
+	default:
+		break;
+	}
 
 	switch (fd6_pipe2color(pfmt)) {
 	case FMT6_10_10_10_2_UINT:
@@ -153,7 +151,8 @@ fd6_setup_slices(struct fd_resource *rsc)
 	fdl6_layout(&rsc->layout, prsc->format, fd_resource_nr_samples(prsc),
 			prsc->width0, prsc->height0, prsc->depth0,
 			prsc->last_level + 1, prsc->array_size,
-			prsc->target == PIPE_TEXTURE_3D);
+			prsc->target == PIPE_TEXTURE_3D,
+			NULL);
 
 	return rsc->layout.size;
 }
@@ -162,7 +161,10 @@ static int
 fill_ubwc_buffer_sizes(struct fd_resource *rsc)
 {
 	struct pipe_resource *prsc = &rsc->base;
-	struct fdl_slice slice = *fd_resource_slice(rsc, 0);
+	struct fdl_explicit_layout explicit = {
+		.offset = rsc->layout.slices[0].offset,
+		.pitch = rsc->layout.pitch0,
+	};
 
 	/* limit things to simple single level 2d for now: */
 	if ((prsc->depth0 != 1) || (prsc->array_size != 1) || (prsc->last_level != 0))
@@ -175,17 +177,10 @@ fill_ubwc_buffer_sizes(struct fd_resource *rsc)
 	rsc->layout.ubwc = true;
 	rsc->layout.tile_mode = TILE6_3;
 
-	fdl6_layout(&rsc->layout, prsc->format, fd_resource_nr_samples(prsc),
+	if (!fdl6_layout(&rsc->layout, prsc->format, fd_resource_nr_samples(prsc),
 			prsc->width0, prsc->height0, prsc->depth0,
-			prsc->last_level + 1, prsc->array_size, false);
-
-	if (fd_resource_slice(rsc, 0)->pitch != slice.pitch)
+			prsc->last_level + 1, prsc->array_size, false, &explicit))
 		return -1;
-
-	/* The imported buffer may specify an offset, add that in here. */
-	rsc->layout.slices[0].offset += slice.offset;
-	rsc->layout.ubwc_slices[0].offset += slice.offset;
-	rsc->layout.size += slice.offset;
 
 	if (rsc->layout.size > fd_bo_size(rsc->bo))
 		return -1;

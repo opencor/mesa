@@ -51,6 +51,7 @@ struct amdgpu_winsys {
     * need to layer the allocators, so that we don't waste too much memory.
     */
    struct pb_slabs bo_slabs[NUM_SLAB_ALLOCATORS];
+   struct pb_slabs bo_slabs_encrypted[NUM_SLAB_ALLOCATORS];
 
    amdgpu_device_handle dev;
 
@@ -81,14 +82,17 @@ struct amdgpu_winsys {
    struct ac_addrlib *addrlib;
 
    bool check_vm;
-   bool debug_all_bos;
+   bool noop_cs;
    bool reserve_vmid;
    bool zero_all_vram_allocs;
+#if DEBUG
+   bool debug_all_bos;
 
    /* List of all allocated buffers */
    simple_mtx_t global_bo_list_lock;
    struct list_head global_bo_list;
    unsigned num_buffers;
+#endif
 
    /* Single-linked list of all structs amdgpu_screen_winsys referencing this
     * struct amdgpu_winsys

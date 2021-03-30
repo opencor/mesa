@@ -96,7 +96,7 @@ lookup_shader(struct st_context *st,
               const uint *semantic_indexes)
 {
    struct pipe_context *pipe = st->pipe;
-   struct pipe_screen *screen = pipe->screen;
+   struct pipe_screen *screen = st->screen;
    GLuint i, j;
 
    /* look for existing shader with same attributes */
@@ -219,7 +219,7 @@ st_DrawTex(struct gl_context *ctx, GLfloat x, GLfloat y, GLfloat z,
          return;
       }
 
-      z = CLAMP(z, 0.0f, 1.0f);
+      z = SATURATE(z);
 
       /* positions (in clip coords) */
       {
@@ -331,6 +331,10 @@ st_DrawTex(struct gl_context *ctx, GLfloat x, GLfloat y, GLfloat z,
       vp.translate[0] = 0.5f * width;
       vp.translate[1] = 0.5f * height;
       vp.translate[2] = 0.0f;
+      vp.swizzle_x = PIPE_VIEWPORT_SWIZZLE_POSITIVE_X;
+      vp.swizzle_y = PIPE_VIEWPORT_SWIZZLE_POSITIVE_Y;
+      vp.swizzle_z = PIPE_VIEWPORT_SWIZZLE_POSITIVE_Z;
+      vp.swizzle_w = PIPE_VIEWPORT_SWIZZLE_POSITIVE_W;
       cso_set_viewport(cso, &vp);
    }
 

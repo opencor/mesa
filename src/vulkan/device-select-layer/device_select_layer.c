@@ -51,8 +51,8 @@ struct instance_info {
    PFN_GetPhysicalDeviceProcAddr  GetPhysicalDeviceProcAddr;
    PFN_vkEnumerateDeviceExtensionProperties EnumerateDeviceExtensionProperties;
    PFN_vkGetPhysicalDeviceProperties GetPhysicalDeviceProperties;
-   PFN_vkGetPhysicalDeviceProperties2KHR GetPhysicalDeviceProperties2KHR;
-   bool has_props2, has_pci_bus;
+   PFN_vkGetPhysicalDeviceProperties2 GetPhysicalDeviceProperties2;
+   bool has_pci_bus, has_vulkan11;
    bool has_wayland, has_xcb;
 };
 
@@ -137,18 +137,19 @@ static VkResult device_select_CreateInstance(const VkInstanceCreateInfo *pCreate
    PFN_vkCreateInstance fpCreateInstance =
       (PFN_vkCreateInstance)info->GetInstanceProcAddr(NULL, "vkCreateInstance");
    if (fpCreateInstance == NULL) {
+      free(info);
       return VK_ERROR_INITIALIZATION_FAILED;
    }
 
    chain_info->u.pLayerInfo = chain_info->u.pLayerInfo->pNext;
 
    VkResult result = fpCreateInstance(pCreateInfo, pAllocator, pInstance);
-   if (result != VK_SUCCESS)
+   if (result != VK_SUCCESS) {
+      free(info);
       return result;
+   }
 
    for (unsigned i = 0; i < pCreateInfo->enabledExtensionCount; i++) {
-      if (!strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME))
-         info->has_props2 = true;
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
       if (!strcmp(pCreateInfo->ppEnabledExtensionNames[i], VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME))
          info->has_wayland = true;
@@ -159,6 +160,14 @@ static VkResult device_select_CreateInstance(const VkInstanceCreateInfo *pCreate
 #endif
    }
 
+   /*
+    * The loader is currently not able to handle GetPhysicalDeviceProperties2KHR calls in
+    * EnumeratePhysicalDevices when there are other layers present. To avoid mysterious crashes
+    * for users just use only the vulkan version for now.
+    */
+   info->has_vulkan11 = pCreateInfo->pApplicationInfo &&
+                        pCreateInfo->pApplicationInfo->apiVersion >= VK_MAKE_VERSION(1, 1, 0);
+
    info->GetPhysicalDeviceProcAddr = (PFN_GetPhysicalDeviceProcAddr)info->GetInstanceProcAddr(*pInstance, "vk_layerGetPhysicalDeviceProcAddr");
 #define DEVSEL_GET_CB(func) info->func = (PFN_vk##func)info->GetInstanceProcAddr(*pInstance, "vk" #func)
    DEVSEL_GET_CB(DestroyInstance);
@@ -166,8 +175,8 @@ static VkResult device_select_CreateInstance(const VkInstanceCreateInfo *pCreate
    DEVSEL_GET_CB(EnumeratePhysicalDeviceGroups);
    DEVSEL_GET_CB(GetPhysicalDeviceProperties);
    DEVSEL_GET_CB(EnumerateDeviceExtensionProperties);
-   if (info->has_props2)
-      DEVSEL_GET_CB(GetPhysicalDeviceProperties2KHR);
+   if (info->has_vulkan11)
+      DEVSEL_GET_CB(GetPhysicalDeviceProperties2);
 #undef DEVSEL_GET_CB
 
    device_select_layer_add_instance(*pInstance, info);
@@ -184,6 +193,13 @@ static void device_select_DestroyInstance(VkInstance instance, const VkAllocatio
    free(info);
 }
 
+static void get_device_properties(const struct instance_info *info, VkPhysicalDevice device, VkPhysicalDeviceProperties2 *properties)
+{
+    info->GetPhysicalDeviceProperties(device, &properties->properties);
+
+    if (info->GetPhysicalDeviceProperties2 && properties->properties.apiVersion >= VK_API_VERSION_1_1)
+        info->GetPhysicalDeviceProperties2(device, properties);
+}
 
 static void print_gpu(const struct instance_info *info, unsigned index, VkPhysicalDevice device)
 {
@@ -194,12 +210,9 @@ static void print_gpu(const struct instance_info *info, unsigned index, VkPhysic
    VkPhysicalDeviceProperties2KHR properties = (VkPhysicalDeviceProperties2KHR){
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2_KHR
    };
-   if (info->has_props2 && info->has_pci_bus)
+   if (info->has_vulkan11 && info->has_pci_bus)
       properties.pNext = &ext_pci_properties;
-   if (info->GetPhysicalDeviceProperties2KHR)
-      info->GetPhysicalDeviceProperties2KHR(device, &properties);
-   else
-      info->GetPhysicalDeviceProperties(device, &properties.properties);
+   get_device_properties(info, device, &properties);
 
    switch(properties.properties.deviceType) {
    case VK_PHYSICAL_DEVICE_TYPE_OTHER:
@@ -228,7 +241,7 @@ static void print_gpu(const struct instance_info *info, unsigned index, VkPhysic
    fprintf(stderr, "\n");
 }
 
-static void fill_drm_device_info(const struct instance_info *info,
+static bool fill_drm_device_info(const struct instance_info *info,
                                  struct device_pci_info *drm_device,
                                  VkPhysicalDevice device)
 {
@@ -240,13 +253,11 @@ static void fill_drm_device_info(const struct instance_info *info,
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2_KHR
    };
 
-   if (info->has_props2 && info->has_pci_bus)
+   if (info->has_vulkan11 && info->has_pci_bus)
       properties.pNext = &ext_pci_properties;
-   if (info->GetPhysicalDeviceProperties2KHR)
-     info->GetPhysicalDeviceProperties2KHR(device, &properties);
-   else
-     info->GetPhysicalDeviceProperties(device, &properties.properties);
+   get_device_properties(info, device, &properties);
 
+   drm_device->cpu_device = properties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
    drm_device->dev_info.vendor_id = properties.properties.vendorID;
    drm_device->dev_info.device_id = properties.properties.deviceID;
    if (info->has_pci_bus) {
@@ -256,6 +267,7 @@ static void fill_drm_device_info(const struct instance_info *info,
      drm_device->bus_info.dev = ext_pci_properties.pciDevice;
      drm_device->bus_info.func = ext_pci_properties.pciFunction;
    }
+   return drm_device->cpu_device;
 }
 
 static int device_select_find_explicit_default(struct device_pci_info *pci_infos,
@@ -320,6 +332,35 @@ static int device_select_find_boot_vga_default(struct device_pci_info *pci_infos
    return default_idx;
 }
 
+static int device_select_find_non_cpu(struct device_pci_info *pci_infos,
+                                      uint32_t device_count)
+{
+   int default_idx = -1;
+
+   /* pick first GPU device */
+   for (unsigned i = 0; i < device_count; ++i) {
+      if (!pci_infos[i].cpu_device){
+         default_idx = i;
+         break;
+      }
+   }
+   return default_idx;
+}
+
+static int find_non_cpu_skip(struct device_pci_info *pci_infos,
+                        uint32_t device_count,
+                        int skip_idx)
+{
+   for (unsigned i = 0; i < device_count; ++i) {
+      if (i == skip_idx)
+         continue;
+      if (pci_infos[i].cpu_device)
+         continue;
+      return i;
+   }
+   return -1;
+}
+
 static uint32_t get_default_device(const struct instance_info *info,
                                    const char *selection,
                                    uint32_t physical_device_count,
@@ -328,7 +369,7 @@ static uint32_t get_default_device(const struct instance_info *info,
    int default_idx = -1;
    const char *dri_prime = getenv("DRI_PRIME");
    bool dri_prime_is_one = false;
-
+   int cpu_count = 0;
    if (dri_prime && !strcmp(dri_prime, "1"))
       dri_prime_is_one = true;
 
@@ -341,7 +382,7 @@ static uint32_t get_default_device(const struct instance_info *info,
      return 0;
 
    for (unsigned i = 0; i < physical_device_count; ++i) {
-      fill_drm_device_info(info, &pci_infos[i], pPhysicalDevices[i]);
+      cpu_count += fill_drm_device_info(info, &pci_infos[i], pPhysicalDevices[i]) ? 1 : 0;
    }
 
    if (selection)
@@ -352,16 +393,15 @@ static uint32_t get_default_device(const struct instance_info *info,
       default_idx = device_select_find_wayland_pci_default(pci_infos, physical_device_count);
    if (default_idx == -1 && info->has_xcb)
       default_idx = device_select_find_xcb_pci_default(pci_infos, physical_device_count);
-   if (info->has_pci_bus && default_idx == -1) {
+   if (default_idx == -1 && info->has_pci_bus)
       default_idx = device_select_find_boot_vga_default(pci_infos, physical_device_count);
-   }
+   if (default_idx == -1 && cpu_count)
+      default_idx = device_select_find_non_cpu(pci_infos, physical_device_count);
 
    /* DRI_PRIME=1 handling - pick any other device than default. */
-   if (default_idx != -1 && dri_prime_is_one && physical_device_count > 1) {
-      if (default_idx == 0)
-         default_idx = 1;
-      else if (default_idx == 1)
-         default_idx = 0;
+   if (default_idx != -1 && dri_prime_is_one && physical_device_count > (cpu_count + 1)) {
+      if (default_idx == 0 || default_idx == 1)
+         default_idx = find_non_cpu_skip(pci_infos, physical_device_count, default_idx);
    }
    free(pci_infos);
    return default_idx == -1 ? 0 : default_idx;
@@ -457,6 +497,8 @@ static void  (*get_pdevice_proc_addr(VkInstance instance, const char* name))()
 
 static void  (*get_instance_proc_addr(VkInstance instance, const char* name))()
 {
+   if (strcmp(name, "vkGetInstanceProcAddr") == 0)
+      return (void(*)())get_instance_proc_addr;
    if (strcmp(name, "vkCreateInstance") == 0)
       return (void(*)())device_select_CreateInstance;
    if (strcmp(name, "vkDestroyInstance") == 0)

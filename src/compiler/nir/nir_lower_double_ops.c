@@ -49,7 +49,9 @@ set_exponent(nir_builder *b, nir_ssa_def *src, nir_ssa_def *exp)
    /* The exponent is bits 52-62, or 20-30 of the high word, so set the exponent
     * to 1023
     */
-   nir_ssa_def *new_hi = nir_bfi(b, nir_imm_int(b, 0x7ff00000), exp, hi);
+   nir_ssa_def *new_hi = nir_bitfield_insert(b, hi, exp,
+                                             nir_imm_int(b, 20),
+                                             nir_imm_int(b, 11));
    /* recombine */
    return nir_pack_64_2x32_split(b, lo, new_hi);
 }
@@ -102,7 +104,7 @@ fix_inv_result(nir_builder *b, nir_ssa_def *res, nir_ssa_def *src,
                    nir_imm_double(b, 0.0f), res);
 
    /* If the original input was 0, generate the correctly-signed infinity */
-   res = nir_bcsel(b, nir_fne(b, src, nir_imm_double(b, 0.0f)),
+   res = nir_bcsel(b, nir_fneu(b, src, nir_imm_double(b, 0.0f)),
                    res, get_signed_inf(b, src));
 
    return res;
@@ -175,8 +177,8 @@ lower_sqrt_rsq(nir_builder *b, nir_ssa_def *src, bool sqrt)
 
    nir_ssa_def *unbiased_exp = nir_isub(b, get_exponent(b, src),
                                         nir_imm_int(b, 1023));
-   nir_ssa_def *even = nir_iand(b, unbiased_exp, nir_imm_int(b, 1));
-   nir_ssa_def *half = nir_ishr(b, unbiased_exp, nir_imm_int(b, 1));
+   nir_ssa_def *even = nir_iand_imm(b, unbiased_exp, 1);
+   nir_ssa_def *half = nir_ishr_imm(b, unbiased_exp, 1);
 
    nir_ssa_def *src_norm = set_exponent(b, src,
                                         nir_iadd(b, nir_imm_int(b, 1023),
@@ -469,17 +471,15 @@ lower_doubles_instr_to_soft(nir_builder *b, nir_alu_instr *instr,
 
    switch (instr->op) {
    case nir_op_f2i64:
-      if (instr->src[0].src.ssa->bit_size == 64)
-         name = "__fp64_to_int64";
-      else
-         name = "__fp32_to_int64";
+      if (instr->src[0].src.ssa->bit_size != 64)
+         return false;
+      name = "__fp64_to_int64";
       return_type = glsl_int64_t_type();
       break;
    case nir_op_f2u64:
-      if (instr->src[0].src.ssa->bit_size == 64)
-         name = "__fp64_to_uint64";
-      else
-         name = "__fp32_to_uint64";
+      if (instr->src[0].src.ssa->bit_size != 64)
+         return false;
+      name = "__fp64_to_uint64";
       break;
    case nir_op_f2f64:
       name = "__fp32_to_fp64";
@@ -503,18 +503,6 @@ lower_doubles_instr_to_soft(nir_builder *b, nir_alu_instr *instr,
       break;
    case nir_op_b2f64:
       name = "__bool_to_fp64";
-      break;
-   case nir_op_i2f32:
-      if (instr->src[0].src.ssa->bit_size != 64)
-         return false;
-      name = "__int64_to_fp32";
-      return_type = glsl_float_type();
-      break;
-   case nir_op_u2f32:
-      if (instr->src[0].src.ssa->bit_size != 64)
-         return false;
-      name = "__uint64_to_fp32";
-      return_type = glsl_float_type();
       break;
    case nir_op_i2f64:
       if (instr->src[0].src.ssa->bit_size == 64)
@@ -553,8 +541,8 @@ lower_doubles_instr_to_soft(nir_builder *b, nir_alu_instr *instr,
       name = "__feq64";
       return_type = glsl_bool_type();
       break;
-   case nir_op_fne:
-      name = "__fne64";
+   case nir_op_fneu:
+      name = "__fneu64";
       return_type = glsl_bool_type();
       break;
    case nir_op_flt:
@@ -612,7 +600,7 @@ lower_doubles_instr_to_soft(nir_builder *b, nir_alu_instr *instr,
       params[i + 1] = nir_mov_alu(b, instr->src[i], 1);
    }
 
-   nir_inline_function_impl(b, func->impl, params);
+   nir_inline_function_impl(b, func->impl, params, NULL);
 
    return nir_load_deref(b, ret_deref);
 }
@@ -756,11 +744,9 @@ nir_lower_doubles_impl(nir_function_impl *impl,
    } else if (progress) {
       nir_metadata_preserve(impl, nir_metadata_block_index |
                                   nir_metadata_dominance);
-    } else {
-#ifndef NDEBUG
-      impl->valid_metadata &= ~nir_metadata_not_properly_reset;
-#endif
-    }
+   } else {
+      nir_metadata_preserve(impl, nir_metadata_all);
+   }
 
    return progress;
 }

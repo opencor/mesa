@@ -151,6 +151,7 @@ public:
                   bool ack);
 
    PValue rat_id_offset() const { return m_rat_id_offset;}
+   int  rat_id() const { return m_rat_id;}
 
    ERatOp rat_op() const {return m_rat_op;}
 
@@ -166,6 +167,10 @@ public:
    static ERatOp opcode(nir_intrinsic_op opcode);
 
    int data_swz(int chan) const {return m_data.chan_i(chan);}
+
+   ECFOpCode cf_opcode() const { return m_cf_opcode;}
+
+   void set_ack() {m_need_ack = true; }
 
 private:
 

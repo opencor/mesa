@@ -33,6 +33,10 @@ uint16_t
 pan_to_bytemask(unsigned bytes, unsigned mask)
 {
         switch (bytes) {
+        case 0:
+                assert(mask == 0);
+                return 0;
+
         case 8:
                 return mask;
 
@@ -76,6 +80,10 @@ pan_block_add_successor(pan_block *block, pan_block *successor)
 {
         assert(block);
         assert(successor);
+
+        /* Cull impossible edges */
+        if (block->unconditional_jumps)
+                return;
 
         for (unsigned i = 0; i < ARRAY_SIZE(block->successors); ++i) {
                 if (block->successors[i]) {

@@ -25,14 +25,12 @@
 
 #include "tu_private.h"
 
-#include "registers/adreno_common.xml.h"
-#include "registers/a6xx.xml.h"
+#include "adreno_common.xml.h"
+#include "a6xx.xml.h"
 
 #include "vk_format.h"
 #include "vk_util.h"
 #include "drm-uapi/drm_fourcc.h"
-
-#define FMT6_x -1
 
 #define TU6_FMT(vkfmt, hwfmt, swapfmt, valid) \
    [VK_FORMAT_##vkfmt] = {                   \
@@ -45,7 +43,7 @@
 #define TU6_xTC(vk, fmt, swap) TU6_FMT(vk, fmt, swap, FMT_TEXTURE | FMT_COLOR)
 #define TU6_Vxx(vk, fmt, swap) TU6_FMT(vk, fmt, swap, FMT_VERTEX)
 #define TU6_xTx(vk, fmt, swap) TU6_FMT(vk, fmt, swap, FMT_TEXTURE)
-#define TU6_xxx(vk, fmt, swap) TU6_FMT(vk, x, WZYX, false)
+#define TU6_xxx(vk, fmt, swap) TU6_FMT(vk, NONE, WZYX, 0)
 
 static const struct tu_native_format tu6_format_table[] = {
    TU6_xxx(UNDEFINED,                  x,                 x),    /* 0 */
@@ -217,14 +215,18 @@ static const struct tu_native_format tu6_format_table[] = {
    TU6_VTC(B10G11R11_UFLOAT_PACK32,    11_11_10_FLOAT,    WZYX), /* 122 */
    TU6_xTx(E5B9G9R9_UFLOAT_PACK32,     9_9_9_E5_FLOAT,    WZYX), /* 123 */
 
-   /* depth/stencil */
+   /* depth/stencil
+    * X8_D24_UNORM/D24_UNORM_S8_UINT should be Z24_UNORM_S8_UINT_AS_R8G8B8A8
+    * but the format doesn't work on A630 when UBWC is disabled, so use
+    * 8_8_8_8_UNORM as the default and override it when UBWC is enabled
+    */
    TU6_xTC(D16_UNORM,                  16_UNORM,                      WZYX), /* 124 */
-   TU6_xTC(X8_D24_UNORM_PACK32,        Z24_UNORM_S8_UINT_AS_R8G8B8A8, WZYX), /* 125 */
+   TU6_xTC(X8_D24_UNORM_PACK32,        8_8_8_8_UNORM,                 WZYX), /* 125 */
    TU6_xTC(D32_SFLOAT,                 32_FLOAT,                      WZYX), /* 126 */
    TU6_xTC(S8_UINT,                    8_UINT,                        WZYX), /* 127 */
    TU6_xxx(D16_UNORM_S8_UINT,          X8Z16_UNORM,                   WZYX), /* 128 */
-   TU6_xTC(D24_UNORM_S8_UINT,          Z24_UNORM_S8_UINT_AS_R8G8B8A8, WZYX), /* 129 */
-   TU6_xxx(D32_SFLOAT_S8_UINT,         x,                             WZYX), /* 130 */
+   TU6_xTC(D24_UNORM_S8_UINT,          8_8_8_8_UNORM,                 WZYX), /* 129 */
+   TU6_xTC(D32_SFLOAT_S8_UINT,         NONE,                          WZYX), /* 130 */
 
    /* compressed */
    TU6_xTx(BC1_RGB_UNORM_BLOCK,        DXT1,              WZYX), /* 131 */
@@ -283,23 +285,41 @@ static const struct tu_native_format tu6_format_table[] = {
    TU6_xTx(ASTC_12x12_SRGB_BLOCK,      ASTC_12x12,        WZYX), /* 184 */
 };
 
+#undef TU6_FMT
+#define TU6_FMT(vkfmt, hwfmt, swapfmt, valid)   \
+   case VK_FORMAT_##vkfmt:                      \
+      fmt = (struct tu_native_format) {         \
+         .fmt = FMT6_##hwfmt,                   \
+         .swap = swapfmt,                       \
+         .supported = valid,                    \
+      }; break;
+
 static struct tu_native_format
 tu6_get_native_format(VkFormat format)
 {
    struct tu_native_format fmt = {};
 
-   if (format >= ARRAY_SIZE(tu6_format_table))
-      return fmt;
-
-   if (!tu6_format_table[format].supported)
-      return fmt;
-
-   if (vk_format_to_pipe_format(format) == PIPE_FORMAT_NONE) {
-      tu_finishme("vk_format %d missing matching pipe format.\n", format);
-      return fmt;
+   if (format < ARRAY_SIZE(tu6_format_table)) {
+      fmt = tu6_format_table[format];
+   } else {
+      switch (format) {
+      TU6_xTx(G8B8G8R8_422_UNORM,         R8G8R8B8_422_UNORM,        WZYX)
+      TU6_xTx(B8G8R8G8_422_UNORM,         G8R8B8R8_422_UNORM,        WZYX)
+      TU6_xTx(G8_B8_R8_3PLANE_420_UNORM,  R8_G8_B8_3PLANE_420_UNORM, WZYX)
+      TU6_xTx(G8_B8R8_2PLANE_420_UNORM,   R8_G8B8_2PLANE_420_UNORM,  WZYX)
+      TU6_xTC(A4R4G4B4_UNORM_PACK16_EXT,  4_4_4_4_UNORM,             WXYZ)
+      TU6_xTC(A4B4G4R4_UNORM_PACK16_EXT,  4_4_4_4_UNORM,             WZYX)
+      default:
+         break;
+      }
    }
 
-   return tu6_format_table[format];
+   if (fmt.supported && vk_format_to_pipe_format(format) == PIPE_FORMAT_NONE) {
+      tu_finishme("vk_format %d missing matching pipe format.\n", format);
+      fmt.supported = false;
+   }
+
+   return fmt;
 }
 
 struct tu_native_format
@@ -344,23 +364,6 @@ tu6_format_texture(VkFormat format, enum a6xx_tile_mode tile_mode)
    return fmt;
 }
 
-enum a6xx_depth_format
-tu6_pipe2depth(VkFormat format)
-{
-   switch (format) {
-   case VK_FORMAT_D16_UNORM:
-      return DEPTH6_16;
-   case VK_FORMAT_X8_D24_UNORM_PACK32:
-   case VK_FORMAT_D24_UNORM_S8_UINT:
-      return DEPTH6_24_8;
-   case VK_FORMAT_D32_SFLOAT:
-   case VK_FORMAT_S8_UINT:
-      return DEPTH6_32;
-   default:
-      return ~0;
-   }
-}
-
 static void
 tu_physical_device_get_format_properties(
    struct tu_physical_device *physical_device,
@@ -383,8 +386,20 @@ tu_physical_device_get_format_properties(
                  VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
                  VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
                  VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
-                 VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_MINMAX_BIT;
+                 VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_MINMAX_BIT |
+                 VK_FORMAT_FEATURE_COSITED_CHROMA_SAMPLES_BIT |
+                 VK_FORMAT_FEATURE_MIDPOINT_CHROMA_SAMPLES_BIT;
+
       buffer |= VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT;
+
+      /* no blit src bit for YUYV/NV12/I420 formats */
+      if (desc->layout != UTIL_FORMAT_LAYOUT_SUBSAMPLED &&
+          desc->layout != UTIL_FORMAT_LAYOUT_PLANAR2 &&
+          desc->layout != UTIL_FORMAT_LAYOUT_PLANAR3)
+         optimal |= VK_FORMAT_FEATURE_BLIT_SRC_BIT;
+
+      if (desc->layout != UTIL_FORMAT_LAYOUT_SUBSAMPLED)
+         optimal |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT;
 
       if (physical_device->supported_extensions.EXT_filter_cubic)
          optimal |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_EXT;
@@ -393,8 +408,34 @@ tu_physical_device_get_format_properties(
    if (native_fmt.supported & FMT_COLOR) {
       assert(native_fmt.supported & FMT_TEXTURE);
       optimal |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
-                 VK_FORMAT_FEATURE_BLIT_SRC_BIT |
                  VK_FORMAT_FEATURE_BLIT_DST_BIT;
+
+      /* IBO's don't have a swap field at all, so swapped formats can't be
+       * supported, even with linear images.
+       *
+       * TODO: See if setting the swap field from the tex descriptor works,
+       * after we enable shaderStorageImageReadWithoutFormat and there are
+       * tests for these formats.
+       */
+      if (native_fmt.swap == WZYX) {
+         optimal |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
+         buffer |= VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT;
+      }
+
+      /* TODO: The blob also exposes these for R16G16_UINT/R16G16_SINT, but we
+       * don't have any tests for those.
+       */
+      if (format == VK_FORMAT_R32_UINT || format == VK_FORMAT_R32_SINT) {
+         optimal |= VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT;
+         buffer |= VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_ATOMIC_BIT;
+      }
+
+      if (vk_format_is_float(format) ||
+          vk_format_is_unorm(format) ||
+          vk_format_is_snorm(format) ||
+          vk_format_is_srgb(format)) {
+         optimal |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT;
+      }
    }
 
    /* For the most part, we can do anything with a linear image that we could
@@ -410,21 +451,27 @@ tu_physical_device_get_format_properties(
    if (tu6_pipe2depth(format) != (enum a6xx_depth_format)~0)
       optimal |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
 
+   /* no tiling for special UBWC formats
+    * TODO: NV12 can be UBWC but has a special UBWC format for accessing the Y plane aspect
+    * for 3plane, tiling/UBWC might be supported, but the blob doesn't use tiling
+    */
+   if (format == VK_FORMAT_G8B8G8R8_422_UNORM ||
+       format == VK_FORMAT_B8G8R8G8_422_UNORM ||
+       format == VK_FORMAT_G8_B8R8_2PLANE_420_UNORM ||
+       format == VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM) {
+      optimal = 0;
+   }
+
+   /* D32_SFLOAT_S8_UINT is tiled as two images, so no linear format
+    * blob enables some linear features, but its not useful, so don't bother.
+    */
+   if (format == VK_FORMAT_D32_SFLOAT_S8_UINT)
+      linear = 0;
+
 end:
    out_properties->linearTilingFeatures = linear;
    out_properties->optimalTilingFeatures = optimal;
    out_properties->bufferFeatures = buffer;
-}
-
-void
-tu_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
-                                     VkFormat format,
-                                     VkFormatProperties *pFormatProperties)
-{
-   TU_FROM_HANDLE(tu_physical_device, physical_device, physicalDevice);
-
-   tu_physical_device_get_format_properties(physical_device, format,
-                                            pFormatProperties);
 }
 
 void
@@ -444,15 +491,20 @@ tu_GetPhysicalDeviceFormatProperties2(
       VK_OUTARRAY_MAKE(out, list->pDrmFormatModifierProperties,
                        &list->drmFormatModifierCount);
 
-      vk_outarray_append(&out, mod_props) {
-         mod_props->drmFormatModifier = DRM_FORMAT_MOD_LINEAR;
-         mod_props->drmFormatModifierPlaneCount = 1;
+      if (pFormatProperties->formatProperties.linearTilingFeatures) {
+         vk_outarray_append(&out, mod_props) {
+            mod_props->drmFormatModifier = DRM_FORMAT_MOD_LINEAR;
+            mod_props->drmFormatModifierPlaneCount = 1;
+         }
       }
 
-      /* TODO: any cases where this should be disabled? */
-      vk_outarray_append(&out, mod_props) {
-         mod_props->drmFormatModifier = DRM_FORMAT_MOD_QCOM_COMPRESSED;
-         mod_props->drmFormatModifierPlaneCount = 1;
+      /* note: ubwc_possible() argument values to be ignored except for format */
+      if (pFormatProperties->formatProperties.optimalTilingFeatures &&
+          ubwc_possible(format, VK_IMAGE_TYPE_2D, 0, false)) {
+         vk_outarray_append(&out, mod_props) {
+            mod_props->drmFormatModifier = DRM_FORMAT_MOD_QCOM_COMPRESSED;
+            mod_props->drmFormatModifierPlaneCount = 1;
+         }
       }
    }
 }
@@ -479,20 +531,34 @@ tu_get_image_format_properties(
       format_feature_flags = format_props.linearTilingFeatures;
       break;
 
-   case VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT:
-      /* The only difference between optimal and linear is currently whether
-       * depth/stencil attachments are allowed on depth/stencil formats.
-       * There's no reason to allow importing depth/stencil textures, so just
-       * disallow it and then this annoying edge case goes away.
-       *
-       * TODO: If anyone cares, we could enable this by looking at the
-       * modifier and checking if it's LINEAR or not.
-       */
-      if (vk_format_is_depth_or_stencil(info->format))
-         goto unsupported;
+   case VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT: {
+      const VkPhysicalDeviceImageDrmFormatModifierInfoEXT *drm_info =
+         vk_find_struct_const(info->pNext, PHYSICAL_DEVICE_IMAGE_DRM_FORMAT_MODIFIER_INFO_EXT);
 
-      assert(format_props.optimalTilingFeatures == format_props.linearTilingFeatures);
-      /* fallthrough */
+      switch (drm_info->drmFormatModifier) {
+      case DRM_FORMAT_MOD_QCOM_COMPRESSED:
+         /* falling back to linear/non-UBWC isn't possible with explicit modifier */
+
+         /* formats which don't support tiling */
+         if (!format_props.optimalTilingFeatures)
+            return VK_ERROR_FORMAT_NOT_SUPPORTED;
+
+         /* for mutable formats, its very unlikely to be possible to use UBWC */
+         if (info->flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT)
+            return VK_ERROR_FORMAT_NOT_SUPPORTED;
+
+         if (!ubwc_possible(info->format, info->type, info->usage, physical_device->info.a6xx.has_z24uint_s8uint))
+            return VK_ERROR_FORMAT_NOT_SUPPORTED;
+
+         format_feature_flags = format_props.optimalTilingFeatures;
+         break;
+      case DRM_FORMAT_MOD_LINEAR:
+         format_feature_flags = format_props.linearTilingFeatures;
+         break;
+      default:
+         return VK_ERROR_FORMAT_NOT_SUPPORTED;
+      }
+   } break;
    case VK_IMAGE_TILING_OPTIMAL:
       format_feature_flags = format_props.optimalTilingFeatures;
       break;
@@ -600,32 +666,6 @@ unsupported:
    return VK_ERROR_FORMAT_NOT_SUPPORTED;
 }
 
-VkResult
-tu_GetPhysicalDeviceImageFormatProperties(
-   VkPhysicalDevice physicalDevice,
-   VkFormat format,
-   VkImageType type,
-   VkImageTiling tiling,
-   VkImageUsageFlags usage,
-   VkImageCreateFlags createFlags,
-   VkImageFormatProperties *pImageFormatProperties)
-{
-   TU_FROM_HANDLE(tu_physical_device, physical_device, physicalDevice);
-
-   const VkPhysicalDeviceImageFormatInfo2 info = {
-      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
-      .pNext = NULL,
-      .format = format,
-      .type = type,
-      .tiling = tiling,
-      .usage = usage,
-      .flags = createFlags,
-   };
-
-   return tu_get_image_format_properties(physical_device, &info,
-                                         pImageFormatProperties, NULL);
-}
-
 static VkResult
 tu_get_external_image_format_properties(
    const struct tu_physical_device *physical_device,
@@ -694,6 +734,7 @@ tu_GetPhysicalDeviceImageFormatProperties2(
    VkExternalImageFormatProperties *external_props = NULL;
    VkFilterCubicImageViewImageFormatPropertiesEXT *cubic_props = NULL;
    VkFormatFeatureFlags format_feature_flags;
+   VkSamplerYcbcrConversionImageFormatProperties *ycbcr_props = NULL;
    VkResult result;
 
    result = tu_get_image_format_properties(physical_device,
@@ -725,6 +766,9 @@ tu_GetPhysicalDeviceImageFormatProperties2(
          break;
       case VK_STRUCTURE_TYPE_FILTER_CUBIC_IMAGE_VIEW_IMAGE_FORMAT_PROPERTIES_EXT:
          cubic_props = (void *) s;
+         break;
+      case VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_IMAGE_FORMAT_PROPERTIES:
+         ycbcr_props = (void *) s;
          break;
       default:
          break;
@@ -760,6 +804,9 @@ tu_GetPhysicalDeviceImageFormatProperties2(
       }
    }
 
+   if (ycbcr_props)
+      ycbcr_props->combinedImageSamplerDescriptorCount = 1;
+
    return VK_SUCCESS;
 
 fail:
@@ -771,25 +818,10 @@ fail:
        *    the implementation for use in vkCreateImage, then all members of
        *    imageFormatProperties will be filled with zero.
        */
-      base_props->imageFormatProperties = (VkImageFormatProperties) { 0 };
+      base_props->imageFormatProperties = (VkImageFormatProperties) {};
    }
 
    return result;
-}
-
-void
-tu_GetPhysicalDeviceSparseImageFormatProperties(
-   VkPhysicalDevice physicalDevice,
-   VkFormat format,
-   VkImageType type,
-   uint32_t samples,
-   VkImageUsageFlags usage,
-   VkImageTiling tiling,
-   uint32_t *pNumProperties,
-   VkSparseImageFormatProperties *pProperties)
-{
-   /* Sparse images are not yet supported. */
-   *pNumProperties = 0;
 }
 
 void

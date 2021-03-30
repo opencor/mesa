@@ -28,9 +28,15 @@
 
 /* The public winsys interface header for the radeon driver. */
 
+/* Skip command submission. Same as RADEON_NOOP=1. */
+#define RADEON_FLUSH_NOOP                     (1u << 29)
+
+/* Toggle the secure submission boolean after the flush */
+#define RADEON_FLUSH_TOGGLE_SECURE_SUBMISSION (1u << 30)
+
 /* Whether the next IB can start immediately and not wait for draws and
  * dispatches from the current IB to finish. */
-#define RADEON_FLUSH_START_NEXT_GFX_IB_NOW (1u << 31)
+#define RADEON_FLUSH_START_NEXT_GFX_IB_NOW    (1u << 31)
 
 #define RADEON_FLUSH_ASYNC_START_NEXT_GFX_IB_NOW                                                   \
    (PIPE_FLUSH_ASYNC | RADEON_FLUSH_START_NEXT_GFX_IB_NOW)
@@ -67,6 +73,9 @@ enum radeon_bo_flag
   RADEON_FLAG_NO_INTERPROCESS_SHARING = (1 << 4),
   RADEON_FLAG_READ_ONLY = (1 << 5),
   RADEON_FLAG_32BIT = (1 << 6),
+  RADEON_FLAG_ENCRYPTED = (1 << 7),
+  RADEON_FLAG_UNCACHED = (1 << 8), /* only gfx9 and newer */
+  RADEON_FLAG_DRIVER_INTERNAL = (1 << 9),
 };
 
 enum radeon_dependency_flag
@@ -89,17 +98,22 @@ enum radeon_bo_usage
   /* The winsys ensures that the CS submission will be scheduled after
    * previously flushed CSs referencing this BO in a conflicting way.
    */
-  RADEON_USAGE_SYNCHRONIZED = 8
+  RADEON_USAGE_SYNCHRONIZED = 8,
+
+  /* When used, an implicit sync is done to make sure a compute shader
+   * will read the written values from a previous draw.
+   */
+  RADEON_USAGE_NEEDS_IMPLICIT_SYNC = 16,
 };
 
-enum radeon_transfer_flags
+enum radeon_map_flags
 {
    /* Indicates that the caller will unmap the buffer.
     *
     * Not unmapping buffers is an important performance optimization for
     * OpenGL (avoids kernel overhead for frequently mapped buffers).
     */
-   RADEON_TRANSFER_TEMPORARY = (PIPE_TRANSFER_DRV_PRV << 0),
+   RADEON_MAP_TEMPORARY = (PIPE_MAP_DRV_PRV << 0),
 };
 
 #define RADEON_SPARSE_PAGE_SIZE (64 * 1024)
@@ -197,6 +211,9 @@ struct radeon_cmdbuf {
    uint64_t used_vram;
    uint64_t used_gart;
    uint64_t gpu_address;
+
+   /* Private winsys data. */
+   void *priv;
 };
 
 /* Tiling info for display code, DRI sharing, and other data. */
@@ -217,22 +234,9 @@ struct radeon_bo_metadata {
          unsigned stride;
          bool scanout;
       } legacy;
-
-      struct {
-         /* surface flags */
-         unsigned swizzle_mode : 5;
-
-         /* DCC flags */
-         /* [31:8]: max offset = 4GB - 256; 0 = DCC disabled */
-         unsigned dcc_offset_256B : 24;
-         unsigned dcc_pitch_max : 14; /* (mip chain pitch - 1) for DCN */
-         unsigned dcc_independent_64B : 1;
-         unsigned dcc_independent_128B : 1;
-         unsigned dcc_max_compressed_block_size : 2;
-
-         bool scanout;
-      } gfx9;
    } u;
+
+   enum radeon_surf_mode mode;   /* Output from buffer_get_metadata */
 
    /* Additional metadata associated with the buffer, in bytes.
     * The maximum size is 64 * 4. This is opaque for the winsys & kernel.
@@ -259,6 +263,10 @@ struct radeon_winsys {
     * The screen object this winsys was created for
     */
    struct pipe_screen *screen;
+   /**
+    * Has the application created at least one TMZ buffer.
+    */
+   const bool uses_secure_bos;
 
    /**
     * Decrement the winsys reference count.
@@ -281,7 +289,9 @@ struct radeon_winsys {
     * \param ws        The winsys this function is called from.
     * \param info      Return structure
     */
-   void (*query_info)(struct radeon_winsys *ws, struct radeon_info *info);
+   void (*query_info)(struct radeon_winsys *ws, struct radeon_info *info,
+                      bool enable_smart_access_memory,
+                      bool disable_smart_access_memory);
 
    /**
     * A hint for the winsys that it should pin its execution threads to
@@ -317,15 +327,15 @@ struct radeon_winsys {
     * space.
     *
     * Callers are expected to unmap buffers again if and only if the
-    * RADEON_TRANSFER_TEMPORARY flag is set in \p usage.
+    * RADEON_MAP_TEMPORARY flag is set in \p usage.
     *
     * \param buf       A winsys buffer object to map.
     * \param cs        A command stream to flush if the buffer is referenced by it.
-    * \param usage     A bitmask of the PIPE_TRANSFER_* and RADEON_TRANSFER_* flags.
+    * \param usage     A bitmask of the PIPE_MAP_* and RADEON_MAP_* flags.
     * \return          The pointer at the beginning of the buffer.
     */
    void *(*buffer_map)(struct pb_buffer *buf, struct radeon_cmdbuf *cs,
-                       enum pipe_transfer_usage usage);
+                       enum pipe_map_flags usage);
 
    /**
     * Unmap a buffer object from the client's address space.
@@ -351,7 +361,8 @@ struct radeon_winsys {
     * \param buf       A winsys buffer object to get the flags from.
     * \param md        Metadata
     */
-   void (*buffer_get_metadata)(struct pb_buffer *buf, struct radeon_bo_metadata *md);
+   void (*buffer_get_metadata)(struct pb_buffer *buf, struct radeon_bo_metadata *md,
+                               struct radeon_surf *surf);
 
    /**
     * Set buffer metadata.
@@ -360,7 +371,8 @@ struct radeon_winsys {
     * \param buf       A winsys buffer object to set the flags for.
     * \param md        Metadata
     */
-   void (*buffer_set_metadata)(struct pb_buffer *buf, struct radeon_bo_metadata *md);
+   void (*buffer_set_metadata)(struct pb_buffer *buf, struct radeon_bo_metadata *md,
+                               struct radeon_surf *surf);
 
    /**
     * Get a winsys buffer from a winsys handle. The internal structure
@@ -480,15 +492,19 @@ struct radeon_winsys {
    /**
     * Create a command stream.
     *
+    * \param cs        The returned structure that is initialized by cs_create.
     * \param ctx       The submission context
     * \param ring_type The ring type (GFX, DMA, UVD)
     * \param flush     Flush callback function associated with the command stream.
     * \param user      User pointer that will be passed to the flush callback.
+    *
+    * \return true on success
     */
-   struct radeon_cmdbuf *(*cs_create)(struct radeon_winsys_ctx *ctx, enum ring_type ring_type,
-                                      void (*flush)(void *ctx, unsigned flags,
-                                                    struct pipe_fence_handle **fence),
-                                      void *flush_ctx, bool stop_exec_on_failure);
+   bool (*cs_create)(struct radeon_cmdbuf *cs,
+                     struct radeon_winsys_ctx *ctx, enum ring_type ring_type,
+                     void (*flush)(void *ctx, unsigned flags,
+                                   struct pipe_fence_handle **fence),
+                     void *flush_ctx, bool stop_exec_on_failure);
 
    /**
     * Add a parallel compute IB to a gfx IB. It will share the buffer list
@@ -499,13 +515,26 @@ struct radeon_winsys {
     * to use a wait packet for synchronization.
     *
     * The returned IB is only a stream for writing packets to the new
-    * IB. Calling other winsys functions with it is not allowed, not even
-    * "cs_destroy". Use the gfx IB instead.
+    * IB. The only function that can be used on the compute cs is cs_check_space.
     *
-    * \param cs              Gfx IB
+    * \param compute_cs      The returned structure of the command stream.
+    * \param gfx_cs          Gfx IB
+    *
+    * \return true on success
     */
-   struct radeon_cmdbuf *(*cs_add_parallel_compute_ib)(struct radeon_cmdbuf *cs,
-                                                       bool uses_gds_ordered_append);
+   bool (*cs_add_parallel_compute_ib)(struct radeon_cmdbuf *compute_cs,
+                                      struct radeon_cmdbuf *gfx_cs,
+                                      bool uses_gds_ordered_append);
+
+   /**
+    * Set up and enable mid command buffer preemption for the command stream.
+    *
+    * \param cs               Command stream
+    * \param preamble_ib      Non-preemptible preamble IB for the context.
+    * \param preamble_num_dw  Number of dwords in the preamble IB.
+    */
+   bool (*cs_setup_preemption)(struct radeon_cmdbuf *cs, const uint32_t *preamble_ib,
+                               unsigned preamble_num_dw);
 
    /**
     * Destroy a command stream.
@@ -684,6 +713,11 @@ struct radeon_winsys {
 
    bool (*read_registers)(struct radeon_winsys *ws, unsigned reg_offset, unsigned num_registers,
                           uint32_t *out);
+
+   /**
+    * Secure context
+    */
+   bool (*cs_is_secure)(struct radeon_cmdbuf *cs);
 };
 
 static inline bool radeon_emitted(struct radeon_cmdbuf *cs, unsigned num_dw)
@@ -703,6 +737,11 @@ static inline void radeon_emit_array(struct radeon_cmdbuf *cs, const uint32_t *v
    cs->current.cdw += count;
 }
 
+static inline bool radeon_uses_secure_bos(struct radeon_winsys* ws)
+{
+  return ws->uses_secure_bos;
+}
+
 enum radeon_heap
 {
    RADEON_HEAP_VRAM_NO_CPU_ACCESS,
@@ -715,6 +754,11 @@ enum radeon_heap
    RADEON_HEAP_GTT_WC_READ_ONLY_32BIT,
    RADEON_HEAP_GTT_WC_32BIT,
    RADEON_HEAP_GTT,
+   RADEON_HEAP_GTT_UNCACHED_WC,
+   RADEON_HEAP_GTT_UNCACHED_WC_READ_ONLY,
+   RADEON_HEAP_GTT_UNCACHED_WC_READ_ONLY_32BIT,
+   RADEON_HEAP_GTT_UNCACHED_WC_32BIT,
+   RADEON_HEAP_GTT_UNCACHED,
    RADEON_MAX_SLAB_HEAPS,
    RADEON_MAX_CACHED_HEAPS = RADEON_MAX_SLAB_HEAPS,
 };
@@ -733,6 +777,11 @@ static inline enum radeon_bo_domain radeon_domain_from_heap(enum radeon_heap hea
    case RADEON_HEAP_GTT_WC_READ_ONLY_32BIT:
    case RADEON_HEAP_GTT_WC_32BIT:
    case RADEON_HEAP_GTT:
+   case RADEON_HEAP_GTT_UNCACHED_WC:
+   case RADEON_HEAP_GTT_UNCACHED_WC_READ_ONLY:
+   case RADEON_HEAP_GTT_UNCACHED_WC_READ_ONLY_32BIT:
+   case RADEON_HEAP_GTT_UNCACHED_WC_32BIT:
+   case RADEON_HEAP_GTT_UNCACHED:
       return RADEON_DOMAIN_GTT;
    default:
       assert(0);
@@ -742,36 +791,70 @@ static inline enum radeon_bo_domain radeon_domain_from_heap(enum radeon_heap hea
 
 static inline unsigned radeon_flags_from_heap(enum radeon_heap heap)
 {
-   unsigned flags =
-      RADEON_FLAG_NO_INTERPROCESS_SHARING | (heap != RADEON_HEAP_GTT ? RADEON_FLAG_GTT_WC : 0);
+   unsigned flags = RADEON_FLAG_NO_INTERPROCESS_SHARING;
+
+   switch (heap) {
+   case RADEON_HEAP_GTT:
+   case RADEON_HEAP_GTT_UNCACHED:
+      break;
+   default:
+      flags |= RADEON_FLAG_GTT_WC;
+   }
+
+   switch (heap) {
+   case RADEON_HEAP_GTT_UNCACHED_WC:
+   case RADEON_HEAP_GTT_UNCACHED_WC_READ_ONLY:
+   case RADEON_HEAP_GTT_UNCACHED_WC_READ_ONLY_32BIT:
+   case RADEON_HEAP_GTT_UNCACHED_WC_32BIT:
+   case RADEON_HEAP_GTT_UNCACHED:
+      flags |= RADEON_FLAG_UNCACHED;
+      break;
+   default:
+      break;
+   }
+
+   switch (heap) {
+   case RADEON_HEAP_VRAM_READ_ONLY:
+   case RADEON_HEAP_VRAM_READ_ONLY_32BIT:
+   case RADEON_HEAP_GTT_WC_READ_ONLY:
+   case RADEON_HEAP_GTT_WC_READ_ONLY_32BIT:
+   case RADEON_HEAP_GTT_UNCACHED_WC_READ_ONLY:
+   case RADEON_HEAP_GTT_UNCACHED_WC_READ_ONLY_32BIT:
+      flags |= RADEON_FLAG_READ_ONLY;
+      break;
+   default:
+      break;
+   }
+
+   switch (heap) {
+   case RADEON_HEAP_VRAM_READ_ONLY_32BIT:
+   case RADEON_HEAP_VRAM_32BIT:
+   case RADEON_HEAP_GTT_WC_READ_ONLY_32BIT:
+   case RADEON_HEAP_GTT_WC_32BIT:
+   case RADEON_HEAP_GTT_UNCACHED_WC_READ_ONLY_32BIT:
+   case RADEON_HEAP_GTT_UNCACHED_WC_32BIT:
+      flags |= RADEON_FLAG_32BIT;
+      FALLTHROUGH;
+   default:
+      break;
+   }
 
    switch (heap) {
    case RADEON_HEAP_VRAM_NO_CPU_ACCESS:
-      return flags | RADEON_FLAG_NO_CPU_ACCESS;
-
-   case RADEON_HEAP_VRAM_READ_ONLY:
-   case RADEON_HEAP_GTT_WC_READ_ONLY:
-      return flags | RADEON_FLAG_READ_ONLY;
-
-   case RADEON_HEAP_VRAM_READ_ONLY_32BIT:
-   case RADEON_HEAP_GTT_WC_READ_ONLY_32BIT:
-      return flags | RADEON_FLAG_READ_ONLY | RADEON_FLAG_32BIT;
-
-   case RADEON_HEAP_VRAM_32BIT:
-   case RADEON_HEAP_GTT_WC_32BIT:
-      return flags | RADEON_FLAG_32BIT;
-
-   case RADEON_HEAP_VRAM:
-   case RADEON_HEAP_GTT_WC:
-   case RADEON_HEAP_GTT:
+      flags |= RADEON_FLAG_NO_CPU_ACCESS;
+      break;
    default:
-      return flags;
+      break;
    }
+
+   return flags;
 }
 
 /* Return the heap index for winsys allocators, or -1 on failure. */
 static inline int radeon_get_heap_index(enum radeon_bo_domain domain, enum radeon_bo_flag flags)
 {
+   bool uncached;
+
    /* VRAM implies WC (write combining) */
    assert(!(domain & RADEON_DOMAIN_VRAM) || flags & RADEON_FLAG_GTT_WC);
    /* NO_CPU_ACCESS implies VRAM only. */
@@ -782,8 +865,9 @@ static inline int radeon_get_heap_index(enum radeon_bo_domain domain, enum radeo
       return -1;
 
    /* Unsupported flags: NO_SUBALLOC, SPARSE. */
-   if (flags & ~(RADEON_FLAG_GTT_WC | RADEON_FLAG_NO_CPU_ACCESS |
-                 RADEON_FLAG_NO_INTERPROCESS_SHARING | RADEON_FLAG_READ_ONLY | RADEON_FLAG_32BIT))
+   if (flags & ~(RADEON_FLAG_GTT_WC | RADEON_FLAG_NO_CPU_ACCESS | RADEON_FLAG_UNCACHED |
+                 RADEON_FLAG_NO_INTERPROCESS_SHARING | RADEON_FLAG_READ_ONLY | RADEON_FLAG_32BIT |
+                 RADEON_FLAG_DRIVER_INTERNAL))
       return -1;
 
    switch (domain) {
@@ -809,15 +893,20 @@ static inline int radeon_get_heap_index(enum radeon_bo_domain domain, enum radeo
       }
       break;
    case RADEON_DOMAIN_GTT:
+      uncached = flags & RADEON_FLAG_UNCACHED;
+
       switch (flags & (RADEON_FLAG_GTT_WC | RADEON_FLAG_READ_ONLY | RADEON_FLAG_32BIT)) {
       case RADEON_FLAG_GTT_WC | RADEON_FLAG_READ_ONLY | RADEON_FLAG_32BIT:
-         return RADEON_HEAP_GTT_WC_READ_ONLY_32BIT;
+         return uncached ? RADEON_HEAP_GTT_UNCACHED_WC_READ_ONLY_32BIT
+                         : RADEON_HEAP_GTT_WC_READ_ONLY_32BIT;
       case RADEON_FLAG_GTT_WC | RADEON_FLAG_READ_ONLY:
-         return RADEON_HEAP_GTT_WC_READ_ONLY;
+         return uncached ? RADEON_HEAP_GTT_UNCACHED_WC_READ_ONLY
+                         : RADEON_HEAP_GTT_WC_READ_ONLY;
       case RADEON_FLAG_GTT_WC | RADEON_FLAG_32BIT:
-         return RADEON_HEAP_GTT_WC_32BIT;
+         return uncached ? RADEON_HEAP_GTT_UNCACHED_WC_32BIT
+                         : RADEON_HEAP_GTT_WC_32BIT;
       case RADEON_FLAG_GTT_WC:
-         return RADEON_HEAP_GTT_WC;
+         return uncached ? RADEON_HEAP_GTT_UNCACHED_WC : RADEON_HEAP_GTT_WC;
       case RADEON_FLAG_READ_ONLY | RADEON_FLAG_32BIT:
       case RADEON_FLAG_READ_ONLY:
          assert(!"READ_ONLY without WC is disallowed");
@@ -826,7 +915,7 @@ static inline int radeon_get_heap_index(enum radeon_bo_domain domain, enum radeo
          assert(!"32BIT without WC is disallowed");
          return -1;
       case 0:
-         return RADEON_HEAP_GTT;
+         return uncached ? RADEON_HEAP_GTT_UNCACHED : RADEON_HEAP_GTT;
       }
       break;
    default:

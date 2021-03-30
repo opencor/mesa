@@ -44,14 +44,12 @@
 #include "ac_llvm_util.h"
 #include "sid.h"
 
-#ifndef AMDGPU_INFO_NUM_VRAM_CPU_PAGE_FAULTS
-#define AMDGPU_INFO_NUM_VRAM_CPU_PAGE_FAULTS	0x1E
-#endif
-
 static struct hash_table *dev_tab = NULL;
 static simple_mtx_t dev_tab_mutex = _SIMPLE_MTX_INITIALIZER_NP;
 
+#if DEBUG
 DEBUG_GET_ONCE_BOOL_OPTION(all_bos, "RADEON_ALL_BOS", false)
+#endif
 
 static void handle_env_var_force_family(struct amdgpu_winsys *ws)
 {
@@ -67,7 +65,9 @@ static void handle_env_var_force_family(struct amdgpu_winsys *ws)
             ws->info.family = i;
             ws->info.name = "GCN-NOOP";
 
-            if (i >= CHIP_NAVI10)
+            if (i >= CHIP_SIENNA_CICHLID)
+               ws->info.chip_class = GFX10_3;
+            else if (i >= CHIP_NAVI10)
                ws->info.chip_class = GFX10;
             else if (i >= CHIP_VEGA10)
                ws->info.chip_class = GFX9;
@@ -102,7 +102,7 @@ static bool do_winsys_init(struct amdgpu_winsys *ws,
 
    handle_env_var_force_family(ws);
 
-   ws->addrlib = ac_addrlib_create(&ws->info, &ws->amdinfo, &ws->info.max_alignment);
+   ws->addrlib = ac_addrlib_create(&ws->info, &ws->info.max_alignment);
    if (!ws->addrlib) {
       fprintf(stderr, "amdgpu: Cannot create addrlib.\n");
       goto fail;
@@ -110,11 +110,13 @@ static bool do_winsys_init(struct amdgpu_winsys *ws,
 
    ws->check_vm = strstr(debug_get_option("R600_DEBUG", ""), "check_vm") != NULL ||
                   strstr(debug_get_option("AMD_DEBUG", ""), "check_vm") != NULL;
+   ws->noop_cs = debug_get_bool_option("RADEON_NOOP", false);
+#if DEBUG
    ws->debug_all_bos = debug_get_option_all_bos();
+#endif
    ws->reserve_vmid = strstr(debug_get_option("R600_DEBUG", ""), "reserve_vmid") != NULL ||
                       strstr(debug_get_option("AMD_DEBUG", ""), "reserve_vmid") != NULL;
    ws->zero_all_vram_allocs = strstr(debug_get_option("R600_DEBUG", ""), "zerovram") != NULL ||
-                              strstr(debug_get_option("AMD_DEBUG", ""), "zerovram") != NULL ||
                               driQueryOptionb(config->options, "radeonsi_zerovram");
 
    return true;
@@ -141,7 +143,9 @@ static void do_winsys_deinit(struct amdgpu_winsys *ws)
    pb_cache_deinit(&ws->bo_cache);
    _mesa_hash_table_destroy(ws->bo_export_table, NULL);
    simple_mtx_destroy(&ws->sws_list_lock);
+#if DEBUG
    simple_mtx_destroy(&ws->global_bo_list_lock);
+#endif
    simple_mtx_destroy(&ws->bo_export_table_lock);
 
    ac_addrlib_destroy(ws->addrlib);
@@ -182,9 +186,18 @@ static void amdgpu_winsys_destroy(struct radeon_winsys *rws)
 }
 
 static void amdgpu_winsys_query_info(struct radeon_winsys *rws,
-                                     struct radeon_info *info)
+                                     struct radeon_info *info,
+                                     bool enable_smart_access_memory,
+                                     bool disable_smart_access_memory)
 {
-   *info = amdgpu_winsys(rws)->info;
+   struct amdgpu_winsys *ws = amdgpu_winsys(rws);
+
+   if (disable_smart_access_memory)
+      ws->info.smart_access_memory = false;
+   else if (enable_smart_access_memory && ws->info.all_vram_visible)
+      ws->info.smart_access_memory = true;
+
+   *info = ws->info;
 }
 
 static bool amdgpu_cs_request_feature(struct radeon_cmdbuf *rcs,
@@ -313,8 +326,9 @@ static void amdgpu_pin_threads_to_L3_cache(struct radeon_winsys *rws,
 {
    struct amdgpu_winsys *ws = amdgpu_winsys(rws);
 
-   util_pin_thread_to_L3(ws->cs_queue.threads[0], cache,
-                         util_cpu_caps.cores_per_L3);
+   util_set_thread_affinity(ws->cs_queue.threads[0],
+                            util_cpu_caps.L3_affinity_mask[cache],
+                            NULL, util_cpu_caps.num_cpu_mask_bits);
 }
 
 static uint32_t kms_handle_hash(const void *key)
@@ -327,6 +341,12 @@ static uint32_t kms_handle_hash(const void *key)
 static bool kms_handle_equals(const void *a, const void *b)
 {
    return a == b;
+}
+
+static bool amdgpu_cs_is_secure(struct radeon_cmdbuf *rcs)
+{
+   struct amdgpu_cs *cs = amdgpu_cs(rcs);
+   return cs->csc->secure;
 }
 
 PUBLIC struct radeon_winsys *
@@ -344,7 +364,7 @@ amdgpu_winsys_create(int fd, const struct pipe_screen_config *config,
       return NULL;
 
    pipe_reference_init(&ws->reference, 1);
-   ws->fd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+   ws->fd = os_dupfd_cloexec(fd);
 
    /* Look up the winsys from the dev table. */
    simple_mtx_lock(&dev_tab_mutex);
@@ -437,7 +457,20 @@ amdgpu_winsys_create(int fd, const struct pipe_screen_config *config,
                             RADEON_MAX_SLAB_HEAPS,
                             aws,
                             amdgpu_bo_can_reclaim_slab,
-                            amdgpu_bo_slab_alloc,
+                            amdgpu_bo_slab_alloc_normal,
+                            amdgpu_bo_slab_free)) {
+            amdgpu_winsys_destroy(&ws->base);
+            simple_mtx_unlock(&dev_tab_mutex);
+            return NULL;
+         }
+
+         if (aws->info.has_tmz_support &&
+             !pb_slabs_init(&aws->bo_slabs_encrypted[i],
+                            min_order, max_order,
+                            RADEON_MAX_SLAB_HEAPS,
+                            aws,
+                            amdgpu_bo_can_reclaim_slab,
+                            amdgpu_bo_slab_alloc_encrypted,
                             amdgpu_bo_slab_free)) {
             amdgpu_winsys_destroy(&ws->base);
             simple_mtx_unlock(&dev_tab_mutex);
@@ -451,12 +484,15 @@ amdgpu_winsys_create(int fd, const struct pipe_screen_config *config,
 
       /* init reference */
       pipe_reference_init(&aws->reference, 1);
-
+#if DEBUG
       list_inithead(&aws->global_bo_list);
+#endif
       aws->bo_export_table = util_hash_table_create_ptr_keys();
 
       (void) simple_mtx_init(&aws->sws_list_lock, mtx_plain);
+#if DEBUG
       (void) simple_mtx_init(&aws->global_bo_list_lock, mtx_plain);
+#endif
       (void) simple_mtx_init(&aws->bo_fence_lock, mtx_plain);
       (void) simple_mtx_init(&aws->bo_export_table_lock, mtx_plain);
 
@@ -489,6 +525,7 @@ amdgpu_winsys_create(int fd, const struct pipe_screen_config *config,
    ws->base.query_value = amdgpu_query_value;
    ws->base.read_registers = amdgpu_read_registers;
    ws->base.pin_threads_to_L3_cache = amdgpu_pin_threads_to_L3_cache;
+   ws->base.cs_is_secure = amdgpu_cs_is_secure;
 
    amdgpu_bo_init_functions(ws);
    amdgpu_cs_init_functions(ws);

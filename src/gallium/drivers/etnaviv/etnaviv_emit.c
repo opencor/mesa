@@ -105,8 +105,8 @@ required_stream_size(struct etna_context *ctx)
    size += ctx->vertex_elements->num_elements + 1;
 
    /* uniforms - worst case (2 words per uniform load) */
-   size += ctx->shader.vs->uniforms.imm_count * 2;
-   size += ctx->shader.fs->uniforms.imm_count * 2;
+   size += ctx->shader.vs->uniforms.count * 2;
+   size += ctx->shader.fs->uniforms.count * 2;
 
    /* shader */
    size += ctx->shader_state.vs_inst_mem_size + 1;
@@ -233,6 +233,8 @@ etna_emit_state(struct etna_context *ctx)
    uint32_t to_flush = 0;
    if (unlikely(dirty & (ETNA_DIRTY_BLEND)))
       to_flush |= VIVS_GL_FLUSH_CACHE_COLOR;
+   if (unlikely(dirty & ETNA_DIRTY_ZSA))
+      to_flush |= VIVS_GL_FLUSH_CACHE_DEPTH;
    if (unlikely(dirty & (ETNA_DIRTY_TEXTURE_CACHES)))
       to_flush |= VIVS_GL_FLUSH_CACHE_TEXTURE;
    if (unlikely(dirty & (ETNA_DIRTY_FRAMEBUFFER))) /* Framebuffer config changed? */
@@ -411,6 +413,9 @@ etna_emit_state(struct etna_context *ctx)
    if (unlikely(dirty & (ETNA_DIRTY_SHADER))) {
       /*00E00*/ EMIT_STATE(RA_CONTROL, ctx->shader_state.RA_CONTROL);
    }
+   if (unlikely(dirty & (ETNA_DIRTY_ZSA))) {
+      /*00E08*/ EMIT_STATE(RA_EARLY_DEPTH, etna_zsa_state(ctx->zsa)->RA_DEPTH_CONFIG);
+   }
    if (unlikely(dirty & (ETNA_DIRTY_SHADER | ETNA_DIRTY_FRAMEBUFFER))) {
       /*01004*/ EMIT_STATE(PS_OUTPUT_REG, ctx->shader_state.PS_OUTPUT_REG);
       /*01008*/ EMIT_STATE(PS_INPUT_COUNT,
@@ -426,8 +431,7 @@ etna_emit_state(struct etna_context *ctx)
    }
    if (unlikely(dirty & (ETNA_DIRTY_ZSA | ETNA_DIRTY_FRAMEBUFFER | ETNA_DIRTY_SHADER))) {
       /*01400*/ EMIT_STATE(PE_DEPTH_CONFIG, (etna_zsa_state(ctx->zsa)->PE_DEPTH_CONFIG |
-                                             ctx->framebuffer.PE_DEPTH_CONFIG) &
-                                            ctx->shader_state.PE_DEPTH_CONFIG);
+                                             ctx->framebuffer.PE_DEPTH_CONFIG));
    }
    if (unlikely(dirty & (ETNA_DIRTY_VIEWPORT))) {
       /*01404*/ EMIT_STATE(PE_DEPTH_NEAR, ctx->viewport.PE_DEPTH_NEAR);
@@ -534,17 +538,17 @@ etna_emit_state(struct etna_context *ctx)
    else
       emit_pre_halti5_state(ctx);
 
-   ctx->emit_texture_state(ctx);
-
-   /* Insert a FE/PE stall as changing the shader instructions (and maybe
-    * the uniforms) can corrupt the previous in-progress draw operation.
-    * Observed with amoeba on GC2000 during the right-to-left rendering
-    * of PI, and can cause GPU hangs immediately after.
-    * I summise that this is because the "new" locations at 0xc000 are not
-    * properly protected against updates as other states seem to be. Hence,
-    * we detect the "new" vertex shader instruction offset to apply this. */
-   if (ctx->dirty & (ETNA_DIRTY_SHADER | ETNA_DIRTY_CONSTBUF) && screen->specs.vs_offset > 0x4000)
+   /* Beginning from Halti0 some of the new shader and sampler states are not
+    * self-synchronizing anymore. Thus we need to stall the FE on PE completion
+    * before loading the new states to avoid corrupting the state of the
+    * in-flight draw.
+    */
+   if (screen->specs.halti >= 0 &&
+       (ctx->dirty & (ETNA_DIRTY_SHADER | ETNA_DIRTY_CONSTBUF |
+                      ETNA_DIRTY_SAMPLERS | ETNA_DIRTY_SAMPLER_VIEWS)))
       etna_stall(ctx->stream, SYNC_RECIPIENT_FE, SYNC_RECIPIENT_PE);
+
+   ctx->emit_texture_state(ctx);
 
    /* We need to update the uniform cache only if one of the following bits are
     * set in ctx->dirty:

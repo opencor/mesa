@@ -142,12 +142,12 @@ is_src_scalarizable(nir_src *src)
 
       switch (src_intrin->intrinsic) {
       case nir_intrinsic_load_deref: {
+         /* Don't scalarize if we see a load of a local variable because it
+          * might turn into one of the things we can't scalarize.
+          */
          nir_deref_instr *deref = nir_src_as_deref(src_intrin->src[0]);
-         return deref->mode == nir_var_shader_in ||
-                deref->mode == nir_var_uniform ||
-                deref->mode == nir_var_mem_ubo ||
-                deref->mode == nir_var_mem_ssbo ||
-                deref->mode == nir_var_mem_global;
+         return !nir_deref_mode_may_be(deref, (nir_var_function_temp |
+                                               nir_var_shader_temp));
       }
 
       case nir_intrinsic_interp_deref_at_centroid:
@@ -157,11 +157,14 @@ is_src_scalarizable(nir_src *src)
       case nir_intrinsic_load_ubo:
       case nir_intrinsic_load_ssbo:
       case nir_intrinsic_load_global:
+      case nir_intrinsic_load_global_constant:
       case nir_intrinsic_load_input:
          return true;
       default:
          break;
       }
+
+      return false;
    }
 
    default:
@@ -199,11 +202,12 @@ gcm_pin_instructions(nir_function_impl *impl, struct gcm_state *state)
                instr->pass_flags = GCM_INSTR_SCHEDULE_EARLIER_ONLY;
                break;
 
-         case nir_op_mov:
-            if (!is_src_scalarizable(&(nir_instr_as_alu(instr)->src[0].src))) {
-               instr->pass_flags = GCM_INSTR_PINNED;
-               break;
-            }
+            case nir_op_mov:
+               if (!is_src_scalarizable(&(nir_instr_as_alu(instr)->src[0].src))) {
+                  instr->pass_flags = GCM_INSTR_PINNED;
+                  break;
+               }
+               FALLTHROUGH;
 
             default:
                instr->pass_flags = 0;

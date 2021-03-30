@@ -29,6 +29,7 @@
 
 #include "pipe/p_context.h"
 
+#include "freedreno_batch.h"
 #include "freedreno_context.h"
 #include "fd5_context.h"
 #include "fd5_format.h"
@@ -44,6 +45,8 @@ struct fd5_emit {
 	const struct fd_vertex_state *vtx;
 	const struct fd_program_stateobj *prog;
 	const struct pipe_draw_info *info;
+        const struct pipe_draw_indirect_info *indirect;
+        const struct pipe_draw_start_count *draw;
 	bool binning_pass;
 	struct ir3_shader_key key;
 	enum fd_dirty_3d_state dirty;
@@ -139,7 +142,7 @@ fd5_emit_blit(struct fd_context *ctx, struct fd_ringbuffer *ring)
 
 	OUT_PKT7(ring, CP_EVENT_WRITE, 4);
 	OUT_RING(ring, CP_EVENT_WRITE_0_EVENT(BLIT));
-	OUT_RELOCW(ring, fd5_ctx->blit_mem, 0, 0, 0);  /* ADDR_LO/HI */
+	OUT_RELOC(ring, fd5_ctx->blit_mem, 0, 0, 0);  /* ADDR_LO/HI */
 	OUT_RING(ring, 0x00000000);
 
 	emit_marker5(ring, 7);
@@ -195,6 +198,8 @@ void fd5_emit_state(struct fd_context *ctx, struct fd_ringbuffer *ring,
 
 void fd5_emit_cs_state(struct fd_context *ctx, struct fd_ringbuffer *ring,
 		struct ir3_shader_variant *cp);
+void fd5_emit_cs_consts(const struct ir3_shader_variant *v, struct fd_ringbuffer *ring,
+		struct fd_context *ctx, const struct pipe_grid_info *info);
 
 void fd5_emit_restore(struct fd_batch *batch, struct fd_ringbuffer *ring);
 

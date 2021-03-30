@@ -32,11 +32,12 @@ import sys
 header = """
 #include "api_exec.h"
 #include "glthread_marshal.h"
+#include "bufferobj.h"
 #include "dispatch.h"
 
 #define COMPAT (ctx->API != API_OPENGL_CORE)
 
-static inline int safe_mul(int a, int b)
+UNUSED static inline int safe_mul(int a, int b)
 {
     if (a < 0 || b < 0) return -1;
     if (a == 0 || b == 0) return 0;
@@ -90,9 +91,6 @@ class PrintCode(gl_XML.gl_print_base):
         else:
             out('return {0};'.format(call))
             assert not func.marshal_call_after
-
-    def print_sync_dispatch(self, func):
-        self.print_sync_call(func)
 
     def print_sync_body(self, func):
         out('/* {0}: marshalled synchronously */'.format(func.name))
@@ -151,9 +149,10 @@ class PrintCode(gl_XML.gl_print_base):
             'GLboolean': 1,
             'GLbyte': 1,
             'GLubyte': 1,
-            'GLenum': 2, # uses GLenum16
             'GLshort': 2,
             'GLushort': 2,
+            'GLhalfNV': 2,
+            'GLenum': 4,
             'GLint': 4,
             'GLuint': 4,
             'GLbitfield': 4,
@@ -191,10 +190,7 @@ class PrintCode(gl_XML.gl_print_base):
                     out('{0} {1}[{2}];'.format(
                             p.get_base_type_string(), p.name, p.count))
                 else:
-                    type = p.type_string()
-                    if type == 'GLenum':
-                        type = 'GLenum16'
-                    out('{0} {1};'.format(type, p.name))
+                    out('{0} {1};'.format(p.type_string(), p.name))
 
             for p in func.variable_params:
                 if p.img_null_flag:
@@ -278,7 +274,7 @@ class PrintCode(gl_XML.gl_print_base):
         out('if (unlikely({0})) {{'.format(' || '.join(list)))
         with indent():
             out('_mesa_glthread_finish_before(ctx, "{0}");'.format(func.name))
-            self.print_sync_dispatch(func)
+            self.print_sync_call(func)
             out('return;')
         out('}')
 
@@ -308,7 +304,7 @@ class PrintCode(gl_XML.gl_print_base):
                 out('if ({0}) {{'.format(func.marshal_sync))
                 with indent():
                     out('_mesa_glthread_finish_before(ctx, "{0}");'.format(func.name))
-                    self.print_sync_dispatch(func)
+                    self.print_sync_call(func)
                     out('return;')
                 out('}')
 
@@ -338,7 +334,7 @@ class PrintCode(gl_XML.gl_print_base):
 
     def print_create_marshal_table(self, api):
         out('/* _mesa_create_marshal_table takes a long time to compile with -O2 */')
-        out('#ifdef __GNUC__')
+        out('#if defined(__GNUC__) && !defined(__clang__)')
         out('__attribute__((optimize("O1")))')
         out('#endif')
         out('struct _glapi_table *')

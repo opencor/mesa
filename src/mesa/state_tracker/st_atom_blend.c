@@ -217,7 +217,12 @@ st_update_blend( struct st_context *st )
       blend->logicop_enable = 1;
       blend->logicop_func = ctx->Color._LogicOp;
    }
-   else if (ctx->Color.BlendEnabled && !ctx->Color._AdvancedBlendMode) {
+   else if (ctx->Color.BlendEnabled &&
+            ctx->Color._AdvancedBlendMode != BLEND_NONE) {
+      blend->advanced_blend_func = ctx->Color._AdvancedBlendMode;
+   }
+   else if (ctx->Color.BlendEnabled &&
+            ctx->Color._AdvancedBlendMode == BLEND_NONE) {
       /* blending enabled */
       for (i = 0, j = 0; i < num_state; i++) {
          if (!(ctx->Color.BlendEnabled & (1 << i)) ||
@@ -298,8 +303,9 @@ st_update_blend( struct st_context *st )
 void
 st_update_blend_color(struct st_context *st)
 {
-   struct pipe_blend_color bc;
+   struct pipe_context *pipe = st->pipe;
+   struct pipe_blend_color *bc =
+      (struct pipe_blend_color *)st->ctx->Color.BlendColorUnclamped;
 
-   COPY_4FV(bc.color, st->ctx->Color.BlendColorUnclamped);
-   cso_set_blend_color(st->cso_context, &bc);
+   pipe->set_blend_color(pipe, bc);
 }

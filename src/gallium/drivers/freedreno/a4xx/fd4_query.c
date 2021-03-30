@@ -115,10 +115,12 @@ time_elapsed_enable(struct fd_context *ctx, struct fd_ringbuffer *ring)
 	 * just hard coded.  If we start exposing more countables than we
 	 * have counters, we will need to be more clever.
 	 */
-	struct fd_batch *batch = fd_context_batch(ctx);
+	struct fd_batch *batch = fd_context_batch_locked(ctx);
 	fd_wfi(batch, ring);
 	OUT_PKT0(ring, REG_A4XX_CP_PERFCTR_CP_SEL_0, 1);
 	OUT_RING(ring, CP_ALWAYS_COUNT);
+	fd_batch_unlock_submit(batch);
+	fd_batch_reference(&batch, NULL);
 }
 
 static struct fd_hw_sample *
@@ -167,7 +169,7 @@ time_elapsed_get_sample(struct fd_batch *batch, struct fd_ringbuffer *ring)
 	OUT_RING(ring, CP_REG_TO_MEM_0_REG(REG_A4XX_RBBM_PERFCTR_CP_0_LO) |
 			CP_REG_TO_MEM_0_64B |
 			CP_REG_TO_MEM_0_CNT(2)); /* write 2 regs to mem */
-	OUT_RELOCW(ring, scratch_bo, sample_off, 0, 0);
+	OUT_RELOC(ring, scratch_bo, sample_off, 0, 0);
 
 	/* ok... here we really *would* like to use the CP_SET_CONSTANT
 	 * mode which can add a constant to value in reg2 and write to
@@ -181,7 +183,7 @@ time_elapsed_get_sample(struct fd_batch *batch, struct fd_ringbuffer *ring)
 
 	/* per-sample offset to scratch bo: */
 	OUT_PKT3(ring, CP_MEM_WRITE, 2);
-	OUT_RELOCW(ring, scratch_bo, addr_off, 0, 0);
+	OUT_RELOC(ring, scratch_bo, addr_off, 0, 0);
 	OUT_RING(ring, samp->offset);
 
 	/* now add to that the per-tile base: */
@@ -189,7 +191,7 @@ time_elapsed_get_sample(struct fd_batch *batch, struct fd_ringbuffer *ring)
 	OUT_RING(ring, CP_REG_TO_MEM_0_REG(HW_QUERY_BASE_REG) |
 			CP_REG_TO_MEM_0_ACCUMULATE |
 			CP_REG_TO_MEM_0_CNT(0));       /* readback 1 regs */
-	OUT_RELOCW(ring, scratch_bo, addr_off, 0, 0);
+	OUT_RELOC(ring, scratch_bo, addr_off, 0, 0);
 
 	/* now copy that back to CP_ME_NRT_ADDR: */
 	OUT_PKT3(ring, CP_MEM_TO_REG, 2);

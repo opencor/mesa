@@ -1137,6 +1137,7 @@ nv50_blit_set_src(struct nv50_blitctx *blit,
 
    target = nv50_blit_reinterpret_pipe_texture_target(res->target);
 
+   templ.target = target;
    templ.format = format;
    templ.u.tex.first_level = templ.u.tex.last_level = level;
    templ.u.tex.first_layer = templ.u.tex.last_layer = layer;
@@ -1373,6 +1374,16 @@ nv50_blit_3d(struct nv50_context *nv50, const struct pipe_blit_info *info)
 
    nv50_state_validate_3d(nv50, ~0);
 
+   /* When flipping a surface from zeta <-> color "mode", we have to wait for
+    * the GPU to flush its current draws.
+    */
+   struct nv50_miptree *mt = nv50_miptree(dst);
+   bool serialize = util_format_is_depth_or_stencil(info->dst.format);
+   if (serialize && mt->base.status & NOUVEAU_BUFFER_STATUS_GPU_WRITING) {
+      BEGIN_NV04(push, SUBC_3D(NV50_GRAPH_SERIALIZE), 1);
+      PUSH_DATA (push, 0);
+   }
+
    x_range = (float)info->src.box.width / (float)info->dst.box.width;
    y_range = (float)info->src.box.height / (float)info->dst.box.height;
 
@@ -1474,6 +1485,12 @@ nv50_blit_3d(struct nv50_context *nv50, const struct pipe_blit_info *info)
 
    BEGIN_NV04(push, NV50_3D(VIEWPORT_TRANSFORM_EN), 1);
    PUSH_DATA (push, 1);
+
+   /* mark the surface as reading, which will force a serialize next time it's
+    * used for writing.
+    */
+   if (serialize)
+      mt->base.status |= NOUVEAU_BUFFER_STATUS_GPU_READING;
 
    nv50_blitctx_post_blit(blit);
 }

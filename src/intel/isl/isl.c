@@ -99,11 +99,23 @@ static void
 isl_device_setup_mocs(struct isl_device *dev)
 {
    if (dev->info->gen >= 12) {
-      /* TODO: Set PTE to MOCS 61 when the kernel is ready */
-      /* TC=1/LLC Only, LeCC=1/Uncacheable, LRUM=0, L3CC=1/Uncacheable */
-      dev->mocs.external = 3 << 1;
-      /* TC=LLC/eLLC, LeCC=WB, LRUM=3, L3CC=WB */
-      dev->mocs.internal = 2 << 1;
+      if (dev->info->is_dg1) {
+         /* L3CC=WB */
+         dev->mocs.internal = 5 << 1;
+         /* Displayables on DG1 are free to cache in L3 since L3 is transient
+          * and flushed at bottom of each submission.
+          */
+         dev->mocs.external = 5 << 1;
+      } else {
+         /* TODO: Set PTE to MOCS 61 when the kernel is ready */
+         /* TC=1/LLC Only, LeCC=1/Uncacheable, LRUM=0, L3CC=1/Uncacheable */
+         dev->mocs.external = 3 << 1;
+         /* TC=LLC/eLLC, LeCC=WB, LRUM=3, L3CC=WB */
+         dev->mocs.internal = 2 << 1;
+
+         /* L1 - HDC:L1 + L3 + LLC */
+         dev->mocs.l1_hdc_l3_llc = 48 << 1;
+      }
    } else if (dev->info->gen >= 9) {
       /* TC=LLC/eLLC, LeCC=PTE, LRUM=3, L3CC=WB */
       dev->mocs.external = 1 << 1;
@@ -143,6 +155,33 @@ isl_device_setup_mocs(struct isl_device *dev)
       dev->mocs.internal = 0;
       dev->mocs.external = 0;
    }
+}
+
+/**
+ * Return an appropriate MOCS entry for the given usage flags.
+ */
+uint32_t
+isl_mocs(const struct isl_device *dev, isl_surf_usage_flags_t usage)
+{
+   if (dev->info->gen >= 12 && !dev->info->is_dg1) {
+      if (usage & ISL_SURF_USAGE_STAGING_BIT)
+         return dev->mocs.internal;
+
+      /* Using L1:HDC for storage buffers breaks Vulkan memory model
+       * tests that use shader atomics.  This isn't likely to work out,
+       * and we can't know a priori whether they'll be used.  So just
+       * continue with ordinary internal MOCS for now.
+       */
+      if (usage & ISL_SURF_USAGE_STORAGE_BIT)
+         return dev->mocs.internal;
+
+      if (usage & (ISL_SURF_USAGE_CONSTANT_BUFFER_BIT |
+                   ISL_SURF_USAGE_RENDER_TARGET_BIT |
+                   ISL_SURF_USAGE_TEXTURE_BIT))
+         return dev->mocs.l1_hdc_l3_llc;
+   }
+
+   return dev->mocs.internal;
 }
 
 void
@@ -1963,31 +2002,6 @@ isl_surf_supports_ccs(const struct isl_device *dev,
       if (isl_surf_usage_is_stencil(surf->usage) && surf->samples > 1)
          return false;
 
-      /* [TGL+] CCS can only be added to a non-D16-formatted depth buffer if
-       * it has HiZ. If not for GEN:BUG:1406512483 "deprecate compression
-       * enable states", D16 would be supported. Supporting D16 requires being
-       * able to specify that the control surface is present and
-       * simultaneously disabling compression. The above bug makes it so that
-       * it's not possible to specify this configuration.
-       *
-       * Note: ISL Doesn't currently support depth CCS without HiZ at all.
-       */
-      if (isl_surf_usage_is_depth(surf->usage) &&
-          surf->format == ISL_FORMAT_R16_UNORM) {
-         return false;
-      }
-
-      /* On Gen12, 8BPP surfaces cannot be compressed if any level is not
-       * 32Bx4row-aligned. For now, just reject the cases where alignment
-       * matters.
-       */
-      if (isl_format_get_layout(surf->format)->bpb == 8 && surf->levels >= 3) {
-         isl_finishme("%s:%s: CCS for 8BPP textures with 3+ miplevels is "
-                      "disabled, but support for more levels is possible.",
-                      __FILE__, __func__);
-         return false;
-      }
-
       /* On Gen12, all CCS-compressed surface pitches must be multiples of
        * 512B.
        */
@@ -2201,14 +2215,15 @@ isl_surf_get_ccs_surf(const struct isl_device *dev,
    case 9:                                         \
       isl_gen9_##func(__VA_ARGS__);                \
       break;                                       \
-   case 10:                                        \
-      isl_gen10_##func(__VA_ARGS__);               \
-      break;                                       \
    case 11:                                        \
       isl_gen11_##func(__VA_ARGS__);               \
       break;                                       \
    case 12:                                        \
-      isl_gen12_##func(__VA_ARGS__);               \
+      if (ISL_DEV_IS_GEN12HP(dev)) {               \
+         isl_gen125_##func(__VA_ARGS__);           \
+      } else {                                     \
+         isl_gen12_##func(__VA_ARGS__);            \
+      }                                            \
       break;                                       \
    default:                                        \
       assert(!"Unknown hardware generation");      \
@@ -2960,7 +2975,7 @@ isl_format_get_aux_map_encoding(enum isl_format format)
    case ISL_FORMAT_R32_SINT: return 0x12;
    case ISL_FORMAT_R32_UINT: return 0x13;
    case ISL_FORMAT_R32_FLOAT: return 0x11;
-   case ISL_FORMAT_R24_UNORM_X8_TYPELESS: return 0x11;
+   case ISL_FORMAT_R24_UNORM_X8_TYPELESS: return 0x13;
    case ISL_FORMAT_B5G6R5_UNORM: return 0xA;
    case ISL_FORMAT_B5G6R5_UNORM_SRGB: return 0xA;
    case ISL_FORMAT_B5G5R5A1_UNORM: return 0xA;
@@ -2985,6 +3000,12 @@ isl_format_get_aux_map_encoding(enum isl_format format)
    case ISL_FORMAT_R8_SINT: return 0x1C;
    case ISL_FORMAT_R8_UINT: return 0x1D;
    case ISL_FORMAT_A8_UNORM: return 0xA;
+   case ISL_FORMAT_PLANAR_420_8: return 0xF;
+   case ISL_FORMAT_PLANAR_420_10: return 0x7;
+   case ISL_FORMAT_PLANAR_420_12: return 0x8;
+   case ISL_FORMAT_PLANAR_420_16: return 0x8;
+   case ISL_FORMAT_YCRCB_NORMAL: return 0x3;
+   case ISL_FORMAT_YCRCB_SWAPY: return 0xB;
    default:
       unreachable("Unsupported aux-map format!");
       return 0;

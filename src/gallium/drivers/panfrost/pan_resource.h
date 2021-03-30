@@ -26,19 +26,23 @@
 #ifndef PAN_RESOURCE_H
 #define PAN_RESOURCE_H
 
-#include <panfrost-job.h>
+#include <midgard_pack.h>
 #include "pan_screen.h"
-#include "pan_allocate.h"
+#include "pan_pool.h"
 #include "pan_minmax_cache.h"
 #include "pan_texture.h"
+#include "pan_partial_update.h"
 #include "drm-uapi/drm.h"
 #include "util/u_range.h"
+
+#define LAYOUT_CONVERT_THRESHOLD 8
 
 struct panfrost_resource {
         struct pipe_resource base;
         struct {
-                struct pipe_box biggest_rect;
                 struct pipe_scissor_state extent;
+                struct pan_rect *inverted_rects;
+                unsigned inverted_len;
         } damage;
 
         struct panfrost_bo *bo;
@@ -48,17 +52,20 @@ struct panfrost_resource {
 
         struct util_range valid_buffer_range;
 
-        /* Description of the mip levels */
-        struct panfrost_slice slices[MAX_MIP_LEVELS];
+        /* Description of the resource layout */
+        struct pan_image_layout layout;
 
-        /* Distance from tree to tree */
-        unsigned cubemap_stride;
-
-        /* Internal layout (tiled?) */
-        enum mali_texture_layout layout;
+        /* Whether the modifier can be changed */
+        bool modifier_constant;
 
         /* Is transaciton elimination enabled? */
         bool checksummed;
+
+        /* The CRC BO can be allocated separately */
+        struct panfrost_bo *checksum_bo;
+
+        /* Used to decide when to convert to another modifier */
+        uint16_t modifier_updates;
 
         enum pipe_format internal_format;
 
@@ -72,32 +79,34 @@ pan_resource(struct pipe_resource *p)
         return (struct panfrost_resource *)p;
 }
 
-struct panfrost_gtransfer {
+struct panfrost_transfer {
         struct pipe_transfer base;
         void *map;
+        struct {
+                struct pipe_resource *rsrc;
+                struct pipe_box box;
+        } staging;
 };
 
-static inline struct panfrost_gtransfer *
+static inline struct panfrost_transfer *
 pan_transfer(struct pipe_transfer *p)
 {
-        return (struct panfrost_gtransfer *)p;
+        return (struct panfrost_transfer *)p;
 }
 
 mali_ptr
-panfrost_get_texture_address(
-        struct panfrost_resource *rsrc,
-        unsigned level, unsigned face);
+panfrost_get_texture_address(struct panfrost_resource *rsrc,
+                             unsigned level, unsigned layer,
+                             unsigned sample);
+
+void
+panfrost_get_afbc_pointers(struct panfrost_resource *rsrc,
+                           unsigned level, unsigned layer,
+                           mali_ptr *header, mali_ptr *body);
 
 void panfrost_resource_screen_init(struct pipe_screen *screen);
 
 void panfrost_resource_context_init(struct pipe_context *pctx);
-
-void
-panfrost_resource_hint_layout(
-                struct panfrost_device *dev,
-                struct panfrost_resource *rsrc,
-                enum mali_texture_layout layout,
-                signed weight);
 
 /* Blitting */
 
@@ -106,20 +115,36 @@ panfrost_blit(struct pipe_context *pipe,
               const struct pipe_blit_info *info);
 
 void
-panfrost_blit_wallpaper(struct panfrost_context *ctx,
-                        struct pipe_box *box);
-
-void
-panfrost_resource_reset_damage(struct panfrost_resource *pres);
-
-void
 panfrost_resource_set_damage_region(struct pipe_screen *screen,
                                     struct pipe_resource *res,
                                     unsigned int nrects,
                                     const struct pipe_box *rects);
 
+static inline enum mali_texture_dimension
+panfrost_translate_texture_dimension(enum pipe_texture_target t) {
+        switch (t)
+        {
+        case PIPE_BUFFER:
+        case PIPE_TEXTURE_1D:
+        case PIPE_TEXTURE_1D_ARRAY:
+                return MALI_TEXTURE_DIMENSION_1D;
 
-struct panfrost_bo *
-pan_bo_create(struct panfrost_device *dev, size_t size, uint32_t flags);
+        case PIPE_TEXTURE_2D:
+        case PIPE_TEXTURE_2D_ARRAY:
+        case PIPE_TEXTURE_RECT:
+                return MALI_TEXTURE_DIMENSION_2D;
+
+        case PIPE_TEXTURE_3D:
+                return MALI_TEXTURE_DIMENSION_3D;
+
+        case PIPE_TEXTURE_CUBE:
+        case PIPE_TEXTURE_CUBE_ARRAY:
+                return MALI_TEXTURE_DIMENSION_CUBE;
+
+        default:
+                unreachable("Unknown target");
+        }
+}
+
 
 #endif /* PAN_RESOURCE_H */

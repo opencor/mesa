@@ -423,15 +423,9 @@ lower_image_load_instr(nir_builder *b,
       nir_push_if(b, do_load);
 
       nir_ssa_def *addr = image_address(b, devinfo, deref, coord);
-      nir_intrinsic_instr *load =
-         nir_intrinsic_instr_create(b->shader,
-                                    nir_intrinsic_image_deref_load_raw_intel);
-      load->src[0] = nir_src_for_ssa(&deref->dest.ssa);
-      load->src[1] = nir_src_for_ssa(addr);
-      load->num_components = image_fmtl->bpb / 32;
-      nir_ssa_dest_init(&load->instr, &load->dest,
-                        load->num_components, 32, NULL);
-      nir_builder_instr_insert(b, &load->instr);
+      nir_ssa_def *load =
+         nir_image_deref_load_raw_intel(b, image_fmtl->bpb / 32, 32,
+                                        &deref->dest.ssa, addr);
 
       nir_push_else(b, NULL);
 
@@ -439,7 +433,7 @@ lower_image_load_instr(nir_builder *b,
 
       nir_pop_if(b, NULL);
 
-      nir_ssa_def *value = nir_if_phi(b, &load->dest.ssa, zero);
+      nir_ssa_def *value = nir_if_phi(b, load, zero);
 
       nir_ssa_def *color = convert_color_for_load(b, devinfo, value,
                                                   image_fmt, raw_fmt,
@@ -653,6 +647,8 @@ lower_image_size_instr(nir_builder *b,
    if (isl_has_matching_typed_storage_image_format(devinfo, image_fmt))
       return false;
 
+   assert(nir_src_as_uint(intrin->src[1]) == 0);
+
    b->cursor = nir_instr_remove(&intrin->instr);
 
    nir_ssa_def *size = load_image_param(b, deref, SIZE);
@@ -689,6 +685,7 @@ brw_nir_lower_image_load_store(nir_shader *shader,
       if (function->impl == NULL)
          continue;
 
+      bool impl_progress = false;
       nir_foreach_block_safe(block, function->impl) {
          nir_builder b;
          nir_builder_init(&b, function->impl);
@@ -701,12 +698,12 @@ brw_nir_lower_image_load_store(nir_shader *shader,
             switch (intrin->intrinsic) {
             case nir_intrinsic_image_deref_load:
                if (lower_image_load_instr(&b, devinfo, intrin))
-                  progress = true;
+                  impl_progress = true;
                break;
 
             case nir_intrinsic_image_deref_store:
                if (lower_image_store_instr(&b, devinfo, intrin))
-                  progress = true;
+                  impl_progress = true;
                break;
 
             case nir_intrinsic_image_deref_atomic_add:
@@ -722,12 +719,12 @@ brw_nir_lower_image_load_store(nir_shader *shader,
                if (uses_atomic_load_store)
                   *uses_atomic_load_store = true;
                if (lower_image_atomic_instr(&b, devinfo, intrin))
-                  progress = true;
+                  impl_progress = true;
                break;
 
             case nir_intrinsic_image_deref_size:
                if (lower_image_size_instr(&b, devinfo, intrin))
-                  progress = true;
+                  impl_progress = true;
                break;
 
             default:
@@ -737,8 +734,12 @@ brw_nir_lower_image_load_store(nir_shader *shader,
          }
       }
 
-      if (progress)
+      if (impl_progress) {
+         progress = true;
          nir_metadata_preserve(function->impl, nir_metadata_none);
+      } else {
+         nir_metadata_preserve(function->impl, nir_metadata_all);
+      }
    }
 
    return progress;

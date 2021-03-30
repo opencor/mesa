@@ -25,6 +25,7 @@
 
 #include "pipe/p_context.h"
 #include "pipe/p_state.h"
+#include "util/set.h"
 #include "util/slab.h"
 #include "util/u_debug.h"
 #include "intel/blorp/blorp.h"
@@ -49,10 +50,16 @@ struct blorp_params;
 #define IRIS_MAX_SSBOS 16
 #define IRIS_MAX_VIEWPORTS 16
 #define IRIS_MAX_CLIP_PLANES 8
+#define IRIS_MAX_GLOBAL_BINDINGS 32
 
 enum iris_param_domain {
    BRW_PARAM_DOMAIN_BUILTIN = 0,
    BRW_PARAM_DOMAIN_IMAGE,
+};
+
+enum iris_shader_reloc {
+   IRIS_SHADER_RELOC_CONST_DATA_ADDR_LOW,
+   IRIS_SHADER_RELOC_CONST_DATA_ADDR_HIGH,
 };
 
 enum {
@@ -77,85 +84,97 @@ enum {
  *
  * See iris_upload_render_state().
  */
-#define IRIS_DIRTY_COLOR_CALC_STATE         (1ull <<  0)
-#define IRIS_DIRTY_POLYGON_STIPPLE          (1ull <<  1)
-#define IRIS_DIRTY_SCISSOR_RECT             (1ull <<  2)
-#define IRIS_DIRTY_WM_DEPTH_STENCIL         (1ull <<  3)
-#define IRIS_DIRTY_CC_VIEWPORT              (1ull <<  4)
-#define IRIS_DIRTY_SF_CL_VIEWPORT           (1ull <<  5)
-#define IRIS_DIRTY_PS_BLEND                 (1ull <<  6)
-#define IRIS_DIRTY_BLEND_STATE              (1ull <<  7)
-#define IRIS_DIRTY_RASTER                   (1ull <<  8)
-#define IRIS_DIRTY_CLIP                     (1ull <<  9)
-#define IRIS_DIRTY_SBE                      (1ull << 10)
-#define IRIS_DIRTY_LINE_STIPPLE             (1ull << 11)
-#define IRIS_DIRTY_VERTEX_ELEMENTS          (1ull << 12)
-#define IRIS_DIRTY_MULTISAMPLE              (1ull << 13)
-#define IRIS_DIRTY_VERTEX_BUFFERS           (1ull << 14)
-#define IRIS_DIRTY_SAMPLE_MASK              (1ull << 15)
-#define IRIS_DIRTY_SAMPLER_STATES_VS        (1ull << 16)
-#define IRIS_DIRTY_SAMPLER_STATES_TCS       (1ull << 17)
-#define IRIS_DIRTY_SAMPLER_STATES_TES       (1ull << 18)
-#define IRIS_DIRTY_SAMPLER_STATES_GS        (1ull << 19)
-#define IRIS_DIRTY_SAMPLER_STATES_PS        (1ull << 20)
-#define IRIS_DIRTY_SAMPLER_STATES_CS        (1ull << 21)
-#define IRIS_DIRTY_UNCOMPILED_VS            (1ull << 22)
-#define IRIS_DIRTY_UNCOMPILED_TCS           (1ull << 23)
-#define IRIS_DIRTY_UNCOMPILED_TES           (1ull << 24)
-#define IRIS_DIRTY_UNCOMPILED_GS            (1ull << 25)
-#define IRIS_DIRTY_UNCOMPILED_FS            (1ull << 26)
-#define IRIS_DIRTY_UNCOMPILED_CS            (1ull << 27)
-#define IRIS_DIRTY_VS                       (1ull << 28)
-#define IRIS_DIRTY_TCS                      (1ull << 29)
-#define IRIS_DIRTY_TES                      (1ull << 30)
-#define IRIS_DIRTY_GS                       (1ull << 31)
-#define IRIS_DIRTY_FS                       (1ull << 32)
-#define IRIS_DIRTY_CS                       (1ull << 33)
-#define IRIS_DIRTY_URB                      (1ull << 34)
-#define IRIS_SHIFT_FOR_DIRTY_CONSTANTS      35
-#define IRIS_DIRTY_CONSTANTS_VS             (1ull << 35)
-#define IRIS_DIRTY_CONSTANTS_TCS            (1ull << 36)
-#define IRIS_DIRTY_CONSTANTS_TES            (1ull << 37)
-#define IRIS_DIRTY_CONSTANTS_GS             (1ull << 38)
-#define IRIS_DIRTY_CONSTANTS_FS             (1ull << 39)
-#define IRIS_DIRTY_CONSTANTS_CS             (1ull << 40)
-#define IRIS_DIRTY_DEPTH_BUFFER             (1ull << 41)
-#define IRIS_DIRTY_WM                       (1ull << 42)
-#define IRIS_DIRTY_BINDINGS_VS              (1ull << 43)
-#define IRIS_DIRTY_BINDINGS_TCS             (1ull << 44)
-#define IRIS_DIRTY_BINDINGS_TES             (1ull << 45)
-#define IRIS_DIRTY_BINDINGS_GS              (1ull << 46)
-#define IRIS_DIRTY_BINDINGS_FS              (1ull << 47)
-#define IRIS_DIRTY_BINDINGS_CS              (1ull << 48)
-#define IRIS_DIRTY_SO_BUFFERS               (1ull << 49)
-#define IRIS_DIRTY_SO_DECL_LIST             (1ull << 50)
-#define IRIS_DIRTY_STREAMOUT                (1ull << 51)
-#define IRIS_DIRTY_VF_SGVS                  (1ull << 52)
-#define IRIS_DIRTY_VF                       (1ull << 53)
-#define IRIS_DIRTY_VF_TOPOLOGY              (1ull << 54)
-#define IRIS_DIRTY_RENDER_RESOLVES_AND_FLUSHES  (1ull << 55)
-#define IRIS_DIRTY_COMPUTE_RESOLVES_AND_FLUSHES (1ull << 56)
-#define IRIS_DIRTY_VF_STATISTICS            (1ull << 57)
-#define IRIS_DIRTY_PMA_FIX                  (1ull << 58)
-#define IRIS_DIRTY_DEPTH_BOUNDS             (1ull << 59)
-#define IRIS_DIRTY_RENDER_BUFFER            (1ull << 60)
+#define IRIS_DIRTY_COLOR_CALC_STATE               (1ull <<  0)
+#define IRIS_DIRTY_POLYGON_STIPPLE                (1ull <<  1)
+#define IRIS_DIRTY_SCISSOR_RECT                   (1ull <<  2)
+#define IRIS_DIRTY_WM_DEPTH_STENCIL               (1ull <<  3)
+#define IRIS_DIRTY_CC_VIEWPORT                    (1ull <<  4)
+#define IRIS_DIRTY_SF_CL_VIEWPORT                 (1ull <<  5)
+#define IRIS_DIRTY_PS_BLEND                       (1ull <<  6)
+#define IRIS_DIRTY_BLEND_STATE                    (1ull <<  7)
+#define IRIS_DIRTY_RASTER                         (1ull <<  8)
+#define IRIS_DIRTY_CLIP                           (1ull <<  9)
+#define IRIS_DIRTY_SBE                            (1ull << 10)
+#define IRIS_DIRTY_LINE_STIPPLE                   (1ull << 11)
+#define IRIS_DIRTY_VERTEX_ELEMENTS                (1ull << 12)
+#define IRIS_DIRTY_MULTISAMPLE                    (1ull << 13)
+#define IRIS_DIRTY_VERTEX_BUFFERS                 (1ull << 14)
+#define IRIS_DIRTY_SAMPLE_MASK                    (1ull << 15)
+#define IRIS_DIRTY_URB                            (1ull << 16)
+#define IRIS_DIRTY_DEPTH_BUFFER                   (1ull << 17)
+#define IRIS_DIRTY_WM                             (1ull << 18)
+#define IRIS_DIRTY_SO_BUFFERS                     (1ull << 19)
+#define IRIS_DIRTY_SO_DECL_LIST                   (1ull << 20)
+#define IRIS_DIRTY_STREAMOUT                      (1ull << 21)
+#define IRIS_DIRTY_VF_SGVS                        (1ull << 22)
+#define IRIS_DIRTY_VF                             (1ull << 23)
+#define IRIS_DIRTY_VF_TOPOLOGY                    (1ull << 24)
+#define IRIS_DIRTY_RENDER_RESOLVES_AND_FLUSHES    (1ull << 25)
+#define IRIS_DIRTY_COMPUTE_RESOLVES_AND_FLUSHES   (1ull << 26)
+#define IRIS_DIRTY_VF_STATISTICS                  (1ull << 27)
+#define IRIS_DIRTY_PMA_FIX                        (1ull << 28)
+#define IRIS_DIRTY_DEPTH_BOUNDS                   (1ull << 29)
+#define IRIS_DIRTY_RENDER_BUFFER                  (1ull << 30)
+#define IRIS_DIRTY_STENCIL_REF                    (1ull << 31)
 
-#define IRIS_ALL_DIRTY_FOR_COMPUTE (IRIS_DIRTY_CS | \
-                                    IRIS_DIRTY_SAMPLER_STATES_CS | \
-                                    IRIS_DIRTY_UNCOMPILED_CS | \
-                                    IRIS_DIRTY_CONSTANTS_CS | \
-                                    IRIS_DIRTY_BINDINGS_CS | \
-                                    IRIS_DIRTY_COMPUTE_RESOLVES_AND_FLUSHES)
+#define IRIS_ALL_DIRTY_FOR_COMPUTE (IRIS_DIRTY_COMPUTE_RESOLVES_AND_FLUSHES)
 
-#define IRIS_ALL_DIRTY_FOR_RENDER ~IRIS_ALL_DIRTY_FOR_COMPUTE
+#define IRIS_ALL_DIRTY_FOR_RENDER (~IRIS_ALL_DIRTY_FOR_COMPUTE)
 
-#define IRIS_ALL_DIRTY_BINDINGS (IRIS_DIRTY_BINDINGS_VS  | \
-                                 IRIS_DIRTY_BINDINGS_TCS | \
-                                 IRIS_DIRTY_BINDINGS_TES | \
-                                 IRIS_DIRTY_BINDINGS_GS  | \
-                                 IRIS_DIRTY_BINDINGS_FS  | \
-                                 IRIS_DIRTY_BINDINGS_CS  | \
-                                 IRIS_DIRTY_RENDER_BUFFER)
+/**
+ * Per-stage dirty flags.  When state changes, we flag some combination of
+ * these to indicate that particular GPU commands need to be re-emitted.
+ * Unlike the IRIS_DIRTY_* flags these are shader stage-specific and can be
+ * indexed by shifting the mask by the shader stage index.
+ *
+ * See iris_upload_render_state().
+ */
+#define IRIS_STAGE_DIRTY_SAMPLER_STATES_VS        (1ull << 0)
+#define IRIS_STAGE_DIRTY_SAMPLER_STATES_TCS       (1ull << 1)
+#define IRIS_STAGE_DIRTY_SAMPLER_STATES_TES       (1ull << 2)
+#define IRIS_STAGE_DIRTY_SAMPLER_STATES_GS        (1ull << 3)
+#define IRIS_STAGE_DIRTY_SAMPLER_STATES_PS        (1ull << 4)
+#define IRIS_STAGE_DIRTY_SAMPLER_STATES_CS        (1ull << 5)
+#define IRIS_STAGE_DIRTY_UNCOMPILED_VS            (1ull << 6)
+#define IRIS_STAGE_DIRTY_UNCOMPILED_TCS           (1ull << 7)
+#define IRIS_STAGE_DIRTY_UNCOMPILED_TES           (1ull << 8)
+#define IRIS_STAGE_DIRTY_UNCOMPILED_GS            (1ull << 9)
+#define IRIS_STAGE_DIRTY_UNCOMPILED_FS            (1ull << 10)
+#define IRIS_STAGE_DIRTY_UNCOMPILED_CS            (1ull << 11)
+#define IRIS_STAGE_DIRTY_VS                       (1ull << 12)
+#define IRIS_STAGE_DIRTY_TCS                      (1ull << 13)
+#define IRIS_STAGE_DIRTY_TES                      (1ull << 14)
+#define IRIS_STAGE_DIRTY_GS                       (1ull << 15)
+#define IRIS_STAGE_DIRTY_FS                       (1ull << 16)
+#define IRIS_STAGE_DIRTY_CS                       (1ull << 17)
+#define IRIS_SHIFT_FOR_STAGE_DIRTY_CONSTANTS      18
+#define IRIS_STAGE_DIRTY_CONSTANTS_VS             (1ull << 18)
+#define IRIS_STAGE_DIRTY_CONSTANTS_TCS            (1ull << 19)
+#define IRIS_STAGE_DIRTY_CONSTANTS_TES            (1ull << 20)
+#define IRIS_STAGE_DIRTY_CONSTANTS_GS             (1ull << 21)
+#define IRIS_STAGE_DIRTY_CONSTANTS_FS             (1ull << 22)
+#define IRIS_STAGE_DIRTY_CONSTANTS_CS             (1ull << 23)
+#define IRIS_STAGE_DIRTY_BINDINGS_VS              (1ull << 24)
+#define IRIS_STAGE_DIRTY_BINDINGS_TCS             (1ull << 25)
+#define IRIS_STAGE_DIRTY_BINDINGS_TES             (1ull << 26)
+#define IRIS_STAGE_DIRTY_BINDINGS_GS              (1ull << 27)
+#define IRIS_STAGE_DIRTY_BINDINGS_FS              (1ull << 28)
+#define IRIS_STAGE_DIRTY_BINDINGS_CS              (1ull << 29)
+
+#define IRIS_ALL_STAGE_DIRTY_FOR_COMPUTE (IRIS_STAGE_DIRTY_CS | \
+                                          IRIS_STAGE_DIRTY_SAMPLER_STATES_CS | \
+                                          IRIS_STAGE_DIRTY_UNCOMPILED_CS |    \
+                                          IRIS_STAGE_DIRTY_CONSTANTS_CS |     \
+                                          IRIS_STAGE_DIRTY_BINDINGS_CS)
+
+#define IRIS_ALL_STAGE_DIRTY_FOR_RENDER (~IRIS_ALL_STAGE_DIRTY_FOR_COMPUTE)
+
+#define IRIS_ALL_STAGE_DIRTY_BINDINGS (IRIS_STAGE_DIRTY_BINDINGS_VS  | \
+                                       IRIS_STAGE_DIRTY_BINDINGS_TCS | \
+                                       IRIS_STAGE_DIRTY_BINDINGS_TES | \
+                                       IRIS_STAGE_DIRTY_BINDINGS_GS  | \
+                                       IRIS_STAGE_DIRTY_BINDINGS_FS  | \
+                                       IRIS_STAGE_DIRTY_BINDINGS_CS)
 
 /**
  * Non-orthogonal state (NOS) dependency flags.
@@ -365,11 +384,11 @@ struct iris_uncompiled_shader {
    /* Whether shader uses atomic operations. */
    bool uses_atomic_load_store;
 
-   /** Constant data scraped from the shader by nir_opt_large_constants */
-   struct pipe_resource *const_data;
+   /** Size (in bytes) of the kernel input data */
+   unsigned kernel_input_size;
 
-   /** Surface state for const_data */
-   struct iris_state_ref const_data_state;
+   /** Size (in bytes) of the local (shared) data passed as kernel inputs */
+   unsigned kernel_shared_size;
 };
 
 enum iris_surface_group {
@@ -410,6 +429,8 @@ struct iris_binding_table {
  * (iris_uncompiled_shader), due to state-based recompiles (brw_*_prog_key).
  */
 struct iris_compiled_shader {
+   struct list_head link;
+
    /** Reference to the uploaded assembly. */
    struct iris_state_ref assembly;
 
@@ -422,6 +443,9 @@ struct iris_compiled_shader {
    /** A list of system values to be uploaded as uniforms. */
    enum brw_param_builtin *system_values;
    unsigned num_system_values;
+
+   /** Size (in bytes) of the kernel input data */
+   unsigned kernel_input_size;
 
    /** Number of constbufs expected by the shader. */
    unsigned num_cbufs;
@@ -522,6 +546,9 @@ struct iris_context {
    /** A device reset status callback for notifying that the GPU is hosed. */
    struct pipe_device_reset_callback reset;
 
+   /** A set of dmabuf resources dirtied beyond their default aux-states. */
+   struct set *dirty_dmabufs;
+
    /** Slab allocator for iris_transfer_map objects. */
    struct slab_child_pool transfer_pool;
 
@@ -582,6 +609,9 @@ struct iris_context {
       struct iris_compiled_shader *prog[MESA_SHADER_STAGES];
       struct brw_vue_map *last_vue_map;
 
+      /** List of shader variants whose deletion has been deferred for now */
+      struct list_head deleted_variants[MESA_SHADER_STAGES];
+
       struct u_upload_mgr *uploader;
       struct hash_table *cache;
 
@@ -597,11 +627,6 @@ struct iris_context {
       struct iris_bo *scratch_bos[1 << 4][MESA_SHADER_STAGES];
    } shaders;
 
-   struct {
-      struct iris_query *query;
-      bool condition;
-   } condition;
-
    struct gen_perf_context *perf_ctx;
 
    /** Frame number for debug prints */
@@ -609,7 +634,8 @@ struct iris_context {
 
    struct {
       uint64_t dirty;
-      uint64_t dirty_for_nos[IRIS_NOS_COUNT];
+      uint64_t stage_dirty;
+      uint64_t stage_dirty_for_nos[IRIS_NOS_COUNT];
 
       unsigned num_viewports;
       unsigned sample_mask;
@@ -639,6 +665,9 @@ struct iris_context {
 
       bool window_space_position;
 
+      /** The last compute group size */
+      uint32_t last_block[3];
+
       /** The last compute grid size */
       uint32_t last_grid[3];
       /** Reference to the BO containing the compute grid size */
@@ -653,9 +682,6 @@ struct iris_context {
       enum isl_aux_usage draw_aux_usage[BRW_MAX_DRAW_BUFFERS];
 
       enum gen_urb_deref_block_size urb_deref_block_size;
-
-      /** Bitfield of whether color blending is enabled for RT[i] */
-      uint8_t blend_enables;
 
       /** Are depth writes enabled?  (Depth buffer may or may not exist.) */
       bool depth_writes_enabled;
@@ -678,6 +704,9 @@ struct iris_context {
 
       /** Do any samplers need border color?  One bit per shader stage. */
       uint8_t need_border_colors;
+
+      /** Global resource bindings */
+      struct pipe_resource *global_bindings[IRIS_MAX_GLOBAL_BINDINGS];
 
       struct pipe_stream_output_target *so_target[PIPE_MAX_SO_BUFFERS];
       bool streamout_active;
@@ -754,6 +783,10 @@ iris_create_context(struct pipe_screen *screen, void *priv, unsigned flags);
 
 void iris_lost_context_state(struct iris_batch *batch);
 
+void iris_mark_dirty_dmabuf(struct iris_context *ice,
+                            struct pipe_resource *res);
+void iris_flush_dirty_dmabufs(struct iris_context *ice);
+
 void iris_init_blit_functions(struct pipe_context *ctx);
 void iris_init_clear_functions(struct pipe_context *ctx);
 void iris_init_program_functions(struct pipe_context *ctx);
@@ -784,7 +817,10 @@ void iris_copy_region(struct blorp_context *blorp,
 
 /* iris_draw.c */
 
-void iris_draw_vbo(struct pipe_context *ctx, const struct pipe_draw_info *info);
+void iris_draw_vbo(struct pipe_context *ctx, const struct pipe_draw_info *info,
+                   const struct pipe_draw_indirect_info *indirect,
+                   const struct pipe_draw_start_count *draws,
+                   unsigned num_draws);
 void iris_launch_grid(struct pipe_context *, const struct pipe_grid_info *);
 
 /* iris_pipe_control.c */
@@ -797,6 +833,9 @@ void iris_emit_pipe_control_write(struct iris_batch *batch,
                                   uint64_t imm);
 void iris_emit_end_of_pipe_sync(struct iris_batch *batch,
                                 const char *reason, uint32_t flags);
+void iris_emit_buffer_barrier_for(struct iris_batch *batch,
+                                  struct iris_bo *bo,
+                                  enum iris_domain access);
 void iris_flush_all_caches(struct iris_batch *batch);
 
 #define iris_handle_always_flush_cache(batch) \
@@ -817,7 +856,7 @@ uint32_t iris_upload_border_color(struct iris_context *ice,
 void iris_upload_ubo_ssbo_surf_state(struct iris_context *ice,
                                      struct pipe_shader_buffer *buf,
                                      struct iris_state_ref *surf_state,
-                                     bool ssbo);
+                                     isl_surf_usage_flags_t usage);
 const struct shader_info *iris_get_shader_info(const struct iris_context *ice,
                                                gl_shader_stage stage);
 struct iris_bo *iris_get_scratch_space(struct iris_context *ice,
@@ -861,11 +900,14 @@ struct iris_compiled_shader *iris_upload_shader(struct iris_context *ice,
                                                 uint32_t *streamout,
                                                 enum brw_param_builtin *sysv,
                                                 unsigned num_system_values,
+                                                unsigned kernel_input_size,
                                                 unsigned num_cbufs,
                                                 const struct iris_binding_table *bt);
 const void *iris_find_previous_compile(const struct iris_context *ice,
                                        enum iris_program_cache_id cache_id,
                                        unsigned program_string_id);
+void iris_delete_shader_variants(struct iris_context *ice,
+                                 struct iris_uncompiled_shader *ish);
 bool iris_blorp_lookup_shader(struct blorp_batch *blorp_batch,
                               const void *key,
                               uint32_t key_size,
@@ -891,19 +933,10 @@ void iris_predraw_resolve_framebuffer(struct iris_context *ice,
                                       bool *draw_aux_buffer_disabled);
 void iris_postdraw_update_resolve_tracking(struct iris_context *ice,
                                            struct iris_batch *batch);
-void iris_cache_sets_clear(struct iris_batch *batch);
-void iris_flush_depth_and_render_caches(struct iris_batch *batch);
-void iris_cache_flush_for_read(struct iris_batch *batch, struct iris_bo *bo);
 void iris_cache_flush_for_render(struct iris_batch *batch,
                                  struct iris_bo *bo,
                                  enum isl_format format,
                                  enum isl_aux_usage aux_usage);
-void iris_render_cache_add_bo(struct iris_batch *batch,
-                              struct iris_bo *bo,
-                              enum isl_format format,
-                              enum isl_aux_usage aux_usage);
-void iris_cache_flush_for_depth(struct iris_batch *batch, struct iris_bo *bo);
-void iris_depth_cache_add_bo(struct iris_batch *batch, struct iris_bo *bo);
 int iris_get_driver_query_info(struct pipe_screen *pscreen, unsigned index,
                                struct pipe_driver_query_info *info);
 int iris_get_driver_query_group_info(struct pipe_screen *pscreen,
@@ -941,13 +974,13 @@ void gen9_toggle_preemption(struct iris_context *ice,
 #  define genX(x) gen9_##x
 #  include "iris_genx_protos.h"
 #  undef genX
-#  define genX(x) gen10_##x
-#  include "iris_genx_protos.h"
-#  undef genX
 #  define genX(x) gen11_##x
 #  include "iris_genx_protos.h"
 #  undef genX
 #  define genX(x) gen12_##x
+#  include "iris_genx_protos.h"
+#  undef genX
+#  define genX(x) gen125_##x
 #  include "iris_genx_protos.h"
 #  undef genX
 #endif

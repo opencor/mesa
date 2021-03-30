@@ -38,7 +38,9 @@ GPRValue::GPRValue(uint32_t sel, uint32_t chan, int base_offset):
    Value(Value::gpr, chan),
    m_sel(sel),
    m_base_offset(base_offset),
-   m_input(false)
+   m_input(false),
+   m_pin_to_channel(false),
+   m_keep_alive(false)
 {
 }
 
@@ -46,7 +48,9 @@ GPRValue::GPRValue(uint32_t sel, uint32_t chan):
    Value(Value::gpr, chan),
    m_sel(sel),
    m_base_offset(0),
-   m_input(false)
+   m_input(false),
+   m_pin_to_channel(false),
+   m_keep_alive(false)
 {
 }
 
@@ -150,6 +154,14 @@ void GPRVector::pin_to_channel(int i)
 {
    auto& v = static_cast<GPRValue&>(*m_elms[i]);
    v.set_pin_to_channel();
+}
+
+void GPRVector::pin_all_to_channel()
+{
+   for (auto& v: m_elms) {
+      auto& c = static_cast<GPRValue&>(*v);
+      c.set_pin_to_channel();
+   }
 }
 
 void GPRVector::do_print(std::ostream& os) const

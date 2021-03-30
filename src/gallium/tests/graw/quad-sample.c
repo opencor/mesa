@@ -2,7 +2,7 @@
  * any utility code, just the graw interface and gallium.
  */
 
-#include "state_tracker/graw.h"
+#include "frontend/graw.h"
 #include "pipe/p_screen.h"
 #include "pipe/p_context.h"
 #include "pipe/p_shader_tokens.h"
@@ -75,6 +75,11 @@ static void set_viewport( float x, float y,
    vp.translate[0] = half_width + x;
    vp.translate[1] = half_height + y;
    vp.translate[2] = half_depth + z;
+
+   vp.swizzle_x = PIPE_VIEWPORT_SWIZZLE_POSITIVE_X;
+   vp.swizzle_y = PIPE_VIEWPORT_SWIZZLE_POSITIVE_Y;
+   vp.swizzle_z = PIPE_VIEWPORT_SWIZZLE_POSITIVE_Z;
+   vp.swizzle_w = PIPE_VIEWPORT_SWIZZLE_POSITIVE_W;
 
    ctx->set_viewport_states( ctx, 0, 1, &vp );
 }
@@ -154,7 +159,7 @@ static void draw( void )
 
    graw_save_surface_to_file(ctx, surf, NULL);
 
-   screen->flush_frontbuffer(screen, rttex, 0, 0, window, NULL);
+   screen->flush_frontbuffer(screen, ctx, rttex, 0, 0, window, NULL);
 }
 
 #define SIZE 16
@@ -229,7 +234,7 @@ static void init_tex( void )
    ctx->texture_subdata(ctx,
                         samptex,
                         0,
-                        PIPE_TRANSFER_WRITE,
+                        PIPE_MAP_WRITE,
                         &box,
                         tex2d,
                         sizeof tex2d[0],
@@ -243,7 +248,7 @@ static void init_tex( void )
       uint32_t *ptr;
       ptr = pipe_transfer_map(ctx, samptex,
                               0, 0, /* level, layer */
-                              PIPE_TRANSFER_READ,
+                              PIPE_MAP_READ,
                               0, 0, SIZE, SIZE, &t); /* x, y, width, height */
 
       if (memcmp(ptr, tex2d, sizeof tex2d) != 0) {

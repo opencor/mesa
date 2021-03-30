@@ -258,7 +258,7 @@
 
   <function name="VertexAttribIPointer" es2="3.0" marshal="async"
             no_error="true"
-            marshal_call_after="if (COMPAT) _mesa_glthread_AttribPointer(ctx, VERT_ATTRIB_GENERIC(index));">
+            marshal_call_after="if (COMPAT) _mesa_glthread_AttribPointer(ctx, VERT_ATTRIB_GENERIC(index), size, type, stride, pointer);">
     <param name="index" type="GLuint"/>
     <param name="size" type="GLint"/>
     <param name="type" type="GLenum"/>
@@ -330,7 +330,7 @@
     <param name="w" type="GLuint"/>
   </function>
 
-  <function name="VertexAttribI1iv">
+  <function name="VertexAttribI1iv" exec="dynamic">
     <param name="index" type="GLuint"/>
     <param name="v" type="const GLint *" count="1"/>
   </function>
@@ -350,7 +350,7 @@
     <param name="v" type="const GLint *"/>
   </function>
 
-  <function name="VertexAttribI1uiv">
+  <function name="VertexAttribI1uiv" exec="dynamic">
     <param name="index" type="GLuint"/>
     <param name="v" type="const GLuint *" count="1"/>
   </function>
@@ -370,22 +370,22 @@
     <param name="v" type="const GLuint *"/>
   </function>
 
-  <function name="VertexAttribI4bv">
+  <function name="VertexAttribI4bv" exec="dynamic">
     <param name="index" type="GLuint"/>
     <param name="v" type="const GLbyte *" count="4"/>
   </function>
 
-  <function name="VertexAttribI4sv">
+  <function name="VertexAttribI4sv" exec="dynamic">
     <param name="index" type="GLuint"/>
     <param name="v" type="const GLshort *" count="4"/>
   </function>
 
-  <function name="VertexAttribI4ubv">
+  <function name="VertexAttribI4ubv" exec="dynamic">
     <param name="index" type="GLuint"/>
     <param name="v" type="const GLubyte *" count="4"/>
   </function>
 
-  <function name="VertexAttribI4usv">
+  <function name="VertexAttribI4usv" exec="dynamic">
     <param name="index" type="GLuint"/>
     <param name="v" type="const GLushort *" count="4"/>
   </function>
@@ -563,7 +563,8 @@
     <param name="buffer" type="GLuint"/>
   </function>
 
-  <function name="PrimitiveRestartIndex" no_error="true">
+  <function name="PrimitiveRestartIndex" no_error="true"
+            marshal_call_after="_mesa_glthread_PrimitiveRestartIndex(ctx, index);">
     <param name="index" type="GLuint"/>
   </function>
 

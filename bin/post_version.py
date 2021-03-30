@@ -22,110 +22,56 @@
 """Update the main page, release notes, and calendar."""
 
 import argparse
-import calendar
-import datetime
+import csv
 import pathlib
 import subprocess
 
-from lxml import (
-    etree,
-    html,
-)
-
-
-def is_first_release(version: str) -> bool:
-    return version.endswith('.0')
-
-
-def is_release_candidate(version: str) -> bool:
-    return '-rc' in version
-
-
-def branch_name(version: str) -> str:
-    if is_release_candidate(version):
-        version = version.split('-')[0]
-    (major, minor, _) = version.split('.')
-    return f'{major}.{minor}'
-
-
-def update_index(version: str) -> None:
-    p = pathlib.Path(__file__).parent.parent / 'docs' / 'index.html'
-    with p.open('rt') as f:
-        tree = html.parse(f)
-
-    news = tree.xpath('.//h1')[0]
-
-    date = datetime.date.today()
-    month = calendar.month_name[date.month]
-    header = etree.Element('h2')
-    header.text = f"{month} {date.day}, {date.year}"
-
-    body = etree.Element('p')
-    a = etree.SubElement(
-        body, 'a', attrib={'href': f'relnotes/{version}.html'})
-    a.text = f"Mesa {version}"
-    if is_first_release(version):
-        a.tail = (" is released. This is a new development release. "
-                  "See the release notes for more information about this release.")
-    else:
-        a.tail = " is released. This is a bug fix release."
-
-    root = news.getparent()
-    index = root.index(news) + 1
-    root.insert(index, body)
-    root.insert(index, header)
-
-    tree.write(p.as_posix(), method='html', pretty_print=True)
-    subprocess.run(['git', 'add', p])
-
 
 def update_release_notes(version: str) -> None:
-    p = pathlib.Path(__file__).parent.parent / 'docs' / 'relnotes.html'
-    with p.open('rt') as f:
-        tree = html.parse(f)
+    p = pathlib.Path('docs') / 'relnotes.rst'
 
-    li = etree.Element('li')
-    a = etree.SubElement(li, 'a', href=f'relnotes/{version}.html')
-    a.text = f'{version} release notes'
+    with open(p, 'r') as f:
+        relnotes = f.readlines()
 
-    ul = tree.xpath('.//ul')[0]
-    ul.insert(0, li)
+    new_relnotes = []
+    first_list = True
+    second_list = True
+    for line in relnotes:
+        if first_list and line.startswith('-'):
+            first_list = False
+            new_relnotes.append(f'-  :doc:`{version} release notes <relnotes/{version}>`\n')
+        if not first_list and second_list and line.startswith('   relnotes/'):
+            second_list = False
+            new_relnotes.append(f'   relnotes/{version}\n')
+        new_relnotes.append(line)
 
-    tree.write(p.as_posix(), method='html', pretty_print=True)
+    with open(p, 'w') as f:
+        for line in new_relnotes:
+            f.write(line)
+
     subprocess.run(['git', 'add', p])
 
 
 def update_calendar(version: str) -> None:
-    p = pathlib.Path(__file__).parent.parent / 'docs' / 'release-calendar.html'
-    with p.open('rt') as f:
-        tree = html.parse(f)
+    p = pathlib.Path('docs') / 'release-calendar.csv'
 
-    branch = branch_name(version)
+    with p.open('r') as f:
+        calendar = csv.reader(f)
 
-    old = None
-    new = None
-
-    for tr in tree.xpath('.//tr'):
-        if old is not None:
-            new = tr
+    branch = None
+    for i, line in enumerate(calendar):
+        if line[2] == version:
+            if line[0]:
+                branch = line[0]
             break
+    if branch is not None:
+        calendar[i + 1][0] = branch
+    del calendar[i]
 
-        for td in tr.xpath('./td'):
-            if td.text == branch:
-                old = tr
-                break
+    with p.open('w') as f:
+        writer = csv.writer(f)
+        writer.writerows(calendar)
 
-    assert old is not None
-    assert new is not None
-    old.getparent().remove(old)
-
-    # rowspan is 1 based in html, but 0 based in lxml
-    rowspan = int(td.get("rowspan")) - 1
-    if rowspan:
-        td.set("rowspan", str(rowspan))
-        new.insert(0, td)
-
-    tree.write(p.as_posix(), method='html', pretty_print=True)
     subprocess.run(['git', 'add', p])
 
 
@@ -137,10 +83,9 @@ def main() -> None:
     update_calendar(args.version)
     done = 'update calendar'
 
-    if not is_release_candidate(args.version):
-        update_index(args.version)
+    if 'rc' not in args.version:
         update_release_notes(args.version)
-        done += ', add news item, and link releases notes'
+        done += ' and link releases notes'
 
     subprocess.run(['git', 'commit', '-m',
                     f'docs: {done} for {args.version}'])

@@ -110,7 +110,7 @@ tu_cs_add_bo(struct tu_cs *cs, uint32_t size)
       return VK_ERROR_OUT_OF_HOST_MEMORY;
 
    VkResult result =
-      tu_bo_init_new(cs->device, new_bo, size * sizeof(uint32_t));
+      tu_bo_init_new(cs->device, new_bo, size * sizeof(uint32_t), true);
    if (result != VK_SUCCESS) {
       free(new_bo);
       return result;
@@ -268,7 +268,7 @@ VkResult
 tu_cs_alloc(struct tu_cs *cs,
             uint32_t count,
             uint32_t size,
-            struct ts_cs_memory *memory)
+            struct tu_cs_memory *memory)
 {
    assert(cs->mode == TU_CS_MODE_SUB_STREAM);
    assert(size && size <= 1024);

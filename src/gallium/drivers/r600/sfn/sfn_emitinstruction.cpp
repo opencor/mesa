@@ -80,6 +80,11 @@ void EmitInstruction::emit_instruction(Instruction *ir)
    return m_proc.emit_instruction(ir);
 }
 
+void EmitInstruction::emit_instruction(AluInstruction *ir)
+{
+   return m_proc.emit_instruction(ir);
+}
+
 bool EmitInstruction::emit_instruction(EAluOp opcode, PValue dest,
                                        std::vector<PValue> src0,
                                        const std::set<AluModifiers>& m_flags)
@@ -93,20 +98,15 @@ EmitInstruction::get_deref_location(const nir_src& v) const
    return m_proc.get_deref_location(v);
 }
 
-PValue EmitInstruction::from_nir_with_fetch_constant(const nir_src& src, unsigned component)
+PValue EmitInstruction::from_nir_with_fetch_constant(const nir_src& src, unsigned component, int channel)
 {
-   return m_proc.from_nir_with_fetch_constant(src, component);
+   return m_proc.from_nir_with_fetch_constant(src, component, channel);
 }
 
-GPRVector *EmitInstruction::vec_from_nir_with_fetch_constant(const nir_src& src, unsigned mask,
-                                            const GPRVector::Swizzle& swizzle)
+GPRVector EmitInstruction::vec_from_nir_with_fetch_constant(const nir_src& src, unsigned mask,
+                                                            const GPRVector::Swizzle& swizzle, bool match)
 {
-   return m_proc.vec_from_nir_with_fetch_constant(src, mask, swizzle);
-}
-
-void EmitInstruction::load_uniform(const nir_alu_src& src)
-{
-   m_proc.load_uniform(src);
+   return m_proc.vec_from_nir_with_fetch_constant(src, mask, swizzle, match);
 }
 
 int EmitInstruction::lookup_register_index(const nir_src& src) const
@@ -124,18 +124,9 @@ int EmitInstruction::lookup_register_index(const nir_dest& dst)
    return m_proc.lookup_register_index(dst);
 }
 
-const nir_load_const_instr*
-EmitInstruction::get_literal_register(const nir_src& src) const
+PGPRValue EmitInstruction::get_temp_register(int channel)
 {
-   if (src.is_ssa)
-      return m_proc.get_literal_constant(src.ssa->index);
-   else
-      return nullptr;
-}
-
-PValue EmitInstruction::get_temp_register()
-{
-   return m_proc.get_temp_register();
+   return m_proc.get_temp_register(channel);
 }
 
 GPRVector EmitInstruction::get_temp_vec4()
@@ -146,6 +137,32 @@ GPRVector EmitInstruction::get_temp_vec4()
 PValue EmitInstruction::create_register_from_nir_src(const nir_src& src, unsigned swizzle)
 {
    return m_proc.create_register_from_nir_src(src, swizzle);
+}
+
+enum chip_class EmitInstruction::get_chip_class(void) const
+{
+   return m_proc.get_chip_class();
+}
+
+PValue EmitInstruction::literal(uint32_t value)
+{
+   return m_proc.literal(value);
+}
+
+GPRVector EmitInstruction::vec_from_nir(const nir_dest& dst, int num_components)
+{
+   return m_proc.vec_from_nir(dst, num_components);
+}
+
+bool EmitInstruction::inject_register(unsigned sel, unsigned swizzle,
+                                      const PValue& reg, bool map)
+{
+   return m_proc.inject_register(sel, swizzle, reg, map);
+}
+
+int EmitInstruction::remap_atomic_base(int base)
+{
+	return m_proc.remap_atomic_base(base);
 }
 
 const std::set<AluModifiers> EmitInstruction::empty = {};

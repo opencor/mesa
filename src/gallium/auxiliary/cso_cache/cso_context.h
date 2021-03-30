@@ -71,7 +71,7 @@ cso_set_samplers(struct cso_context *cso,
                  const struct pipe_sampler_state **states);
 
 
-/* Alternate interface to support state trackers that like to modify
+/* Alternate interface to support gallium frontends that like to modify
  * samplers one at a time:
  */
 void
@@ -100,7 +100,7 @@ void cso_set_stream_outputs(struct cso_context *ctx,
  * We don't provide shader caching in CSO.  Most of the time the api provides
  * object semantics for shaders anyway, and the cases where it doesn't
  * (eg mesa's internally-generated texenv programs), it will be up to
- * the state tracker to implement their own specialized caching.
+ * gallium frontends to implement their own specialized caching.
  */
 
 void cso_set_fragment_shader_handle(struct cso_context *ctx, void *handle);
@@ -120,16 +120,12 @@ void cso_set_viewport(struct cso_context *cso,
 void cso_set_viewport_dims(struct cso_context *ctx,
                            float width, float height, boolean invert);
 
-
-void cso_set_blend_color(struct cso_context *cso,
-                         const struct pipe_blend_color *bc);
-
 void cso_set_sample_mask(struct cso_context *cso, unsigned stencil_mask);
 
 void cso_set_min_samples(struct cso_context *cso, unsigned min_samples);
 
 void cso_set_stencil_ref(struct cso_context *cso,
-                         const struct pipe_stencil_ref *sr);
+                         const struct pipe_stencil_ref sr);
 
 void cso_set_render_condition(struct cso_context *cso,
                               struct pipe_query *query,
@@ -217,7 +213,16 @@ cso_set_vertex_buffers_and_elements(struct cso_context *ctx,
 
 void
 cso_draw_vbo(struct cso_context *cso,
-             const struct pipe_draw_info *info);
+             const struct pipe_draw_info *info,
+             const struct pipe_draw_indirect_info *indirect,
+             const struct pipe_draw_start_count draw);
+
+/* info->draw_id can be changed by the callee if increment_draw_id is true. */
+void
+cso_multi_draw(struct cso_context *cso,
+               struct pipe_draw_info *info,
+               const struct pipe_draw_start_count *draws,
+               unsigned num_draws);
 
 void
 cso_draw_arrays_instanced(struct cso_context *cso, uint mode,

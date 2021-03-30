@@ -147,6 +147,44 @@ _mesa_update_allow_draw_out_of_order(struct gl_context *ctx)
 }
 
 
+void
+_mesa_update_primitive_id_is_unused(struct gl_context *ctx)
+{
+   /* Only the compatibility profile with display lists needs this. */
+   if (ctx->API != API_OPENGL_COMPAT || ctx->Const.AllowIncorrectPrimitiveId)
+      return;
+
+   /* If all of these are NULL, GLSL is disabled. */
+   struct gl_program *tcs =
+      ctx->_Shader->CurrentProgram[MESA_SHADER_TESS_CTRL];
+   struct gl_program *tes =
+      ctx->_Shader->CurrentProgram[MESA_SHADER_TESS_EVAL];
+   struct gl_program *gs =
+      ctx->_Shader->CurrentProgram[MESA_SHADER_GEOMETRY];
+   struct gl_program *fs =
+      ctx->_Shader->CurrentProgram[MESA_SHADER_FRAGMENT];
+
+   /* Update ctx->_PrimitiveIDIsUnused for display list if
+    * allow_incorrect_primitive_id isn't enabled.
+    * We can use merged primitives (see vbo_save) for drawing unless
+    * one program expects a correct primitive-ID value.
+    */
+   /* TODO: it may be possible to relax the restriction in some cases. If the current
+    * geometry shader doesn't read gl_PrimitiveIDIn but does write gl_PrimitiveID,
+    * then the restriction on fragment shaders reading gl_PrimitiveID can be lifted.
+    */
+   ctx->_PrimitiveIDIsUnused = !(
+      (tcs && (BITSET_TEST(tcs->info.system_values_read, SYSTEM_VALUE_PRIMITIVE_ID) ||
+               tcs->info.inputs_read & VARYING_BIT_PRIMITIVE_ID)) ||
+      (tes && (BITSET_TEST(tes->info.system_values_read, SYSTEM_VALUE_PRIMITIVE_ID) ||
+               tes->info.inputs_read & VARYING_BIT_PRIMITIVE_ID)) ||
+      (gs && (BITSET_TEST(gs->info.system_values_read, SYSTEM_VALUE_PRIMITIVE_ID) ||
+              gs->info.inputs_read & VARYING_BIT_PRIMITIVE_ID)) ||
+      (fs && (BITSET_TEST(fs->info.system_values_read, SYSTEM_VALUE_PRIMITIVE_ID) ||
+              fs->info.inputs_read & VARYING_BIT_PRIMITIVE_ID)));
+}
+
+
 /**
  * Update the ctx->*Program._Current pointers to point to the
  * current/active programs.
@@ -363,6 +401,23 @@ update_program_constants(struct gl_context *ctx)
 }
 
 
+static void
+update_fixed_func_program_usage(struct gl_context *ctx)
+{
+   ctx->FragmentProgram._UsesTexEnvProgram =
+      ctx->FragmentProgram._MaintainTexEnvProgram &&
+      !ctx->_Shader->CurrentProgram[MESA_SHADER_FRAGMENT] && /* GLSL*/
+      !_mesa_arb_fragment_program_enabled(ctx) &&
+      !(_mesa_ati_fragment_shader_enabled(ctx) &&
+        ctx->ATIFragmentShader.Current->Program);
+
+   ctx->VertexProgram._UsesTnlProgram =
+      ctx->VertexProgram._MaintainTnlProgram &&
+      !ctx->_Shader->CurrentProgram[MESA_SHADER_VERTEX] && /* GLSL */
+      !_mesa_arb_vertex_program_enabled(ctx);
+}
+
+
 /**
  * Compute derived GL state.
  * If __struct gl_contextRec::NewState is non-zero then this function \b must
@@ -399,14 +454,17 @@ _mesa_update_state_locked( struct gl_context *ctx )
        ctx->API == API_OPENGLES) {
       GLbitfield prog_flags = _NEW_PROGRAM;
 
-      /* Determine which state flags effect vertex/fragment program state */
-      if (ctx->FragmentProgram._MaintainTexEnvProgram) {
+      if (new_state & _NEW_PROGRAM)
+         update_fixed_func_program_usage(ctx);
+
+      /* Determine which states affect fixed-func vertex/fragment program. */
+      if (ctx->FragmentProgram._UsesTexEnvProgram) {
          prog_flags |= (_NEW_BUFFERS | _NEW_TEXTURE_OBJECT | _NEW_FOG |
                         _NEW_VARYING_VP_INPUTS | _NEW_LIGHT | _NEW_POINT |
-                        _NEW_RENDERMODE | _NEW_PROGRAM | _NEW_FRAG_CLAMP |
-                        _NEW_COLOR | _NEW_TEXTURE_STATE);
+                        _NEW_RENDERMODE | _NEW_COLOR | _NEW_TEXTURE_STATE);
       }
-      if (ctx->VertexProgram._MaintainTnlProgram) {
+
+      if (ctx->VertexProgram._UsesTnlProgram) {
          prog_flags |= (_NEW_VARYING_VP_INPUTS | _NEW_TEXTURE_OBJECT |
                         _NEW_TEXTURE_MATRIX | _NEW_TRANSFORM | _NEW_POINT |
                         _NEW_FOG | _NEW_LIGHT | _NEW_TEXTURE_STATE |

@@ -43,23 +43,19 @@ struct tu_descriptor_set_binding_layout
 
    uint32_t offset;
 
-   /* For descriptors that point to a buffer, index into the array of BO's to
-    * be added to the cmdbuffer's used BO list.
-    */
-   uint32_t buffer_offset;
-
    /* Index into the pDynamicOffsets array for dynamic descriptors, as well as
     * the array of dynamic descriptors (offsetted by
     * tu_pipeline_layout::set::dynamic_offset_start).
     */
    uint32_t dynamic_offset_offset;
 
-   /* Index into the array of dynamic input attachment descriptors */
-   uint32_t input_attachment_offset;
-
    /* Offset in the tu_descriptor_set_layout of the immutable samplers, or 0
     * if there are no immutable samplers. */
    uint32_t immutable_samplers_offset;
+
+   /* Offset in the tu_descriptor_set_layout of the ycbcr samplers, or 0
+    * if there are no immutable samplers. */
+   uint32_t ycbcr_samplers_offset;
 
    /* Shader stages that use this binding */
    uint32_t shader_stages;
@@ -67,6 +63,8 @@ struct tu_descriptor_set_binding_layout
 
 struct tu_descriptor_set_layout
 {
+   struct vk_object_base base;
+
    /* The create flags for this descriptor set layout */
    VkDescriptorSetLayoutCreateFlags flags;
 
@@ -82,15 +80,10 @@ struct tu_descriptor_set_layout
    /* Number of dynamic offsets used by this descriptor set */
    uint16_t dynamic_offset_count;
 
-   /* Number of input attachments used by the descriptor set */
-   uint16_t input_attachment_count;
-
    /* A bitfield of which dynamic buffers are ubo's, to make the
     * descriptor-binding-time patching easier.
     */
    uint32_t dynamic_ubo;
-
-   uint32_t buffer_count;
 
    bool has_immutable_samplers;
    bool has_variable_descriptors;
@@ -101,26 +94,35 @@ struct tu_descriptor_set_layout
 
 struct tu_pipeline_layout
 {
+   struct vk_object_base base;
+
    struct
    {
       struct tu_descriptor_set_layout *layout;
       uint32_t size;
       uint32_t dynamic_offset_start;
-      uint32_t input_attachment_start;
    } set[MAX_SETS];
 
    uint32_t num_sets;
    uint32_t push_constant_size;
    uint32_t dynamic_offset_count;
-   uint32_t input_attachment_count;
-
-   unsigned char sha1[20];
 };
 
-static inline const uint32_t *
+static inline const struct tu_sampler *
 tu_immutable_samplers(const struct tu_descriptor_set_layout *set,
                       const struct tu_descriptor_set_binding_layout *binding)
 {
    return (void *) ((const char *) set + binding->immutable_samplers_offset);
 }
+
+static inline const struct tu_sampler_ycbcr_conversion *
+tu_immutable_ycbcr_samplers(const struct tu_descriptor_set_layout *set,
+                            const struct tu_descriptor_set_binding_layout *binding)
+{
+   if (!binding->ycbcr_samplers_offset)
+      return NULL;
+
+   return (void *) ((const char *) set + binding->ycbcr_samplers_offset);
+}
+
 #endif /* TU_DESCRIPTOR_SET_H */

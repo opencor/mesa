@@ -3,7 +3,7 @@
  */
 
 #include <stdio.h>
-#include "state_tracker/graw.h"
+#include "frontend/graw.h"
 #include "pipe/p_screen.h"
 #include "pipe/p_context.h"
 #include "pipe/p_state.h"
@@ -33,7 +33,7 @@ static void draw( void )
 
    graw_save_surface_to_file(ctx, surf, NULL);
 
-   screen->flush_frontbuffer(screen, tex, 0, 0, window, NULL);
+   screen->flush_frontbuffer(screen, ctx, tex, 0, 0, window, NULL);
 }
 
 static void init( void )

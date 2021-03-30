@@ -244,13 +244,13 @@ void
 _mesa_hash_table_clear(struct hash_table *ht,
                        void (*delete_function)(struct hash_entry *entry))
 {
+   if (!ht)
+      return;
+
    struct hash_entry *entry;
 
    for (entry = ht->table; entry != ht->table + ht->size; entry++) {
-      if (entry->key == NULL)
-         continue;
-
-      if (delete_function != NULL && entry->key != ht->deleted_key)
+      if (entry_is_present(ht, entry) && delete_function != NULL)
          delete_function(entry);
 
       entry->key = NULL;
@@ -576,6 +576,12 @@ _mesa_hash_data(const void *data, size_t size)
 }
 
 uint32_t
+_mesa_hash_data_with_seed(const void *data, size_t size, uint32_t seed)
+{
+   return XXH32(data, size, seed);
+}
+
+uint32_t
 _mesa_hash_int(const void *key)
 {
    return XXH32(key, sizeof(int), 0);
@@ -597,14 +603,14 @@ _mesa_hash_u32(const void *key)
 uint32_t
 _mesa_hash_string(const void *_key)
 {
-   uint32_t hash = _mesa_fnv32_1a_offset_bias;
+   uint32_t hash = 0;
    const char *key = _key;
-
-   while (*key != 0) {
-      hash = _mesa_fnv32_1a_accumulate(hash, *key);
-      key++;
-   }
-
+   size_t len = strlen(key);
+#if defined(_WIN64) || defined(__x86_64__)
+   hash = (uint32_t)XXH64(key, len, hash);
+#else
+   hash = XXH32(key, len, hash);
+#endif
    return hash;
 }
 
@@ -658,6 +664,21 @@ _mesa_pointer_hash_table_create(void *mem_ctx)
 {
    return _mesa_hash_table_create(mem_ctx, _mesa_hash_pointer,
                                   _mesa_key_pointer_equal);
+}
+
+
+bool
+_mesa_hash_table_reserve(struct hash_table *ht, unsigned size)
+{
+   if (size < ht->max_entries)
+      return true;
+   for (unsigned i = ht->size_index + 1; i < ARRAY_SIZE(hash_sizes); i++) {
+      if (hash_sizes[i].max_entries >= size) {
+         _mesa_hash_table_rehash(ht, i);
+         break;
+      }
+   }
+   return ht->max_entries >= size;
 }
 
 /**

@@ -80,7 +80,7 @@ static bool si_set_clear_color(struct si_texture *tex, enum pipe_format surface_
    return true;
 }
 
-/** Linearize and convert luminace/intensity to red. */
+/** Linearize and convert luminance/intensity to red. */
 enum pipe_format si_simplify_cb_format(enum pipe_format format)
 {
    format = util_format_linear(format);
@@ -494,13 +494,17 @@ static void si_do_fast_color_clear(struct si_context *sctx, unsigned *buffers,
          if (too_small)
             continue;
 
-         /* 128-bit formats are unusupported */
+         /* 128-bit formats are unsupported */
          if (tex->surface.bpe > 8) {
             continue;
          }
 
          /* RB+ doesn't work with CMASK fast clear on Stoney. */
          if (sctx->family == CHIP_STONEY)
+            continue;
+
+         /* Disable fast clear if tex is encrypted */
+         if (tex->buffer.flags & RADEON_FLAG_ENCRYPTED)
             continue;
 
          /* ensure CMASK is enabled */
@@ -570,6 +574,43 @@ static void si_clear(struct pipe_context *ctx, unsigned buffers,
 
    if (zstex && zsbuf->u.tex.first_layer == 0 &&
        zsbuf->u.tex.last_layer == util_max_layer(&zstex->buffer.b.b, 0)) {
+      /* See whether we should enable TC-compatible HTILE. */
+      if (zstex->enable_tc_compatible_htile_next_clear &&
+          !zstex->tc_compatible_htile &&
+          si_htile_enabled(zstex, zsbuf->u.tex.level, PIPE_MASK_ZS) &&
+          /* If both depth and stencil are present, they must be cleared together. */
+          ((buffers & PIPE_CLEAR_DEPTHSTENCIL) == PIPE_CLEAR_DEPTHSTENCIL ||
+           (buffers & PIPE_CLEAR_DEPTH && (!zstex->surface.has_stencil ||
+                                           zstex->htile_stencil_disabled)))) {
+         /* Enable TC-compatible HTILE. */
+         zstex->enable_tc_compatible_htile_next_clear = false;
+         zstex->tc_compatible_htile = true;
+
+         /* Update the framebuffer state to reflect the change. */
+         sctx->framebuffer.DB_has_shader_readable_metadata = true;
+         sctx->framebuffer.dirty_zsbuf = true;
+         si_mark_atom_dirty(sctx, &sctx->atoms.s.framebuffer);
+
+         /* Update all sampler views and shader images in all contexts. */
+         p_atomic_inc(&sctx->screen->dirty_tex_counter);
+
+         /* Re-initialize HTILE, so that it doesn't contain values incompatible
+          * with the new TC-compatible HTILE setting.
+          *
+          * 0xfffff30f = uncompressed Z + S
+          * 0xfffc000f = uncompressed Z only
+          *
+          * GFX8 always uses the Z+S HTILE format for TC-compatible HTILE even
+          * when stencil is not present.
+          */
+         uint32_t clear_value = (zstex->surface.has_stencil &&
+                                 !zstex->htile_stencil_disabled) ||
+                                sctx->chip_class == GFX8 ? 0xfffff30f : 0xfffc000f;
+         si_clear_buffer(sctx, &zstex->buffer.b.b, zstex->surface.htile_offset,
+                         zstex->surface.htile_size, &clear_value, 4,
+                         SI_COHERENCY_DB_META, false);
+      }
+
       /* TC-compatible HTILE only supports depth clears to 0 or 1. */
       if (buffers & PIPE_CLEAR_DEPTH && si_htile_enabled(zstex, zsbuf->u.tex.level, PIPE_MASK_Z) &&
           (!zstex->tc_compatible_htile || depth == 0 || depth == 1)) {
@@ -648,7 +689,7 @@ static void si_clear_render_target(struct pipe_context *ctx, struct pipe_surface
    struct si_context *sctx = (struct si_context *)ctx;
    struct si_texture *sdst = (struct si_texture *)dst->texture;
 
-   if (dst->texture->nr_samples <= 1 && !sdst->surface.dcc_offset) {
+   if (dst->texture->nr_samples <= 1 && !vi_dcc_enabled(sdst, dst->u.tex.level)) {
       si_compute_clear_render_target(ctx, dst, color, dstx, dsty, width, height,
                                      render_condition_enabled);
       return;

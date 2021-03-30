@@ -304,8 +304,9 @@ _mesa_lookup_vao_err(struct gl_context *ctx, GLuint id,
  * to any buffer objects (VBOs).
  * This is done just prior to array object destruction.
  */
-static void
-unbind_array_object_vbos(struct gl_context *ctx, struct gl_vertex_array_object *obj)
+void
+_mesa_unbind_array_object_vbos(struct gl_context *ctx,
+                               struct gl_vertex_array_object *obj)
 {
    GLuint i;
 
@@ -333,7 +334,7 @@ _mesa_new_vao(struct gl_context *ctx, GLuint name)
 void
 _mesa_delete_vao(struct gl_context *ctx, struct gl_vertex_array_object *obj)
 {
-   unbind_array_object_vbos(ctx, obj);
+   _mesa_unbind_array_object_vbos(ctx, obj);
    _mesa_reference_buffer_object(ctx, &obj->IndexBufferObj, NULL);
    free(obj->Label);
    free(obj);
@@ -545,6 +546,17 @@ _mesa_update_vao_derived_arrays(struct gl_context *ctx,
    vao->_EffEnabledVBO = _mesa_vao_enable_to_vp_inputs(mode, enabled & vbos);
    vao->_EffEnabledNonZeroDivisor =
       _mesa_vao_enable_to_vp_inputs(mode, enabled & divisor_is_nonzero);
+
+   /* Fast path when the VAO is updated too often. */
+   if (vao->IsDynamic)
+      return;
+
+   /* More than 4 updates turn the VAO to dynamic. */
+   if (ctx->Const.AllowDynamicVAOFastPath && ++vao->NumUpdates > 4) {
+      vao->IsDynamic = true;
+      return;
+   }
+
    /* Walk those enabled arrays that have a real vbo attached */
    GLbitfield mask = enabled;
    while (mask) {
@@ -1098,13 +1110,12 @@ static void
 gen_vertex_arrays(struct gl_context *ctx, GLsizei n, GLuint *arrays,
                   bool create, const char *func)
 {
-   GLuint first;
    GLint i;
 
    if (!arrays)
       return;
 
-   first = _mesa_HashFindFreeKeyBlock(ctx->Array.Objects, n);
+   _mesa_HashFindFreeKeys(ctx->Array.Objects, arrays, n);
 
    /* For the sake of simplicity we create the array objects in both
     * the Gen* and Create* cases.  The only difference is the value of
@@ -1112,16 +1123,14 @@ gen_vertex_arrays(struct gl_context *ctx, GLsizei n, GLuint *arrays,
     */
    for (i = 0; i < n; i++) {
       struct gl_vertex_array_object *obj;
-      GLuint name = first + i;
 
-      obj = _mesa_new_vao(ctx, name);
+      obj = _mesa_new_vao(ctx, arrays[i]);
       if (!obj) {
          _mesa_error(ctx, GL_OUT_OF_MEMORY, "%s", func);
          return;
       }
       obj->EverBound = create;
-      _mesa_HashInsertLocked(ctx->Array.Objects, obj->Name, obj);
-      arrays[i] = first + i;
+      _mesa_HashInsertLocked(ctx->Array.Objects, obj->Name, obj, true);
    }
 }
 

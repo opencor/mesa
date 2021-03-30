@@ -63,12 +63,13 @@ bitfield_size_bits(unsigned n)
 }
 
 static unsigned
-prim_count(const struct pipe_draw_info *info)
+prim_count(const struct pipe_draw_info *info,
+           const struct pipe_draw_start_count *draw)
 {
 	/* PIPE_PRIM_MAX used internally for RECTLIST blits on 3d pipe: */
 	unsigned vtx_per_prim = (info->mode == PIPE_PRIM_MAX) ? 2 :
 			u_vertices_per_prim(info->mode);
-	return (info->count * info->instance_count) / vtx_per_prim;
+	return (draw->count * info->instance_count) / vtx_per_prim;
 }
 
 /**
@@ -87,9 +88,10 @@ prim_count(const struct pipe_draw_info *info)
  * https://github.com/freedreno/freedreno/wiki/Visibility-Stream-Format#primitive-streams
  */
 static unsigned
-primitive_stream_size_bits(const struct pipe_draw_info *info, unsigned num_bins)
+primitive_stream_size_bits(const struct pipe_draw_info *info,
+                           const struct pipe_draw_start_count *draw, unsigned num_bins)
 {
-	unsigned num_prims = prim_count(info);
+	unsigned num_prims = prim_count(info, draw);
 	unsigned nbits =
 			(bitfield_size_bits(num_bins)   /* bitfield of bins covered */
 			+ number_size_bits(1)           /* number of primitives with this bitset */
@@ -114,16 +116,16 @@ draw_stream_size_bits(const struct pipe_draw_info *info, unsigned num_bins,
 		unsigned prim_strm_bits)
 {
 	unsigned ndwords = prim_strm_bits / dword;
-	assert(info->instance_count > 0);
 	return (bitfield_size_bits(num_bins)    /* bitfield of bins */
 			+ 1                             /* last-instance-bit */
 			+ number_size_bits(ndwords)     /* size of corresponding prim strm */
 			+ 1                             /* checksum */
-			) * info->instance_count;
+			) * MAX2(1, info->instance_count);
 }
 
 void
-fd6_vsc_update_sizes(struct fd_batch *batch, const struct pipe_draw_info *info)
+fd6_vsc_update_sizes(struct fd_batch *batch, const struct pipe_draw_info *info,
+                     const struct pipe_draw_start_count *draw)
 {
 	if (!batch->num_bins_per_pipe) {
 		batch->num_bins_per_pipe = fd_gmem_estimate_bins_per_pipe(batch);
@@ -141,7 +143,7 @@ fd6_vsc_update_sizes(struct fd_batch *batch, const struct pipe_draw_info *info)
 	}
 
 	unsigned prim_strm_bits =
-		primitive_stream_size_bits(info, batch->num_bins_per_pipe);
+		primitive_stream_size_bits(info, draw, batch->num_bins_per_pipe);
 	unsigned draw_strm_bits =
 		draw_stream_size_bits(info, batch->num_bins_per_pipe, prim_strm_bits);
 

@@ -43,9 +43,9 @@ LAYERS = [
     'gen75',
     'gen8',
     'gen9',
-    'gen10',
     'gen11',
     'gen12',
+    'gen125',
 ]
 
 TEMPLATE_H = Template("""\
@@ -513,19 +513,20 @@ anv_get_device_entry_name(int index)
    return device_entry_name(index);
 }
 
-static void * __attribute__ ((noinline))
+void * __attribute__ ((noinline))
 anv_resolve_device_entrypoint(const struct gen_device_info *devinfo, uint32_t index)
 {
    const struct anv_device_dispatch_table *genX_table;
    switch (devinfo->gen) {
    case 12:
-      genX_table = &gen12_device_dispatch_table;
+      if (gen_device_info_is_12hp(devinfo)) {
+         genX_table = &gen125_device_dispatch_table;
+      } else {
+         genX_table = &gen12_device_dispatch_table;
+      }
       break;
    case 11:
       genX_table = &gen11_device_dispatch_table;
-      break;
-   case 10:
-      genX_table = &gen10_device_dispatch_table;
       break;
    case 9:
       genX_table = &gen9_device_dispatch_table;

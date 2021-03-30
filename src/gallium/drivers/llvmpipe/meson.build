@@ -99,10 +99,11 @@ files_llvmpipe = files(
 libllvmpipe = static_library(
   'llvmpipe',
   files_llvmpipe,
-  c_args : [c_vis_args, c_msvc_compat_args],
-  cpp_args : [cpp_vis_args, cpp_msvc_compat_args],
+  c_args : [c_msvc_compat_args],
+  cpp_args : [cpp_msvc_compat_args],
+  gnu_symbol_visibility : 'hidden',
   include_directories : [inc_gallium, inc_gallium_aux, inc_include, inc_src],
-  dependencies : [ dep_llvm, idep_nir_headers, ],
+  dependencies : [ dep_llvm, idep_nir_headers, idep_mesautil ],
 )
 
 # This overwrites the softpipe driver dependency, but itself depends on the
@@ -110,7 +111,7 @@ libllvmpipe = static_library(
 driver_swrast = declare_dependency(
   compile_args : '-DGALLIUM_LLVMPIPE',
   link_with : libllvmpipe,
-  dependencies : [driver_swrast, dep_llvm],
+  dependencies : [driver_swrast, dep_llvm, idep_mesautil],
 )
 
 if with_tests and with_gallium_softpipe and with_llvm

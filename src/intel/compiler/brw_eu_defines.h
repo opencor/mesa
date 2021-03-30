@@ -415,6 +415,10 @@ enum opcode {
    VEC4_OPCODE_UNTYPED_SURFACE_WRITE,
    SHADER_OPCODE_UNTYPED_SURFACE_WRITE_LOGICAL,
 
+   SHADER_OPCODE_OWORD_BLOCK_READ_LOGICAL,
+   SHADER_OPCODE_UNALIGNED_OWORD_BLOCK_READ_LOGICAL,
+   SHADER_OPCODE_OWORD_BLOCK_WRITE_LOGICAL,
+
    /**
     * Untyped A64 surface access opcodes.
     *
@@ -427,6 +431,9 @@ enum opcode {
    SHADER_OPCODE_A64_UNTYPED_WRITE_LOGICAL,
    SHADER_OPCODE_A64_BYTE_SCATTERED_READ_LOGICAL,
    SHADER_OPCODE_A64_BYTE_SCATTERED_WRITE_LOGICAL,
+   SHADER_OPCODE_A64_OWORD_BLOCK_READ_LOGICAL,
+   SHADER_OPCODE_A64_UNALIGNED_OWORD_BLOCK_READ_LOGICAL,
+   SHADER_OPCODE_A64_OWORD_BLOCK_WRITE_LOGICAL,
    SHADER_OPCODE_A64_UNTYPED_ATOMIC_LOGICAL,
    SHADER_OPCODE_A64_UNTYPED_ATOMIC_INT64_LOGICAL,
    SHADER_OPCODE_A64_UNTYPED_ATOMIC_FLOAT_LOGICAL,
@@ -474,6 +481,8 @@ enum opcode {
    SHADER_OPCODE_GEN4_SCRATCH_READ,
    SHADER_OPCODE_GEN4_SCRATCH_WRITE,
    SHADER_OPCODE_GEN7_SCRATCH_READ,
+
+   SHADER_OPCODE_SCRATCH_HEADER,
 
    /**
     * Gen8+ SIMD8 URB Read messages.
@@ -543,6 +552,13 @@ enum opcode {
 
    SHADER_OPCODE_INTERLOCK,
 
+   /** Target for a HALT
+    *
+    * All HALT instructions in a shader must target the same jump point and
+    * that point is denoted by a HALT_TARGET instruction.
+    */
+   SHADER_OPCODE_HALT_TARGET,
+
    VEC4_OPCODE_MOV_BYTES,
    VEC4_OPCODE_PACK_BYTES,
    VEC4_OPCODE_UNPACK_UNIFORM,
@@ -569,10 +585,8 @@ enum opcode {
    FS_OPCODE_UNIFORM_PULL_CONSTANT_LOAD_GEN7,
    FS_OPCODE_VARYING_PULL_CONSTANT_LOAD_GEN4,
    FS_OPCODE_VARYING_PULL_CONSTANT_LOAD_LOGICAL,
-   FS_OPCODE_DISCARD_JUMP,
    FS_OPCODE_SET_SAMPLE_ID,
    FS_OPCODE_PACK_HALF_2x16_SPLIT,
-   FS_OPCODE_PLACEHOLDER_HALT,
    FS_OPCODE_INTERPOLATE_AT_SAMPLE,
    FS_OPCODE_INTERPOLATE_AT_SHARED_OFFSET,
    FS_OPCODE_INTERPOLATE_AT_PER_SLOT_OFFSET,
@@ -580,7 +594,6 @@ enum opcode {
    VS_OPCODE_URB_WRITE,
    VS_OPCODE_PULL_CONSTANT_LOAD,
    VS_OPCODE_PULL_CONSTANT_LOAD_GEN7,
-   VS_OPCODE_SET_SIMD4X2_HEADER_GEN9,
 
    VS_OPCODE_UNPACK_FLAGS_SIMD4X2,
 
@@ -768,6 +781,9 @@ enum opcode {
     */
    SHADER_OPCODE_MOV_INDIRECT,
 
+   /** Fills out a relocatable immediate */
+   SHADER_OPCODE_MOV_RELOC_IMM,
+
    VEC4_OPCODE_URB_READ,
    TCS_OPCODE_GET_INSTANCE_ID,
    TCS_OPCODE_URB_WRITE,
@@ -782,6 +798,12 @@ enum opcode {
    TES_OPCODE_GET_PRIMITIVE_ID,
    TES_OPCODE_CREATE_INPUT_READ_HEADER,
    TES_OPCODE_ADD_INDIRECT_URB_OFFSET,
+
+   SHADER_OPCODE_GET_DSS_ID,
+   SHADER_OPCODE_BTD_SPAWN_LOGICAL,
+   SHADER_OPCODE_BTD_RETIRE_LOGICAL,
+
+   RT_OPCODE_TRACE_RAY_LOGICAL,
 };
 
 enum brw_urb_write_flags {
@@ -901,6 +923,11 @@ enum surface_logical_srcs {
    SURFACE_LOGICAL_SRC_IMM_DIMS,
    /** Per-opcode immediate argument.  For atomics, this is the atomic opcode */
    SURFACE_LOGICAL_SRC_IMM_ARG,
+   /**
+    * Some instructions with side-effects should not be predicated on
+    * sample mask, e.g. lowered stores to scratch.
+    */
+   SURFACE_LOGICAL_SRC_ALLOW_SAMPLE_MASK,
 
    SURFACE_LOGICAL_NUM_SRCS
 };
@@ -1214,6 +1241,9 @@ enum brw_message_target {
    GEN7_SFID_PIXEL_INTERPOLATOR      = 11,
    HSW_SFID_DATAPORT_DATA_CACHE_1    = 12,
    HSW_SFID_CRE                      = 13,
+
+   GEN_RT_SFID_BINDLESS_THREAD_DISPATCH = 7,
+   GEN_RT_SFID_RAY_TRACE_ACCELERATOR = 8,
 };
 
 #define GEN7_MESSAGE_TARGET_DP_DATA_CACHE     10
@@ -1401,6 +1431,8 @@ enum brw_message_target {
 #define GEN9_DATAPORT_DC_PORT1_A64_SCATTERED_READ                   0x10
 #define GEN8_DATAPORT_DC_PORT1_A64_UNTYPED_SURFACE_READ             0x11
 #define GEN8_DATAPORT_DC_PORT1_A64_UNTYPED_ATOMIC_OP                0x12
+#define GEN9_DATAPORT_DC_PORT1_A64_OWORD_BLOCK_READ                 0x14
+#define GEN9_DATAPORT_DC_PORT1_A64_OWORD_BLOCK_WRITE                0x15
 #define GEN8_DATAPORT_DC_PORT1_A64_UNTYPED_SURFACE_WRITE            0x19
 #define GEN8_DATAPORT_DC_PORT1_A64_SCATTERED_WRITE                  0x1a
 #define GEN9_DATAPORT_DC_PORT1_UNTYPED_ATOMIC_FLOAT_OP              0x1b
@@ -1419,12 +1451,37 @@ enum brw_message_target {
 /* Dataport special binding table indices: */
 #define BRW_BTI_STATELESS                255
 #define GEN7_BTI_SLM                     254
-/* Note that on Gen8+ BTI 255 was redefined to be IA-coherent according to the
- * hardware spec, however because the DRM sets bit 4 of HDC_CHICKEN0 on BDW,
- * CHV and at least some pre-production steppings of SKL due to
- * WaForceEnableNonCoherent, HDC memory access may have been overridden by the
- * kernel to be non-coherent (matching the behavior of the same BTI on
- * pre-Gen8 hardware) and BTI 255 may actually be an alias for BTI 253.
+
+#define HSW_BTI_STATELESS_LOCALLY_COHERENT 255
+#define HSW_BTI_STATELESS_NON_COHERENT 253
+#define HSW_BTI_STATELESS_GLOBALLY_COHERENT 252
+#define HSW_BTI_STATELESS_LLC_COHERENT 251
+#define HSW_BTI_STATELESS_L3_UNCACHED 250
+
+/* The hardware docs are a bit contradictory here.  On Haswell, where they
+ * first added cache ability control, there were 5 different cache modes (see
+ * HSW_BTI_STATELESS_* above).  On Broadwell, they reduced to two:
+ *
+ *  - IA-Coherent (BTI=255): Coherent within Gen and coherent within the
+ *    entire IA cache memory hierarchy.
+ *
+ *  - Non-Coherent (BTI=253): Coherent within Gen, same cache type.
+ *
+ * Information about stateless cache coherency can be found in the "A32
+ * Stateless" section of the "3D Media GPGPU" volume of the PRM for each
+ * hardware generation.
+ *
+ * Unfortunately, the docs for MDC_STATELESS appear to have been copied and
+ * pasted from Haswell and give the Haswell definitions for the BTI values of
+ * 255 and 253 including a warning about accessing 253 surfaces from multiple
+ * threads.  This seems to be a copy+paste error and the definitions from the
+ * "A32 Stateless" section should be trusted instead.
+ *
+ * Note that because the DRM sets bit 4 of HDC_CHICKEN0 on BDW, CHV and at
+ * least some pre-production steppings of SKL due to WaForceEnableNonCoherent,
+ * HDC memory access may have been overridden by the kernel to be non-coherent
+ * (matching the behavior of the same BTI on pre-Gen8 hardware) and BTI 255
+ * may actually be an alias for BTI 253.
  */
 #define GEN8_BTI_STATELESS_IA_COHERENT   255
 #define GEN8_BTI_STATELESS_NON_COHERENT  253
@@ -1578,5 +1635,17 @@ enum PACKED brw_rnd_mode {
 #define GEN7_BYTE_SCATTERED_DATA_ELEMENT_BYTE     0
 #define GEN7_BYTE_SCATTERED_DATA_ELEMENT_WORD     1
 #define GEN7_BYTE_SCATTERED_DATA_ELEMENT_DWORD    2
+
+#define GEN_RT_BTD_MESSAGE_SPAWN 1
+
+#define GEN_RT_TRACE_RAY_INITAL       0
+#define GEN_RT_TRACE_RAY_INSTANCE     1
+#define GEN_RT_TRACE_RAY_COMMIT       2
+#define GEN_RT_TRACE_RAY_CONTINUE     3
+
+#define GEN_RT_BTD_SHADER_TYPE_ANY_HIT        0
+#define GEN_RT_BTD_SHADER_TYPE_CLOSEST_HIT    1
+#define GEN_RT_BTD_SHADER_TYPE_MISS           2
+#define GEN_RT_BTD_SHADER_TYPE_INTERSECTION   3
 
 #endif /* BRW_EU_DEFINES_H */

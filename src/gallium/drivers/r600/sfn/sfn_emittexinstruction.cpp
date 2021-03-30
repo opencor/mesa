@@ -97,7 +97,10 @@ bool EmitTexInstruction::do_emit(nir_instr* instr)
          return emit_tex_txf_ms(ir, src);
       case nir_texop_query_levels:
          return emit_tex_txs(ir, src, {3,7,7,7});
+      case nir_texop_texture_samples:
+         return emit_tex_texture_samples(ir, src, {3,7,7,7});
       default:
+
          return false;
       }
    }
@@ -393,7 +396,7 @@ bool EmitTexInstruction::emit_buf_txf(nir_tex_instr* instr, TexInputs &src)
 
    auto ir = new FetchInstruction(vc_fetch, no_index_offset, dst, src.coord.reg_i(0), 0,
                                   instr->texture_index +  R600_MAX_CONST_BUFFERS,
-                                  PValue(), bim_none);
+                                  src.texture_offset, bim_none);
    ir->set_flag(vtx_use_const_field);
    emit_instruction(ir);
    return true;
@@ -481,7 +484,12 @@ bool EmitTexInstruction::emit_tex_txf(nir_tex_instr* instr, TexInputs& src)
 
    auto dst = make_dest(*instr);
 
-   emit_instruction(new AluInstruction(op1_mov, src.coord.reg_i(3), src.lod, {alu_write, alu_last_instr}));
+   if (*src.coord.reg_i(3) != *src.lod) {
+      if (src.coord.sel() != src.lod->sel())
+         emit_instruction(new AluInstruction(op1_mov, src.coord.reg_i(3), src.lod, {alu_write, alu_last_instr}));
+      else
+         src.coord.set_reg_i(3, src.lod);
+   }
 
    auto sampler = get_samplerr_id(instr->sampler_index, src.sampler_deref);
    assert(!sampler.indirect);
@@ -535,14 +543,18 @@ bool EmitTexInstruction::emit_tex_txl(nir_tex_instr* instr, TexInputs& src)
                  << "' (" << __func__ << ")\n";
 
    auto tex_op = TexInstruction::sample_l;
-   emit_instruction(new AluInstruction(op1_mov, src.coord.reg_i(3), src.lod,
-                                       {alu_last_instr, alu_write}));
-
    if (instr->is_shadow)  {
-      emit_instruction(new AluInstruction(op1_mov, src.coord.reg_i(2), src.comperator,
-                       {alu_last_instr, alu_write}));
+      if (src.coord.sel() != src.comperator->sel())
+         emit_instruction(new AluInstruction(op1_mov, src.coord.reg_i(2), src.comperator, {alu_write}));
+      else
+         src.coord.set_reg_i(2, src.comperator);
       tex_op = TexInstruction::sample_c_l;
    }
+
+   if (src.coord.sel() != src.lod->sel())
+      emit_instruction(new AluInstruction(op1_mov, src.coord.reg_i(3), src.lod, {last_write}));
+   else
+      src.coord.set_reg_i(3, src.lod);
 
    auto sampler = get_samplerr_id(instr->sampler_index, src.sampler_deref);
    assert(!sampler.indirect && "Indirect sampler selection not yet supported");
@@ -567,14 +579,18 @@ bool EmitTexInstruction::emit_tex_txb(nir_tex_instr* instr, TexInputs& src)
 
    std::array<uint8_t, 4> in_swizzle = {0,1,2,3};
 
-   emit_instruction(new AluInstruction(op1_mov, src.coord.reg_i(3), src.bias,
-                                       {alu_last_instr, alu_write}));
-
    if (instr->is_shadow) {
-      emit_instruction(new AluInstruction(op1_mov, src.coord.reg_i(2), src.comperator,
-                                          {alu_last_instr, alu_write}));
+      if (src.coord.sel() != src.comperator->sel())
+         emit_instruction(new AluInstruction(op1_mov, src.coord.reg_i(2), src.comperator, {alu_write}));
+      else
+         src.coord.set_reg_i(2, src.comperator);
       tex_op = TexInstruction::sample_c_lb;
    }
+
+   if (src.coord.sel() != src.bias->sel())
+      emit_instruction(new AluInstruction(op1_mov, src.coord.reg_i(3), src.bias, {last_write}));
+   else
+      src.coord.set_reg_i(3, src.bias);
 
    GPRVector tex_src(src.coord, in_swizzle);
 
@@ -629,11 +645,29 @@ bool EmitTexInstruction::emit_tex_txs(nir_tex_instr* instr, TexInputs& tex_src,
 
 }
 
+bool EmitTexInstruction::emit_tex_texture_samples(nir_tex_instr* instr, TexInputs& src,
+                                                  const std::array<int, 4> &dest_swz)
+{
+   GPRVector dest = vec_from_nir(instr->dest, nir_dest_num_components(instr->dest));
+   GPRVector help{0,{4,4,4,4}};
+
+   auto dyn_offset = PValue();
+   int res_id = R600_MAX_CONST_BUFFERS + instr->sampler_index;
+
+   auto ir = new TexInstruction(TexInstruction::get_nsampled, dest, help,
+                                0, res_id, src.sampler_offset);
+   ir->set_dest_swizzle(dest_swz);
+   emit_instruction(ir);
+   return true;
+}
+
 bool EmitTexInstruction::emit_tex_tg4(nir_tex_instr* instr, TexInputs& src)
 {
    r600::sfn_log << SfnLog::instr << "emit '"
                  << *reinterpret_cast<nir_instr*>(instr)
                  << "' (" << __func__ << ")\n";
+
+   TexInstruction *set_ofs = nullptr;
 
    auto tex_op = TexInstruction::gather4;
 
@@ -648,7 +682,7 @@ bool EmitTexInstruction::emit_tex_tg4(nir_tex_instr* instr, TexInputs& src)
 
    bool literal_offset = false;
    if (src.offset) {
-      literal_offset =  src.offset->is_ssa && get_literal_register(*src.offset);
+      literal_offset =  nir_src_as_const_value(*src.offset) != 0;
       r600::sfn_log << SfnLog::tex << " really have offsets and they are " <<
                        (literal_offset ? "literal" : "varying") <<
                        "\n";
@@ -658,18 +692,21 @@ bool EmitTexInstruction::emit_tex_tg4(nir_tex_instr* instr, TexInputs& src)
          for (unsigned i = 0; i < instr->coord_components; ++i)
             swizzle[i] = i;
 
-         std::unique_ptr<GPRVector> ofs(vec_from_nir_with_fetch_constant(*src.offset,
-                                                                         ( 1 << instr->coord_components) -1,
-                                                                         swizzle));
+         int noffsets = instr->coord_components;
+         if (instr->is_array)
+            --noffsets;
+
+         auto ofs = vec_from_nir_with_fetch_constant(*src.offset,
+                                                     ( 1 << noffsets) - 1,
+                                                     swizzle);
          GPRVector dummy(0, {7,7,7,7});
          tex_op = (tex_op == TexInstruction::gather4_c) ?
                      TexInstruction::gather4_c_o : TexInstruction::gather4_o;
 
-         auto set_ofs = new TexInstruction(TexInstruction::set_offsets, dummy,
-                                           *ofs, sampler.id,
-                                           sampler.id + R600_MAX_CONST_BUFFERS, src.sampler_offset);
+         set_ofs = new TexInstruction(TexInstruction::set_offsets, dummy,
+                                           ofs, sampler.id,
+                                      sampler.id + R600_MAX_CONST_BUFFERS, src.sampler_offset);
          set_ofs->set_dest_swizzle({7,7,7,7});
-         emit_instruction(set_ofs);
       }
    }
 
@@ -691,6 +728,9 @@ bool EmitTexInstruction::emit_tex_tg4(nir_tex_instr* instr, TexInputs& src)
    }
 
    set_rect_coordinate_flags(instr, irt);
+
+   if (set_ofs)
+      emit_instruction(set_ofs);
 
    emit_instruction(irt);
    return true;
@@ -780,16 +820,20 @@ bool EmitTexInstruction::emit_tex_txf_ms(nir_tex_instr* instr, TexInputs& src)
 
    emit_instruction(tex_sample_id_ir);
 
-   emit_instruction(new AluInstruction(op2_mullo_int, help,
-                                       {src.ms_index, PValue(new LiteralValue(4))},
-                                       {alu_write, alu_last_instr}));
 
-   emit_instruction(new AluInstruction(op2_lshr_int, src.coord.reg_i(3),
-                                       {sample_id_dest.reg_i(0), help},
-                                       {alu_write, alu_last_instr}));
+   if (src.ms_index->type() != Value::literal ||
+       static_cast<const LiteralValue&>(*src.ms_index).value() != 0) {
+      emit_instruction(new AluInstruction(op2_lshl_int, help,
+                                          src.ms_index, literal(2),
+      {alu_write, alu_last_instr}));
+
+      emit_instruction(new AluInstruction(op2_lshr_int, sample_id_dest.reg_i(0),
+                                          {sample_id_dest.reg_i(0), help},
+                                          {alu_write, alu_last_instr}));
+   }
 
    emit_instruction(new AluInstruction(op2_and_int, src.coord.reg_i(3),
-                                       {src.coord.reg_i(3), PValue(new LiteralValue(15))},
+                                       {sample_id_dest.reg_i(0), PValue(new LiteralValue(15))},
                                        {alu_write, alu_last_instr}));
 
    auto dst = make_dest(*instr);
@@ -838,29 +882,25 @@ bool EmitTexInstruction::get_inputs(const nir_tex_instr& instr, TexInputs &src)
          break;
 
       case nir_tex_src_coord: {
-         std::unique_ptr<GPRVector> coord(vec_from_nir_with_fetch_constant(instr.src[i].src,
-                                                                           (1 << instr.coord_components) - 1,
-                                                                           {0,1,2,3}));
-         src.coord = *coord;
-
+         src.coord = vec_from_nir_with_fetch_constant(instr.src[i].src,
+                                                      (1 << instr.coord_components) - 1,
+         {0,1,2,3});
       } break;
       case nir_tex_src_comparator:
          src.comperator = from_nir(instr.src[i], 0);
          break;
       case nir_tex_src_ddx: {
          sfn_log << SfnLog::tex << "Get DDX ";
-         std::unique_ptr<GPRVector> coord(vec_from_nir_with_fetch_constant(instr.src[i].src,
-                                                                           (1 << grad_components) - 1,
-                                                                           swizzle_from_mask(grad_components)));
-         src.ddx = *coord;
+         src.ddx = vec_from_nir_with_fetch_constant(instr.src[i].src,
+                                                    (1 << grad_components) - 1,
+                                                    swizzle_from_comps(grad_components));
          sfn_log << SfnLog::tex << src.ddx << "\n";
       } break;
       case nir_tex_src_ddy:{
          sfn_log << SfnLog::tex << "Get DDY ";
-         std::unique_ptr<GPRVector> coord(vec_from_nir_with_fetch_constant(instr.src[i].src,
-                                                                           (1 << grad_components) - 1,
-                                                                           swizzle_from_mask(grad_components)));
-         src.ddy = *coord;
+         src.ddy = vec_from_nir_with_fetch_constant(instr.src[i].src,
+                                                    (1 << grad_components) - 1,
+                                                    swizzle_from_comps(grad_components));
          sfn_log << SfnLog::tex << src.ddy << "\n";
       }  break;
       case nir_tex_src_lod:
@@ -936,11 +976,11 @@ void EmitTexInstruction::set_offsets(TexInstruction* ir, nir_src *offset)
       return;
 
    assert(offset->is_ssa);
-   auto literal = get_literal_register(*offset);
+   auto literal = nir_src_as_const_value(*offset);
    assert(literal);
 
    for (int i = 0; i < offset->ssa->num_components; ++i) {
-      ir->set_offset(i, literal->value[i].i32);
+      ir->set_offset(i, literal[i].i32);
    }
 }
 

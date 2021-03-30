@@ -66,7 +66,8 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "radeon_fog.h"
 
 #include "utils.h"
-#include "util/xmlpool.h" /* for symbolic values of enum-type options */
+#include "util/driconf.h" /* for symbolic values of enum-type options */
+#include "util/u_memory.h"
 
 extern const struct tnl_pipeline_stage _radeon_render_stage;
 extern const struct tnl_pipeline_stage _radeon_tcl_stage;
@@ -165,7 +166,7 @@ r100CreateContext( gl_api api,
    assert(screen);
 
    /* Allocate the Radeon context */
-   rmesa = calloc(1, sizeof(*rmesa));
+   rmesa = align_calloc(sizeof(*rmesa), 16);
    if ( !rmesa ) {
       *error = __DRI_CTX_ERROR_NO_MEMORY;
       return GL_FALSE;
@@ -182,7 +183,7 @@ r100CreateContext( gl_api api,
     * the default textures.
     */
    driParseConfigFiles (&rmesa->radeon.optionCache, &screen->optionCache,
-			screen->driScreen->myNum, "radeon", NULL, NULL, 0);
+			screen->driScreen->myNum, "radeon", NULL, NULL, 0, NULL, 0);
    rmesa->radeon.initialMaxAnisotropy = driQueryOptionf(&rmesa->radeon.optionCache,
                                                  "def_max_anisotropy");
 
@@ -200,7 +201,7 @@ r100CreateContext( gl_api api,
    if (!radeonInitContext(&rmesa->radeon, api, &functions,
 			  glVisual, driContextPriv,
 			  sharedContextPrivate)) {
-     free(rmesa);
+     align_free(rmesa);
      *error = __DRI_CTX_ERROR_NO_MEMORY;
      return GL_FALSE;
    }

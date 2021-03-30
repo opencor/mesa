@@ -42,13 +42,14 @@
 #include "ir/lima_ir.h"
 
 static const nir_shader_compiler_options vs_nir_options = {
-   .lower_ffma = true,
+   .lower_ffma16 = true,
+   .lower_ffma32 = true,
+   .lower_ffma64 = true,
    .lower_fpow = true,
    .lower_ffract = true,
    .lower_fdiv = true,
    .lower_fmod = true,
    .lower_fsqrt = true,
-   .lower_sub = true,
    .lower_flrp32 = true,
    .lower_flrp64 = true,
    /* could be implemented by clamp */
@@ -60,11 +61,12 @@ static const nir_shader_compiler_options vs_nir_options = {
 };
 
 static const nir_shader_compiler_options fs_nir_options = {
-   .lower_ffma = true,
+   .lower_ffma16 = true,
+   .lower_ffma32 = true,
+   .lower_ffma64 = true,
    .lower_fpow = true,
    .lower_fdiv = true,
    .lower_fmod = true,
-   .lower_sub = true,
    .lower_flrp32 = true,
    .lower_flrp64 = true,
    .lower_fsign = true,
@@ -101,7 +103,8 @@ lima_program_optimize_vs_nir(struct nir_shader *s)
 
    NIR_PASS_V(s, nir_lower_viewport_transform);
    NIR_PASS_V(s, nir_lower_point_size, 1.0f, 100.0f);
-   NIR_PASS_V(s, nir_lower_io, nir_var_all, type_size, 0);
+   NIR_PASS_V(s, nir_lower_io,
+	      nir_var_shader_in | nir_var_shader_out, type_size, 0);
    NIR_PASS_V(s, nir_lower_load_const_to_scalar);
    NIR_PASS_V(s, lima_nir_lower_uniform_to_scalar);
    NIR_PASS_V(s, nir_lower_io_to_scalar,
@@ -138,7 +141,7 @@ lima_program_optimize_vs_nir(struct nir_shader *s)
    NIR_PASS_V(s, nir_opt_dce);
    NIR_PASS_V(s, nir_lower_locals_to_regs);
    NIR_PASS_V(s, nir_convert_from_ssa, true);
-   NIR_PASS_V(s, nir_remove_dead_variables, nir_var_function_temp);
+   NIR_PASS_V(s, nir_remove_dead_variables, nir_var_function_temp, NULL);
    nir_sweep(s);
 }
 
@@ -186,6 +189,17 @@ lima_alu_to_scalar_filter_cb(const nir_instr *instr, const void *data)
    return false;
 }
 
+static bool
+lima_vec_to_movs_filter_cb(const nir_instr *instr, unsigned writemask,
+                           const void *data)
+{
+   assert(writemask > 0);
+   if (util_bitcount(writemask) == 1)
+      return true;
+
+   return !lima_alu_to_scalar_filter_cb(instr, data);
+}
+
 void
 lima_program_optimize_fs_nir(struct nir_shader *s,
                              struct nir_lower_tex_options *tex_options)
@@ -193,13 +207,14 @@ lima_program_optimize_fs_nir(struct nir_shader *s,
    bool progress;
 
    NIR_PASS_V(s, nir_lower_fragcoord_wtrans);
-   NIR_PASS_V(s, nir_lower_io, nir_var_all, type_size, 0);
+   NIR_PASS_V(s, nir_lower_io,
+	      nir_var_shader_in | nir_var_shader_out, type_size, 0);
    NIR_PASS_V(s, nir_lower_regs_to_ssa);
    NIR_PASS_V(s, nir_lower_tex, tex_options);
 
    do {
       progress = false;
-      NIR_PASS(progress, s, nir_opt_vectorize);
+      NIR_PASS(progress, s, nir_opt_vectorize, NULL, NULL);
    } while (progress);
 
    do {
@@ -243,10 +258,14 @@ lima_program_optimize_fs_nir(struct nir_shader *s,
 
    NIR_PASS_V(s, nir_lower_locals_to_regs);
    NIR_PASS_V(s, nir_convert_from_ssa, true);
-   NIR_PASS_V(s, nir_remove_dead_variables, nir_var_function_temp);
+   NIR_PASS_V(s, nir_remove_dead_variables, nir_var_function_temp, NULL);
 
    NIR_PASS_V(s, nir_move_vec_src_uses_to_dest);
-   NIR_PASS_V(s, nir_lower_vec_to_movs);
+   NIR_PASS_V(s, nir_lower_vec_to_movs, lima_vec_to_movs_filter_cb, NULL);
+
+   NIR_PASS_V(s, lima_nir_duplicate_load_uniforms);
+   NIR_PASS_V(s, lima_nir_duplicate_load_inputs);
+   NIR_PASS_V(s, lima_nir_duplicate_load_consts);
 
    nir_sweep(s);
 }
@@ -294,7 +313,7 @@ lima_create_fs_state(struct pipe_context *pctx,
    else {
       assert(cso->type == PIPE_SHADER_IR_TGSI);
 
-      nir = tgsi_to_nir(cso->tokens, pctx->screen);
+      nir = tgsi_to_nir(cso->tokens, pctx->screen, false);
    }
 
    so->base.type = PIPE_SHADER_IR_NIR;
@@ -450,7 +469,7 @@ lima_create_vs_state(struct pipe_context *pctx,
    else {
       assert(cso->type == PIPE_SHADER_IR_TGSI);
 
-      nir = tgsi_to_nir(cso->tokens, pctx->screen);
+      nir = tgsi_to_nir(cso->tokens, pctx->screen, false);
    }
 
    lima_program_optimize_vs_nir(nir);

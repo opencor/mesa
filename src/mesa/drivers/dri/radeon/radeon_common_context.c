@@ -33,7 +33,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 **************************************************************************/
 
 #include "radeon_common.h"
-#include "util/xmlpool.h"		/* for symbolic values of enum-type options */
+#include "util/driconf.h"		/* for symbolic values of enum-type options */
 #include "utils.h"
 #include "drivers/common/meta.h"
 #include "main/context.h"
@@ -45,6 +45,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "swrast/swrast.h"
 #include "swrast_setup/swrast_setup.h"
 #include "tnl/tnl.h"
+#include "util/u_memory.h"
 
 #ifndef RADEON_DEBUG
 int RADEON_DEBUG = (0);
@@ -270,7 +271,7 @@ void radeonDestroyContext(__DRIcontext *driContextPriv )
 
 	/* free atom list */
 	/* free the Mesa context data */
-	_mesa_free_context_data(&radeon->glCtx);
+	_mesa_free_context_data(&radeon->glCtx, true);
 
 	/* free the option cache */
 	driDestroyOptionCache(&radeon->optionCache);
@@ -286,7 +287,7 @@ void radeonDestroyContext(__DRIcontext *driContextPriv )
 		fclose(track);
 	}
 #endif
-	free(radeon);
+	align_free(radeon);
 }
 
 /* Force the context `c' to be unbound from its buffer.

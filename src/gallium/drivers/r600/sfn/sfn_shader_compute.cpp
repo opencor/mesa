@@ -31,9 +31,10 @@ namespace r600 {
 
 ComputeShaderFromNir::ComputeShaderFromNir(r600_pipe_shader *sh,
                                            r600_pipe_shader_selector& sel,
-                                           UNUSED const r600_shader_key& key):
+                                           UNUSED const r600_shader_key& key,
+                                           enum chip_class chip_class):
      ShaderFromNirProcessor (PIPE_SHADER_COMPUTE, sel, sh->shader,
-                             sh->scratch_space_needed),
+                             sh->scratch_space_needed, chip_class, 0),
      m_reserved_registers(0)
 {
 }
@@ -42,7 +43,7 @@ bool ComputeShaderFromNir::scan_sysvalue_access(UNUSED nir_instr *instr)
 {
    return true;
 }
-bool ComputeShaderFromNir::allocate_reserved_registers()
+bool ComputeShaderFromNir::do_allocate_reserved_registers()
 {
    int thread_id_sel = m_reserved_registers++;
    int wg_id_sel = m_reserved_registers++;
@@ -50,11 +51,13 @@ bool ComputeShaderFromNir::allocate_reserved_registers()
    for (int i = 0; i < 3; ++i) {
       auto tmp = new GPRValue(thread_id_sel, i);
       tmp->set_as_input();
+      tmp->set_keep_alive();
       m_local_invocation_id[i] = PValue(tmp);
       inject_register(tmp->sel(), i, m_local_invocation_id[i], false);
 
       tmp = new GPRValue(wg_id_sel, i);
       tmp->set_as_input();
+      tmp->set_keep_alive();
       m_workgroup_id[i] = PValue(tmp);
       inject_register(tmp->sel(), i, m_workgroup_id[i], false);
    }
@@ -78,12 +81,8 @@ bool ComputeShaderFromNir::emit_intrinsic_instruction_override(nir_intrinsic_ins
 bool ComputeShaderFromNir::emit_load_3vec(nir_intrinsic_instr* instr,
                                           const std::array<PValue,3>& src)
 {
-   AluInstruction *ir = nullptr;
-   for (int i = 0; i < 3; ++i) {
-      ir = new AluInstruction(op1_mov, from_nir(instr->dest, i), src[i], {alu_write});
-      emit_instruction(ir);
-   }
-   ir->set_flag(alu_last_instr);
+   for (int i = 0; i < 3; ++i)
+      load_preloaded_value(instr->dest, i, src[i], i == 2);
    return true;
 }
 

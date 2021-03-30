@@ -42,6 +42,7 @@ gen_batch_decode_ctx_init(struct gen_batch_decode_ctx *ctx,
 {
    memset(ctx, 0, sizeof(*ctx));
 
+   ctx->devinfo = *devinfo;
    ctx->get_bo = get_bo;
    ctx->get_state_size = get_state_size;
    ctx->user_data = user_data;
@@ -54,14 +55,12 @@ gen_batch_decode_ctx_init(struct gen_batch_decode_ctx *ctx,
       ctx->spec = gen_spec_load(devinfo);
    else
       ctx->spec = gen_spec_load_from_path(devinfo, xml_path);
-   ctx->disasm = gen_disasm_create(devinfo);
 }
 
 void
 gen_batch_decode_ctx_finish(struct gen_batch_decode_ctx *ctx)
 {
    gen_spec_destroy(ctx->spec);
-   gen_disasm_destroy(ctx->disasm);
 }
 
 #define CSI "\e["
@@ -138,7 +137,7 @@ ctx_disassemble_program(struct gen_batch_decode_ctx *ctx,
       return;
 
    fprintf(ctx->fp, "\nReferenced %s:\n", type);
-   gen_disasm_disassemble(ctx->disasm, bo.map, 0, ctx->fp);
+   gen_disassemble(&ctx->devinfo, bo.map, 0, ctx->fp);
 }
 
 /* Heuristic to determine whether a uint32_t is probably actually a float
@@ -508,7 +507,7 @@ decode_single_ksp(struct gen_batch_decode_ctx *ctx, const uint32_t *p)
    struct gen_group *inst = gen_ctx_find_instruction(ctx, p);
 
    uint64_t ksp = 0;
-   bool is_simd8 = false; /* vertex shaders on Gen8+ only */
+   bool is_simd8 = ctx->devinfo.gen >= 11; /* vertex shaders on Gen8+ only */
    bool is_enabled = true;
 
    struct gen_field_iterator iter;
@@ -840,6 +839,172 @@ decode_load_register_imm(struct gen_batch_decode_ctx *ctx, const uint32_t *p)
    }
 }
 
+static void
+decode_vs_state(struct gen_batch_decode_ctx *ctx, uint32_t offset)
+{
+   struct gen_group *strct =
+      gen_spec_find_struct(ctx->spec, "VS_STATE");
+   if (strct == NULL) {
+      fprintf(ctx->fp, "did not find VS_STATE info\n");
+      return;
+   }
+
+   struct gen_batch_decode_bo bind_bo =
+      ctx_get_bo(ctx, true, offset);
+
+   if (bind_bo.map == NULL) {
+      fprintf(ctx->fp, " vs state unavailable\n");
+      return;
+   }
+
+   ctx_print_group(ctx, strct, offset, bind_bo.map);
+}
+
+
+static void
+decode_clip_state(struct gen_batch_decode_ctx *ctx, uint32_t offset)
+{
+   struct gen_group *strct =
+      gen_spec_find_struct(ctx->spec, "CLIP_STATE");
+   if (strct == NULL) {
+      fprintf(ctx->fp, "did not find CLIP_STATE info\n");
+      return;
+   }
+
+   struct gen_batch_decode_bo bind_bo =
+      ctx_get_bo(ctx, true, offset);
+
+   if (bind_bo.map == NULL) {
+      fprintf(ctx->fp, " clip state unavailable\n");
+      return;
+   }
+
+   ctx_print_group(ctx, strct, offset, bind_bo.map);
+
+   struct gen_group *vp_strct =
+      gen_spec_find_struct(ctx->spec, "CLIP_VIEWPORT");
+   if (vp_strct == NULL) {
+      fprintf(ctx->fp, "did not find CLIP_VIEWPORT info\n");
+      return;
+   }
+   uint32_t clip_vp_offset = ((uint32_t *)bind_bo.map)[6] & ~0x3;
+   struct gen_batch_decode_bo vp_bo =
+      ctx_get_bo(ctx, true, clip_vp_offset);
+   if (vp_bo.map == NULL) {
+      fprintf(ctx->fp, " clip vp state unavailable\n");
+      return;
+   }
+   ctx_print_group(ctx, vp_strct, clip_vp_offset, vp_bo.map);
+}
+
+static void
+decode_sf_state(struct gen_batch_decode_ctx *ctx, uint32_t offset)
+{
+   struct gen_group *strct =
+      gen_spec_find_struct(ctx->spec, "SF_STATE");
+   if (strct == NULL) {
+      fprintf(ctx->fp, "did not find SF_STATE info\n");
+      return;
+   }
+
+   struct gen_batch_decode_bo bind_bo =
+      ctx_get_bo(ctx, true, offset);
+
+   if (bind_bo.map == NULL) {
+      fprintf(ctx->fp, " sf state unavailable\n");
+      return;
+   }
+
+   ctx_print_group(ctx, strct, offset, bind_bo.map);
+
+   struct gen_group *vp_strct =
+      gen_spec_find_struct(ctx->spec, "SF_VIEWPORT");
+   if (vp_strct == NULL) {
+      fprintf(ctx->fp, "did not find SF_VIEWPORT info\n");
+      return;
+   }
+
+   uint32_t sf_vp_offset = ((uint32_t *)bind_bo.map)[5] & ~0x3;
+   struct gen_batch_decode_bo vp_bo =
+      ctx_get_bo(ctx, true, sf_vp_offset);
+   if (vp_bo.map == NULL) {
+      fprintf(ctx->fp, " sf vp state unavailable\n");
+      return;
+   }
+   ctx_print_group(ctx, vp_strct, sf_vp_offset, vp_bo.map);
+}
+
+static void
+decode_wm_state(struct gen_batch_decode_ctx *ctx, uint32_t offset)
+{
+   struct gen_group *strct =
+      gen_spec_find_struct(ctx->spec, "WM_STATE");
+   if (strct == NULL) {
+      fprintf(ctx->fp, "did not find WM_STATE info\n");
+      return;
+   }
+
+   struct gen_batch_decode_bo bind_bo =
+      ctx_get_bo(ctx, true, offset);
+
+   if (bind_bo.map == NULL) {
+      fprintf(ctx->fp, " wm state unavailable\n");
+      return;
+   }
+
+   ctx_print_group(ctx, strct, offset, bind_bo.map);
+}
+
+static void
+decode_cc_state(struct gen_batch_decode_ctx *ctx, uint32_t offset)
+{
+   struct gen_group *strct =
+      gen_spec_find_struct(ctx->spec, "COLOR_CALC_STATE");
+   if (strct == NULL) {
+      fprintf(ctx->fp, "did not find COLOR_CALC_STATE info\n");
+      return;
+   }
+
+   struct gen_batch_decode_bo bind_bo =
+      ctx_get_bo(ctx, true, offset);
+
+   if (bind_bo.map == NULL) {
+      fprintf(ctx->fp, " cc state unavailable\n");
+      return;
+   }
+
+   ctx_print_group(ctx, strct, offset, bind_bo.map);
+
+   struct gen_group *vp_strct =
+      gen_spec_find_struct(ctx->spec, "CC_VIEWPORT");
+   if (vp_strct == NULL) {
+      fprintf(ctx->fp, "did not find CC_VIEWPORT info\n");
+      return;
+   }
+   uint32_t cc_vp_offset = ((uint32_t *)bind_bo.map)[4] & ~0x3;
+   struct gen_batch_decode_bo vp_bo =
+      ctx_get_bo(ctx, true, cc_vp_offset);
+   if (vp_bo.map == NULL) {
+      fprintf(ctx->fp, " cc vp state unavailable\n");
+      return;
+   }
+   ctx_print_group(ctx, vp_strct, cc_vp_offset, vp_bo.map);
+}
+static void
+decode_pipelined_pointers(struct gen_batch_decode_ctx *ctx, const uint32_t *p)
+{
+   fprintf(ctx->fp, "VS State Table:\n");
+   decode_vs_state(ctx, p[1]);
+   fprintf(ctx->fp, "Clip State Table:\n");
+   decode_clip_state(ctx, p[3] & ~1);
+   fprintf(ctx->fp, "SF State Table:\n");
+   decode_sf_state(ctx, p[4]);
+   fprintf(ctx->fp, "WM State Table:\n");
+   decode_wm_state(ctx, p[5]);
+   fprintf(ctx->fp, "CC State Table:\n");
+   decode_cc_state(ctx, p[6]);
+}
+
 struct custom_decoder {
    const char *cmd_name;
    void (*decode)(struct gen_batch_decode_ctx *ctx, const uint32_t *p);
@@ -881,7 +1046,8 @@ struct custom_decoder {
    { "3DSTATE_CC_STATE_POINTERS", decode_3dstate_cc_state_pointers },
    { "3DSTATE_SCISSOR_STATE_POINTERS", decode_3dstate_scissor_state_pointers },
    { "3DSTATE_SLICE_TABLE_STATE_POINTERS", decode_3dstate_slice_table_state_pointers },
-   { "MI_LOAD_REGISTER_IMM", decode_load_register_imm }
+   { "MI_LOAD_REGISTER_IMM", decode_load_register_imm },
+   { "3DSTATE_PIPELINED_POINTERS", decode_pipelined_pointers }
 };
 
 void

@@ -1255,6 +1255,7 @@ emit_fetch_tcs_input(
                                               vertex_index,
                                               reg->Register.Indirect,
                                               attrib_index,
+                                              FALSE,
                                               swizzle_index,
                                               bld_base->info->output_semantic_name[reg->Register.Index]);
    } else {
@@ -1263,6 +1264,7 @@ emit_fetch_tcs_input(
                                              vertex_index,
                                              reg->Register.Indirect,
                                              attrib_index,
+                                             FALSE,
                                              swizzle_index);
    }
 
@@ -1277,6 +1279,7 @@ emit_fetch_tcs_input(
                                                   vertex_index,
                                                   reg->Register.Indirect,
                                                   attrib_index,
+                                                  FALSE,
                                                   swizzle_index,
                                                   bld_base->info->output_semantic_name[reg->Register.Index]);
       } else {
@@ -1285,6 +1288,7 @@ emit_fetch_tcs_input(
                                                  vertex_index,
                                                  reg->Register.Indirect,
                                                  attrib_index,
+                                                 FALSE,
                                                  swizzle_index);
       }
       assert(res2);
@@ -1358,6 +1362,7 @@ emit_fetch_tes_input(
                                        vertex_index,
                                        reg->Register.Indirect,
                                        attrib_index,
+                                       FALSE,
                                        swizzle_index);
    }
 
@@ -1377,6 +1382,7 @@ emit_fetch_tes_input(
                                              vertex_index,
                                              reg->Register.Indirect,
                                              attrib_index,
+                                             FALSE,
                                              swizzle_index);
       }
       assert(res2);
@@ -1763,6 +1769,7 @@ emit_store_tcs_output(struct lp_build_tgsi_context *bld_base,
                                           vertex_index,
                                           reg->Register.Indirect,
                                           attrib_index,
+                                          false,
                                           channel_index,
                                           value,
                                           mask_vec(bld_base));
@@ -2084,14 +2091,14 @@ emit_tex( struct lp_build_tgsi_soa_context *bld,
    switch (inst->Texture.Texture) {
    case TGSI_TEXTURE_1D_ARRAY:
       layer_coord = 1;
-      /* fallthrough */
+      FALLTHROUGH;
    case TGSI_TEXTURE_1D:
       num_offsets = 1;
       num_derivs = 1;
       break;
    case TGSI_TEXTURE_2D_ARRAY:
       layer_coord = 2;
-      /* fallthrough */
+      FALLTHROUGH;
    case TGSI_TEXTURE_2D:
    case TGSI_TEXTURE_RECT:
       num_offsets = 2;
@@ -2099,7 +2106,7 @@ emit_tex( struct lp_build_tgsi_soa_context *bld,
       break;
    case TGSI_TEXTURE_SHADOW1D_ARRAY:
       layer_coord = 1;
-      /* fallthrough */
+      FALLTHROUGH;
    case TGSI_TEXTURE_SHADOW1D:
       shadow_coord = 2;
       num_offsets = 1;
@@ -2456,6 +2463,7 @@ emit_fetch_texels( struct lp_build_tgsi_soa_context *bld,
    LLVMValueRef explicit_lod = NULL;
    LLVMValueRef coords[5];
    LLVMValueRef offsets[3] = { NULL };
+   LLVMValueRef ms_index = NULL;
    struct lp_sampler_params params;
    enum lp_sampler_lod_property lod_property = LP_SAMPLER_LOD_SCALAR;
    unsigned dims, i;
@@ -2517,6 +2525,13 @@ emit_fetch_texels( struct lp_build_tgsi_soa_context *bld,
       explicit_lod = lp_build_emit_fetch(&bld->bld_base, inst, 0, 3);
       lod_property = lp_build_lod_property(&bld->bld_base, inst, 0);
    }
+
+   if (target == TGSI_TEXTURE_2D_MSAA ||
+       target == TGSI_TEXTURE_2D_ARRAY_MSAA) {
+      sample_key |= LP_SAMPLER_FETCH_MS;
+      ms_index = lp_build_emit_fetch(&bld->bld_base, inst, 0, 3);
+   }
+
    /*
     * XXX: for real msaa support, the w component (or src2.x for sample_i_ms)
     * would be the sample index.
@@ -2557,6 +2572,7 @@ emit_fetch_texels( struct lp_build_tgsi_soa_context *bld,
    params.derivs = NULL;
    params.lod = explicit_lod;
    params.texel = texel;
+   params.ms_index = ms_index;
 
    bld->sampler->emit_tex_sample(bld->sampler,
                                  bld->bld_base.base.gallivm,
@@ -2635,6 +2651,7 @@ emit_size_query( struct lp_build_tgsi_soa_context *bld,
    params.lod_property = lod_property;
    params.explicit_lod = explicit_lod;
    params.sizes_out = sizes_out;
+   params.samples_only = false;
 
    bld->sampler->emit_size_query(bld->sampler,
                                  bld->bld_base.base.gallivm,
@@ -3959,6 +3976,7 @@ emit_vertex(
       bld->gs_iface->emit_vertex(bld->gs_iface, &bld->bld_base.base,
                                  bld->outputs,
                                  total_emitted_vertices_vec,
+                                 mask,
                                  stream_id);
       increment_vec_ptr_by_mask(bld_base, bld->emitted_vertices_vec_ptr,
                                 mask);
@@ -4004,7 +4022,7 @@ end_primitive_masked(struct lp_build_tgsi_context * bld_base,
                                    total_emitted_vertices_vec,
                                    emitted_vertices_vec,
                                    emitted_prims_vec,
-                                   mask_vec(bld_base));
+                                   mask_vec(bld_base), 0);
 
 #if DUMP_GS_EMITS
       lp_build_print_value(bld->bld_base.base.gallivm,

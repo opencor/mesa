@@ -33,6 +33,7 @@
 #include "pipe/p_shader_tokens.h"
 #include "pipe/p_state.h"
 #include "pipe/p_screen.h"
+#include "util/compiler.h"
 #include "util/u_debug.h"
 #include "util/u_debug_describe.h"
 #include "util/u_debug_refcnt.h"
@@ -321,7 +322,7 @@ pipe_buffer_create_const0(struct pipe_screen *screen,
  * Map a range of a resource.
  * \param offset  start of region, in bytes
  * \param length  size of region, in bytes
- * \param access  bitmask of PIPE_TRANSFER_x flags
+ * \param access  bitmask of PIPE_MAP_x flags
  * \param transfer  returns a transfer object
  */
 static inline void *
@@ -352,7 +353,7 @@ pipe_buffer_map_range(struct pipe_context *pipe,
 
 /**
  * Map whole resource.
- * \param access  bitmask of PIPE_TRANSFER_x flags
+ * \param access  bitmask of PIPE_MAP_x flags
  * \param transfer  returns a transfer object
  */
 static inline void *
@@ -405,7 +406,7 @@ pipe_buffer_write(struct pipe_context *pipe,
                   const void *data)
 {
    /* Don't set any other usage bits. Drivers should derive them. */
-   pipe->buffer_subdata(pipe, buf, PIPE_TRANSFER_WRITE, offset, size, data);
+   pipe->buffer_subdata(pipe, buf, PIPE_MAP_WRITE, offset, size, data);
 }
 
 /**
@@ -421,8 +422,8 @@ pipe_buffer_write_nooverlap(struct pipe_context *pipe,
                             const void *data)
 {
    pipe->buffer_subdata(pipe, buf,
-                        (PIPE_TRANSFER_WRITE |
-                         PIPE_TRANSFER_UNSYNCHRONIZED),
+                        (PIPE_MAP_WRITE |
+                         PIPE_MAP_UNSYNCHRONIZED),
                         offset, size, data);
 }
 
@@ -458,7 +459,7 @@ pipe_buffer_read(struct pipe_context *pipe,
    map = (ubyte *) pipe_buffer_map_range(pipe,
                                          buf,
                                          offset, size,
-                                         PIPE_TRANSFER_READ,
+                                         PIPE_MAP_READ,
                                          &src_transfer);
    if (!map)
       return;
@@ -470,7 +471,7 @@ pipe_buffer_read(struct pipe_context *pipe,
 
 /**
  * Map a resource for reading/writing.
- * \param access  bitmask of PIPE_TRANSFER_x flags
+ * \param access  bitmask of PIPE_MAP_x flags
  */
 static inline void *
 pipe_transfer_map(struct pipe_context *context,
@@ -493,7 +494,7 @@ pipe_transfer_map(struct pipe_context *context,
 
 /**
  * Map a 3D (texture) resource for reading/writing.
- * \param access  bitmask of PIPE_TRANSFER_x flags
+ * \param access  bitmask of PIPE_MAP_x flags
  */
 static inline void *
 pipe_transfer_map_3d(struct pipe_context *context,
@@ -708,7 +709,7 @@ util_max_layer(const struct pipe_resource *r, unsigned level)
       return u_minify(r->depth0, level) - 1;
    case PIPE_TEXTURE_CUBE:
       assert(r->array_size == 6);
-      /* fall-through */
+      FALLTHROUGH;
    case PIPE_TEXTURE_1D_ARRAY:
    case PIPE_TEXTURE_2D_ARRAY:
    case PIPE_TEXTURE_CUBE_ARRAY:
@@ -736,6 +737,32 @@ util_texrange_covers_whole_level(const struct pipe_resource *tex,
           depth == util_num_layers(tex, level);
 }
 
+static inline bool
+util_logicop_reads_dest(enum pipe_logicop op)
+{
+   switch (op) {
+   case PIPE_LOGICOP_NOR:
+   case PIPE_LOGICOP_AND_INVERTED:
+   case PIPE_LOGICOP_AND_REVERSE:
+   case PIPE_LOGICOP_INVERT:
+   case PIPE_LOGICOP_XOR:
+   case PIPE_LOGICOP_NAND:
+   case PIPE_LOGICOP_AND:
+   case PIPE_LOGICOP_EQUIV:
+   case PIPE_LOGICOP_NOOP:
+   case PIPE_LOGICOP_OR_INVERTED:
+   case PIPE_LOGICOP_OR_REVERSE:
+   case PIPE_LOGICOP_OR:
+      return true;
+   case PIPE_LOGICOP_CLEAR:
+   case PIPE_LOGICOP_COPY_INVERTED:
+   case PIPE_LOGICOP_COPY:
+   case PIPE_LOGICOP_SET:
+      return false;
+   }
+   unreachable("bad logicop");
+}
+
 static inline struct pipe_context *
 pipe_create_multimedia_context(struct pipe_screen *screen)
 {
@@ -745,6 +772,11 @@ pipe_create_multimedia_context(struct pipe_screen *screen)
       flags |= PIPE_CONTEXT_COMPUTE_ONLY;
 
    return screen->context_create(screen, NULL, flags);
+}
+
+static inline unsigned util_res_sample_count(struct pipe_resource *res)
+{
+   return res->nr_samples > 0 ? res->nr_samples : 1;
 }
 
 #ifdef __cplusplus

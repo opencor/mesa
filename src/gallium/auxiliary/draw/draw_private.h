@@ -71,7 +71,7 @@ struct tgsi_buffer;
 struct draw_pt_front_end;
 struct draw_assembler;
 struct draw_llvm;
-
+struct lp_cached_code;
 
 /**
  * Represents the mapped vertex buffer.
@@ -265,7 +265,7 @@ struct draw_context
    void *rast_handle;
 
    /** Rasterizer CSOs without culling/stipple/etc */
-   void *rasterizer_no_cull[2][2];
+   void *rasterizer_no_cull[2][2][2];
 
    struct pipe_viewport_state viewports[PIPE_MAX_VIEWPORTS];
    boolean identity_viewport;
@@ -367,7 +367,7 @@ struct draw_context
    unsigned instance_id;
    unsigned start_instance;
    unsigned start_index;
-
+   unsigned constant_buffer_stride;
    struct draw_llvm *llvm;
 
    /** Texture sampler and sampler view state.
@@ -391,6 +391,14 @@ struct draw_context
    bool collect_primgen;
 
    struct draw_assembler *ia;
+
+   void *disk_cache_cookie;
+   void (*disk_cache_find_shader)(void *cookie,
+                                  struct lp_cached_code *cache,
+                                  unsigned char ir_sha1_cache_key[20]);
+   void (*disk_cache_insert_shader)(void *cookie,
+                                    struct lp_cached_code *cache,
+                                    unsigned char ir_sha1_cache_key[20]);
 
    void *driver_private;
 };
@@ -528,8 +536,7 @@ void draw_do_flush( struct draw_context *draw, unsigned flags );
 
 void *
 draw_get_rasterizer_no_cull( struct draw_context *draw,
-                             boolean scissor,
-                             boolean flatshade );
+                             const struct pipe_rasterizer_state *rast );
 
 void
 draw_stats_clipper_primitives(struct draw_context *draw,

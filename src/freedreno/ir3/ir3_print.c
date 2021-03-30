@@ -114,7 +114,7 @@ static void print_instr_name(struct ir3_instruction *instr, bool flags)
 		printf(".%s%s", type_name(instr->cat1.src_type),
 				type_name(instr->cat1.dst_type));
 	} else {
-		printf("%s", ir3_instr_name(instr));
+		printf("%s", disasm_a3xx_instr_name(instr->opc));
 		if (instr->flags & IR3_INSTR_3D)
 			printf(".3d");
 		if (instr->flags & IR3_INSTR_A)
@@ -135,6 +135,28 @@ static void print_instr_name(struct ir3_instruction *instr, bool flags)
 		}
 		if (instr->flags & IR3_INSTR_S2EN)
 			printf(".s2en");
+
+		static const char *cond[0x7] = {
+				"lt",
+				"le",
+				"gt",
+				"ge",
+				"eq",
+				"ne",
+		};
+
+		switch (instr->opc) {
+		case OPC_CMPS_F:
+		case OPC_CMPS_U:
+		case OPC_CMPS_S:
+		case OPC_CMPV_F:
+		case OPC_CMPV_U:
+		case OPC_CMPV_S:
+			printf(".%s", cond[instr->cat2.condition & 0x7]);
+			break;
+		default:
+			break;
+		}
 	}
 }
 
@@ -148,8 +170,11 @@ static void print_reg_name(struct ir3_register *reg)
 	else if (reg->flags & (IR3_REG_FABS | IR3_REG_SABS))
 		printf("(abs)");
 
-	if (reg->flags & IR3_REG_HIGH)
-		printf("H");
+	if (reg->flags & IR3_REG_R)
+		printf("(r)");
+
+	if (reg->flags & IR3_REG_SHARED)
+		printf("s");
 	if (reg->flags & IR3_REG_HALF)
 		printf("h");
 
@@ -264,8 +289,35 @@ print_instr(struct ir3_instruction *instr, int lvl)
 
 	if (is_flow(instr) && instr->cat0.target) {
 		/* the predicate register src is implied: */
-		if (instr->opc == OPC_BR) {
-			printf(" %sp0.x", instr->cat0.inv ? "!" : "");
+		if (instr->opc == OPC_B) {
+			static const struct {
+				const char *suffix;
+				int nsrc;
+				bool idx;
+			} brinfo[7] = {
+				[BRANCH_PLAIN] = { "r",   1, false },
+				[BRANCH_OR]    = { "rao", 2, false },
+				[BRANCH_AND]   = { "raa", 2, false },
+				[BRANCH_CONST] = { "rac", 0, true  },
+				[BRANCH_ANY]   = { "any", 1, false },
+				[BRANCH_ALL]   = { "all", 1, false },
+				[BRANCH_X]     = { "rax", 0, false },
+			};
+
+			printf("%s", brinfo[instr->cat0.brtype].suffix);
+			if (brinfo[instr->cat0.brtype].idx) {
+				printf(".%u", instr->cat0.idx);
+			}
+			if (brinfo[instr->cat0.brtype].nsrc >= 1) {
+				printf(" %sp0.%c,", instr->cat0.inv1 ? "!" : "",
+						"xyzw"[instr->cat0.comp1 & 0x3]);
+			}
+			if (brinfo[instr->cat0.brtype].nsrc >= 2) {
+				printf(" %sp0.%c,", instr->cat0.inv2 ? "!" : "",
+						"xyzw"[instr->cat0.comp2 & 0x3]);
+			}
+
+			printf("r %sp0.%c", instr->cat0.inv1 ? "!" : "", "xyzw"[instr->cat0.comp1 & 0x3]);
 		}
 		printf(", target=block%u", block_id(instr->cat0.target));
 	}
@@ -301,7 +353,7 @@ print_block(struct ir3_block *block, int lvl)
 		unsigned i = 0;
 		tab(lvl+1);
 		printf("pred: ");
-		set_foreach(block->predecessors, entry) {
+		set_foreach (block->predecessors, entry) {
 			struct ir3_block *pred = (struct ir3_block *)entry->key;
 			if (i++)
 				printf(", ");
@@ -342,7 +394,6 @@ ir3_print(struct ir3 *ir)
 	foreach_block (block, &ir->block_list)
 		print_block(block, 0);
 
-	struct ir3_instruction *out;
 	foreach_output_n (out, i, ir) {
 		printf("out%d: ", i);
 		print_instr(out, 0);

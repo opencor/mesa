@@ -46,6 +46,8 @@ files_lima = files(
   'ir/pp/node_to_instr.c',
   'ir/pp/disasm.c',
 
+  'ir/lima_nir_duplicate_consts.c',
+  'ir/lima_nir_duplicate_intrinsic.c',
   'ir/lima_nir_lower_uniform_to_scalar.c',
   'ir/lima_nir_split_load_input.c',
 
@@ -97,7 +99,7 @@ liblima = static_library(
     inc_src, inc_include, inc_gallium, inc_gallium_aux, inc_gallium_drivers,
     inc_panfrost
   ],
-  dependencies : [dep_libdrm, idep_nir_headers],
+  dependencies : [dep_libdrm, idep_nir_headers, idep_mesautil],
 )
 
 driver_lima = declare_dependency(

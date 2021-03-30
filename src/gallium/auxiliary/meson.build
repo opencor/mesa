@@ -183,6 +183,7 @@ files_libgallium = files(
   'tgsi/tgsi_build.h',
   'tgsi/tgsi_dump.c',
   'tgsi/tgsi_dump.h',
+  'tgsi/tgsi_dynamic_indexing.c',
   'tgsi/tgsi_exec.c',
   'tgsi/tgsi_exec.h',
   'tgsi/tgsi_emulate.c',
@@ -217,6 +218,7 @@ files_libgallium = files(
   'tgsi/tgsi_ureg.h',
   'tgsi/tgsi_util.c',
   'tgsi/tgsi_util.h',
+  'tgsi/tgsi_vpos.c',
   'translate/translate.c',
   'translate/translate.h',
   'translate/translate_cache.c',
@@ -230,8 +232,6 @@ files_libgallium = files(
   'util/u_bitmask.c',
   'util/u_bitmask.h',
   'util/u_blend.h',
-  'util/u_blit.c',
-  'util/u_blit.h',
   'util/u_blitter.c',
   'util/u_blitter.h',
   'util/u_box.h',
@@ -247,9 +247,6 @@ files_libgallium = files(
   'util/u_debug_image.h',
   'util/u_debug_refcnt.c',
   'util/u_debug_refcnt.h',
-  'util/u_debug_stack.h',
-  'util/u_debug_symbol.c',
-  'util/u_debug_symbol.h',
   'util/u_dirty_flags.h',
   'util/u_dirty_surfaces.h',
   'util/u_dl.c',
@@ -267,15 +264,12 @@ files_libgallium = files(
   'util/u_framebuffer.h',
   'util/u_gen_mipmap.c',
   'util/u_gen_mipmap.h',
-  'util/u_half.h',
   'util/u_handle_table.c',
   'util/u_handle_table.h',
   'util/u_hash_table.c',
   'util/u_hash_table.h',
   'util/u_helpers.c',
   'util/u_helpers.h',
-  'util/u_idalloc.c',
-  'util/u_idalloc.h',
   'util/u_index_modify.c',
   'util/u_index_modify.h',
   'util/u_inlines.h',
@@ -320,6 +314,9 @@ files_libgallium = files(
   'util/u_texture.h',
   'util/u_tile.c',
   'util/u_tile.h',
+  'util/u_trace.c',
+  'util/u_trace.h',
+  'util/u_trace_priv.h',
   'util/u_transfer.c',
   'util/u_transfer.h',
   'util/u_transfer_helper.c',
@@ -335,19 +332,11 @@ files_libgallium = files(
   'util/u_viewport.h',
   'nir/tgsi_to_nir.c',
   'nir/tgsi_to_nir.h',
+  'nir/nir_to_tgsi.c',
+  'nir/nir_to_tgsi.h',
   'nir/nir_draw_helpers.c',
   'nir/nir_draw_helpers.h',
 )
-
-if with_platform_android
-  files_libgallium += files(
-    'util/u_debug_stack_android.cpp',
-  )
-else
-  files_libgallium += files(
-    'util/u_debug_stack.c',
-  )
-endif
 
 if dep_libdrm.found()
   files_libgallium += files(
@@ -488,11 +477,43 @@ if with_dri2 and with_platform_x11
   if with_dri3
     vlwinsys_deps += [
       dep_xcb_sync, dep_xcb_present, dep_xshmfence, dep_xcb_xfixes,
-      dep_xcb_dri3, 
+      dep_xcb_dri3,
     ]
     files_libgalliumvlwinsys += files('vl/vl_winsys_dri3.c')
   endif
 endif
+
+u_trace_py = files('util/u_trace.py')
+
+files_libgallium += custom_target(
+  'u_tracepoints.c',
+  input: 'util/u_tracepoints.py',
+  output: 'u_tracepoints.c',
+  command: [
+    prog_python, '@INPUT@',
+    '-p', join_paths(meson.source_root(), 'src/gallium/auxiliary/util/'),
+    '-C', '@OUTPUT@',
+  ],
+  depend_files: u_trace_py,
+)
+
+files_u_tracepoints = custom_target(
+  'u_tracepoints.h',
+  input: 'util/u_tracepoints.py',
+  output: 'u_tracepoints.h',
+  command: [
+    prog_python, '@INPUT@',
+    '-p', join_paths(meson.source_root(), 'src/gallium/auxiliary/util/'),
+    '-H', '@OUTPUT@',
+  ],
+  depend_files: u_trace_py,
+)
+
+files_libgallium += files_u_tracepoints
+
+idep_u_tracepoints = declare_dependency(
+  sources: files_u_tracepoints,
+)
 
 u_indices_gen_c = custom_target(
   'u_indices_gen.c',
@@ -516,10 +537,11 @@ libgallium = static_library(
   include_directories : [
     inc_loader, inc_gallium, inc_src, inc_include, include_directories('util')
   ],
-  c_args : [c_vis_args, c_msvc_compat_args],
-  cpp_args : [cpp_vis_args, cpp_msvc_compat_args],
+  c_args : [c_msvc_compat_args],
+  cpp_args : [cpp_msvc_compat_args],
+  gnu_symbol_visibility : 'hidden',
   dependencies : [
-    dep_libdrm, dep_llvm, dep_unwind, dep_dl, dep_m, dep_thread, dep_lmsensors,
+    dep_libdrm, dep_llvm, dep_dl, dep_m, dep_thread, dep_lmsensors, dep_ws2_32,
     idep_nir, idep_nir_headers, idep_mesautil,
   ],
   build_by_default : false
@@ -528,18 +550,22 @@ libgallium = static_library(
 libgalliumvl_stub = static_library(
   'galliumvl_stub',
   'vl/vl_stubs.c',
-  c_args : [c_vis_args, c_msvc_compat_args],
-  cpp_args : [cpp_vis_args, cpp_msvc_compat_args],
+  c_args : [c_msvc_compat_args],
+  cpp_args : [cpp_msvc_compat_args],
+  gnu_symbol_visibility : 'hidden',
   include_directories: [inc_gallium, inc_include, inc_src],
+  dependencies : idep_mesautil,
   build_by_default : false,
 )
 
 libgalliumvl = static_library(
   'galliumvl',
   files_libgalliumvl,
-  c_args : [c_vis_args, c_msvc_compat_args],
-  cpp_args : [cpp_vis_args, cpp_msvc_compat_args],
+  c_args : [c_msvc_compat_args],
+  cpp_args : [cpp_msvc_compat_args],
+  gnu_symbol_visibility : 'hidden',
   include_directories : [inc_gallium, inc_include, inc_src],
+  dependencies : idep_mesautil,
   build_by_default : false,
 )
 
@@ -548,6 +574,6 @@ libgalliumvlwinsys = static_library(
   'galliumvlwinsys',
   files_libgalliumvlwinsys,
   include_directories : [inc_gallium, inc_include, inc_loader, inc_src],
-  dependencies : [dep_libdrm, vlwinsys_deps],
+  dependencies : [dep_libdrm, vlwinsys_deps, idep_mesautil],
   build_by_default : false,
 )

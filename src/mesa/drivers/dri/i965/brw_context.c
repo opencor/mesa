@@ -141,7 +141,7 @@ intel_get_string(struct gl_context * ctx, GLenum name)
 
 static void
 brw_set_background_context(struct gl_context *ctx,
-                           struct util_queue_monitoring *queue_info)
+                           UNUSED struct util_queue_monitoring *queue_info)
 {
    struct brw_context *brw = brw_context(ctx);
    __DRIcontext *driContext = brw->driContext;
@@ -579,7 +579,7 @@ brw_initialize_context_constants(struct brw_context *brw)
    int max_samples;
    const int *msaa_modes = intel_supported_msaa_modes(brw->screen);
    const int clamp_max_samples =
-      driQueryOptioni(&brw->optionCache, "clamp_max_samples");
+      driQueryOptioni(&brw->screen->optionCache, "clamp_max_samples");
 
    if (clamp_max_samples < 0) {
       max_samples = msaa_modes[0];
@@ -836,22 +836,13 @@ brw_initialize_cs_context_constants(struct brw_context *brw)
    ctx->Const.MaxComputeWorkGroupInvocations = max_invocations;
    ctx->Const.MaxComputeSharedMemorySize = 64 * 1024;
 
-   /* Constants used for ARB_compute_variable_group_size.  The compiler will
-    * use the maximum to decide which SIMDs can be used.  If we top this like
-    * max_invocations, that would prevent SIMD8 / SIMD16 to be considered.
-    *
-    * TODO: To avoid the trade off above between having the lower maximum
-    * vs. always using SIMD32, keep all three shader variants (for each SIMD)
-    * and select a suitable one at dispatch time.
-    */
+   /* Constants used for ARB_compute_variable_group_size. */
    if (devinfo->gen >= 7) {
-      const uint32_t max_var_invocations =
-         (max_threads >= 64 ? 8 : (max_threads >= 32 ? 16 : 32)) * max_threads;
-      assert(max_var_invocations >= 512);
-      ctx->Const.MaxComputeVariableGroupSize[0] = max_var_invocations;
-      ctx->Const.MaxComputeVariableGroupSize[1] = max_var_invocations;
-      ctx->Const.MaxComputeVariableGroupSize[2] = max_var_invocations;
-      ctx->Const.MaxComputeVariableGroupInvocations = max_var_invocations;
+      assert(max_invocations >= 512);
+      ctx->Const.MaxComputeVariableGroupSize[0] = max_invocations;
+      ctx->Const.MaxComputeVariableGroupSize[1] = max_invocations;
+      ctx->Const.MaxComputeVariableGroupSize[2] = max_invocations;
+      ctx->Const.MaxComputeVariableGroupInvocations = max_invocations;
    }
 }
 
@@ -867,11 +858,7 @@ brw_process_driconf_options(struct brw_context *brw)
 {
    const struct gen_device_info *devinfo = &brw->screen->devinfo;
    struct gl_context *ctx = &brw->ctx;
-
-   driOptionCache *options = &brw->optionCache;
-   driParseConfigFiles(options, &brw->screen->optionCache,
-                       brw->driContext->driScreenPriv->myNum,
-                       "i965", NULL, NULL, 0);
+   const driOptionCache *const options = &brw->screen->optionCache;
 
    if (INTEL_DEBUG & DEBUG_NO_HIZ) {
        brw->has_hiz = false;
@@ -898,9 +885,9 @@ brw_process_driconf_options(struct brw_context *brw)
       brw->disable_throttling = true;
    }
 
-   brw->precompile = driQueryOptionb(&brw->optionCache, "shader_precompile");
+   brw->precompile = driQueryOptionb(&brw->screen->optionCache, "shader_precompile");
 
-   if (driQueryOptionb(&brw->optionCache, "precise_trig"))
+   if (driQueryOptionb(&brw->screen->optionCache, "precise_trig"))
       brw->screen->compiler->precise_trig = true;
 
    ctx->Const.ForceGLSLExtensionsWarn =
@@ -924,7 +911,7 @@ brw_process_driconf_options(struct brw_context *brw)
    ctx->Const.ForceGLSLAbsSqrt =
       driQueryOptionb(options, "force_glsl_abs_sqrt");
 
-   ctx->Const.GLSLZeroInit = driQueryOptionb(options, "glsl_zero_init");
+   ctx->Const.GLSLZeroInit = driQueryOptionb(options, "glsl_zero_init") ? 1 : 0;
 
    brw->dual_color_blend_by_location =
       driQueryOptionb(options, "dual_color_blend_by_location");
@@ -932,7 +919,13 @@ brw_process_driconf_options(struct brw_context *brw)
    ctx->Const.AllowGLSLCrossStageInterpolationMismatch =
       driQueryOptionb(options, "allow_glsl_cross_stage_interpolation_mismatch");
 
-   ctx->Const.dri_config_options_sha1 = ralloc_array(brw, unsigned char, 20);
+   char *vendor_str = driQueryOptionstr(options, "force_gl_vendor");
+   /* not an empty string */
+   if (*vendor_str)
+      ctx->Const.VendorOverride = vendor_str;
+
+   ctx->Const.dri_config_options_sha1 =
+      ralloc_array(brw->mem_ctx, unsigned char, 20);
    driComputeOptionsSha1(&brw->screen->optionCache,
                          ctx->Const.dri_config_options_sha1);
 }
@@ -976,13 +969,14 @@ brwCreateContext(gl_api api,
       ((ctx_config->attribute_mask & __DRIVER_CONTEXT_ATTRIB_RESET_STRATEGY) &&
        ctx_config->reset_strategy != __DRI_CTX_RESET_NO_NOTIFICATION);
 
-   struct brw_context *brw = rzalloc(NULL, struct brw_context);
+   struct brw_context *brw = align_calloc(sizeof(struct brw_context), 16);
    if (!brw) {
       fprintf(stderr, "%s: failed to alloc context\n", __func__);
       *dri_ctx_error = __DRI_CTX_ERROR_NO_MEMORY;
       return false;
    }
-   brw->perf_ctx = gen_perf_new_context(brw);
+   brw->mem_ctx = ralloc_context(NULL);
+   brw->perf_ctx = gen_perf_new_context(brw->mem_ctx);
 
    driContextPriv->driverPrivate = brw;
    brw->driContext = driContextPriv;
@@ -1248,12 +1242,11 @@ intelDestroyContext(__DRIcontext * driContextPriv)
    brw->throttle_batch[1] = NULL;
    brw->throttle_batch[0] = NULL;
 
-   driDestroyOptionCache(&brw->optionCache);
-
    /* free the Mesa context */
-   _mesa_free_context_data(&brw->ctx);
+   _mesa_free_context_data(&brw->ctx, true);
 
-   ralloc_free(brw);
+   ralloc_free(brw->mem_ctx);
+   align_free(brw);
    driContextPriv->driverPrivate = NULL;
 }
 
@@ -1463,7 +1456,7 @@ intel_update_dri2_buffers(struct brw_context *brw, __DRIdrawable *drawable)
     * thus ignore the invalidate. */
    drawable->lastStamp = drawable->dri2.stamp;
 
-   if (unlikely(INTEL_DEBUG & DEBUG_DRI))
+   if (INTEL_DEBUG & DEBUG_DRI)
       fprintf(stderr, "enter %s, drawable %p\n", __func__, drawable);
 
    intel_query_dri2_buffers(brw, drawable, &buffers, &count);
@@ -1516,7 +1509,7 @@ intel_update_renderbuffers(__DRIcontext *context, __DRIdrawable *drawable)
     * thus ignore the invalidate. */
    drawable->lastStamp = drawable->dri2.stamp;
 
-   if (unlikely(INTEL_DEBUG & DEBUG_DRI))
+   if (INTEL_DEBUG & DEBUG_DRI)
       fprintf(stderr, "enter %s, drawable %p\n", __func__, drawable);
 
    if (dri_screen->image.loader)
@@ -1695,7 +1688,7 @@ intel_process_dri2_buffer(struct brw_context *brw,
    if (old_name == buffer->name)
       return;
 
-   if (unlikely(INTEL_DEBUG & DEBUG_DRI)) {
+   if (INTEL_DEBUG & DEBUG_DRI) {
       fprintf(stderr,
               "attaching buffer %d, at %d, cpp %d, pitch %d\n",
               buffer->name, buffer->attachment,
