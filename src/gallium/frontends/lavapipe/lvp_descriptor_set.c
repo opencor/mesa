@@ -25,6 +25,28 @@
 #include "vk_util.h"
 #include "u_math.h"
 
+static int binding_compare(const void* av, const void *bv)
+{
+   const VkDescriptorSetLayoutBinding *a = (const VkDescriptorSetLayoutBinding*)av;
+   const VkDescriptorSetLayoutBinding *b = (const VkDescriptorSetLayoutBinding*)bv;
+ 
+   return (a->binding < b->binding) ? -1 : (a->binding > b->binding) ? 1 : 0;
+}
+ 
+static VkDescriptorSetLayoutBinding *
+create_sorted_bindings(const VkDescriptorSetLayoutBinding *bindings, unsigned count) {
+   VkDescriptorSetLayoutBinding *sorted_bindings = malloc(MAX2(count * sizeof(VkDescriptorSetLayoutBinding), 1));
+   if (!sorted_bindings)
+      return NULL;
+ 
+   if (count) {
+      memcpy(sorted_bindings, bindings, count * sizeof(VkDescriptorSetLayoutBinding));
+      qsort(sorted_bindings, count, sizeof(VkDescriptorSetLayoutBinding), binding_compare);
+   }
+ 
+   return sorted_bindings;
+}
+
 VkResult lvp_CreateDescriptorSetLayout(
     VkDevice                                    _device,
     const VkDescriptorSetLayoutCreateInfo*      pCreateInfo,
@@ -62,10 +84,18 @@ VkResult lvp_CreateDescriptorSetLayout(
    set_layout->shader_stages = 0;
    set_layout->size = 0;
 
-   uint32_t dynamic_offset_count = 0;
+   VkDescriptorSetLayoutBinding *bindings = create_sorted_bindings(pCreateInfo->pBindings,
+                                   pCreateInfo->bindingCount);
+   if (!bindings) {
+      vk_object_base_finish(&set_layout->base);
+      vk_free2(&device->vk.alloc, pAllocator, set_layout);
+      return vk_error(device->instance, VK_ERROR_OUT_OF_HOST_MEMORY);
+   }
 
+
+   uint32_t dynamic_offset_count = 0;
    for (uint32_t j = 0; j < pCreateInfo->bindingCount; j++) {
-      const VkDescriptorSetLayoutBinding *binding = &pCreateInfo->pBindings[j];
+      const VkDescriptorSetLayoutBinding *binding = bindings + j;
       uint32_t b = binding->binding;
 
       set_layout->binding[b].array_size = binding->descriptorCount;
@@ -148,6 +178,8 @@ VkResult lvp_CreateDescriptorSetLayout(
 
       set_layout->shader_stages |= binding->stageFlags;
    }
+
+   free(bindings);
 
    set_layout->dynamic_offset_count = dynamic_offset_count;
 
@@ -567,11 +599,12 @@ void lvp_UpdateDescriptorSetWithTemplate(VkDevice _device,
       struct lvp_descriptor *desc =
          &set->descriptors[bind_layout->descriptor_index];
       for (j = 0; j < entry->descriptorCount; ++j) {
+         unsigned idx = j + entry->dstArrayElement;
          switch (entry->descriptorType) {
          case VK_DESCRIPTOR_TYPE_SAMPLER: {
             LVP_FROM_HANDLE(lvp_sampler, sampler,
                             *(VkSampler *)pSrc);
-            desc[j] = (struct lvp_descriptor) {
+            desc[idx] = (struct lvp_descriptor) {
                .type = VK_DESCRIPTOR_TYPE_SAMPLER,
                .info.sampler = sampler,
             };
@@ -579,7 +612,7 @@ void lvp_UpdateDescriptorSetWithTemplate(VkDevice _device,
          }
          case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER: {
             VkDescriptorImageInfo *info = (VkDescriptorImageInfo *)pSrc;
-            desc[j] = (struct lvp_descriptor) {
+            desc[idx] = (struct lvp_descriptor) {
                .type = entry->descriptorType,
                .info.iview = lvp_image_view_from_handle(info->imageView),
                .info.sampler = lvp_sampler_from_handle(info->sampler),
@@ -591,7 +624,7 @@ void lvp_UpdateDescriptorSetWithTemplate(VkDevice _device,
          case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT: {
             LVP_FROM_HANDLE(lvp_image_view, iview,
                             ((VkDescriptorImageInfo *)pSrc)->imageView);
-            desc[j] = (struct lvp_descriptor) {
+            desc[idx] = (struct lvp_descriptor) {
                .type = entry->descriptorType,
                .info.iview = iview,
             };
@@ -601,7 +634,7 @@ void lvp_UpdateDescriptorSetWithTemplate(VkDevice _device,
          case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER: {
             LVP_FROM_HANDLE(lvp_buffer_view, bview,
                             *(VkBufferView *)pSrc);
-            desc[j] = (struct lvp_descriptor) {
+            desc[idx] = (struct lvp_descriptor) {
                .type = entry->descriptorType,
                .info.buffer_view = bview,
             };
@@ -613,7 +646,7 @@ void lvp_UpdateDescriptorSetWithTemplate(VkDevice _device,
          case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
          case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC: {
             VkDescriptorBufferInfo *info = (VkDescriptorBufferInfo *)pSrc;
-            desc[j] = (struct lvp_descriptor) {
+            desc[idx] = (struct lvp_descriptor) {
                .type = entry->descriptorType,
                .info.offset = info->offset,
                .info.buffer = lvp_buffer_from_handle(info->buffer),
