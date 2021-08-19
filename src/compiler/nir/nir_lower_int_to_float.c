@@ -49,6 +49,8 @@ lower_alu_instr(nir_builder *b, nir_alu_instr *alu)
       return false;
    }
 
+   b->cursor = nir_before_instr(&alu->instr);
+
    /* Replacement SSA value */
    nir_ssa_def *rep = NULL;
    switch (alu->op) {
@@ -108,7 +110,7 @@ lower_alu_instr(nir_builder *b, nir_alu_instr *alu)
 
    if (rep) {
       /* We've emitted a replacement instruction */
-      nir_ssa_def_rewrite_uses(&alu->dest.dest.ssa, nir_src_for_ssa(rep));
+      nir_ssa_def_rewrite_uses(&alu->dest.dest.ssa, rep);
       nir_instr_remove(&alu->instr);
    }
 

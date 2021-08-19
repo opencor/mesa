@@ -26,26 +26,32 @@
 #ifndef PAN_RESOURCE_H
 #define PAN_RESOURCE_H
 
-#include <midgard_pack.h>
 #include "pan_screen.h"
-#include "pan_pool.h"
 #include "pan_minmax_cache.h"
 #include "pan_texture.h"
-#include "pan_partial_update.h"
 #include "drm-uapi/drm.h"
 #include "util/u_range.h"
 
 #define LAYOUT_CONVERT_THRESHOLD 8
+#define PAN_MAX_BATCHES 32
 
 struct panfrost_resource {
         struct pipe_resource base;
         struct {
                 struct pipe_scissor_state extent;
-                struct pan_rect *inverted_rects;
-                unsigned inverted_len;
+                struct {
+                        bool enable;
+                        unsigned stride;
+                        unsigned size;
+                        BITSET_WORD *data;
+                } tile_map;
         } damage;
 
-        struct panfrost_bo *bo;
+        struct {
+                struct panfrost_batch *writer;
+                BITSET_DECLARE(users, PAN_MAX_BATCHES);
+        } track;
+
         struct renderonly_scanout *scanout;
 
         struct panfrost_resource *separate_stencil;
@@ -53,21 +59,22 @@ struct panfrost_resource {
         struct util_range valid_buffer_range;
 
         /* Description of the resource layout */
-        struct pan_image_layout layout;
+        struct pan_image image;
+
+        struct {
+                /* Is the checksum for this image valid? Implicitly refers to
+                 * the first slice; we only checksum non-mipmapped 2D images */
+                bool crc;
+
+                /* Has anything been written to this slice? */
+                BITSET_DECLARE(data, MAX_MIP_LEVELS);
+        } valid;
 
         /* Whether the modifier can be changed */
         bool modifier_constant;
 
-        /* Is transaciton elimination enabled? */
-        bool checksummed;
-
-        /* The CRC BO can be allocated separately */
-        struct panfrost_bo *checksum_bo;
-
         /* Used to decide when to convert to another modifier */
         uint16_t modifier_updates;
-
-        enum pipe_format internal_format;
 
         /* Cached min/max values for index buffers */
         struct panfrost_minmax_cache *index_cache;
@@ -146,5 +153,9 @@ panfrost_translate_texture_dimension(enum pipe_texture_target t) {
         }
 }
 
+void
+pan_resource_modifier_convert(struct panfrost_context *ctx,
+                              struct panfrost_resource *rsrc,
+                              uint64_t modifier);
 
 #endif /* PAN_RESOURCE_H */

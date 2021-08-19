@@ -85,6 +85,8 @@ _mesa_alloc_shared_state(struct gl_context *ctx)
    shared->ShaderObjects = _mesa_NewHashTable();
 
    shared->BufferObjects = _mesa_NewHashTable();
+   shared->ZombieBufferObjects = _mesa_set_create(NULL, _mesa_hash_pointer,
+                                                  _mesa_key_pointer_equal);
 
    /* GL_ARB_sampler_objects */
    shared->SamplerObjects = _mesa_NewHashTable();
@@ -354,6 +356,7 @@ free_shared_state(struct gl_context *ctx, struct gl_shared_state *shared)
    if (shared->DisplayList) {
       _mesa_HashDeleteAll(shared->DisplayList, delete_displaylist_cb, ctx);
       _mesa_DeleteHashTable(shared->DisplayList);
+      free(shared->small_dlist_store.ptr);
    }
 
    if (shared->BitmapAtlas) {
@@ -389,6 +392,13 @@ free_shared_state(struct gl_context *ctx, struct gl_shared_state *shared)
    if (shared->BufferObjects) {
       _mesa_HashDeleteAll(shared->BufferObjects, delete_bufferobj_cb, ctx);
       _mesa_DeleteHashTable(shared->BufferObjects);
+   }
+
+   if (shared->ZombieBufferObjects) {
+      set_foreach(shared->ZombieBufferObjects, entry) {
+         assert(!"ZombieBufferObjects should be empty");
+      }
+      _mesa_set_destroy(shared->ZombieBufferObjects, NULL);
    }
 
    if (shared->FrameBuffers) {

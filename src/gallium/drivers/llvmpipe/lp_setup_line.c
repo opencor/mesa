@@ -357,10 +357,24 @@ try_setup_line( struct lp_setup_context *setup,
    info.v2 = v2;
 
   
-   /* X-MAJOR LINE */
-   if (fabsf(dx) >= fabsf(dy)) {
+   if (setup->rectangular_lines) {
+      float scale = (setup->line_width * 0.5f) / sqrtf(area);
+      int tx = subpixel_snap(-dy * scale);
+      int ty = subpixel_snap(+dx * scale);
+
+      x[0] = subpixel_snap(v1[0][0] - pixel_offset) - tx;
+      x[1] = subpixel_snap(v2[0][0] - pixel_offset) - tx;
+      x[2] = subpixel_snap(v2[0][0] - pixel_offset) + tx;
+      x[3] = subpixel_snap(v1[0][0] - pixel_offset) + tx;
+
+      y[0] = subpixel_snap(v1[0][1] - pixel_offset) - ty;
+      y[1] = subpixel_snap(v2[0][1] - pixel_offset) - ty;
+      y[2] = subpixel_snap(v2[0][1] - pixel_offset) + ty;
+      y[3] = subpixel_snap(v1[0][1] - pixel_offset) + ty;
+   } else if (fabsf(dx) >= fabsf(dy)) {
       float dydx = dy / dx;
 
+      /* X-MAJOR LINE */
       x1diff = v1[0][0] - floorf(v1[0][0]) - 0.5f;
       y1diff = v1[0][1] - floorf(v1[0][1]) - 0.5f;
       x2diff = v2[0][0] - floorf(v2[0][0]) - 0.5f;
@@ -648,6 +662,7 @@ try_setup_line( struct lp_setup_context *setup,
    line->inputs.opaque = FALSE;
    line->inputs.layer = layer;
    line->inputs.viewport_index = viewport_index;
+   line->inputs.view_index = setup->view_index;
 
    /*
     * XXX: this code is mostly identical to the one in lp_setup_tri, except it
@@ -670,7 +685,7 @@ try_setup_line( struct lp_setup_context *setup,
          plane[i].c++;
       }
       else if (plane[i].dcdx == 0) {
-         if (pixel_offset == 0) {
+         if (setup->bottom_edge_rule == 0) {
             /* correct for top-left fill convention:
              */
             if (plane[i].dcdy > 0) plane[i].c++;

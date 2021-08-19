@@ -1623,7 +1623,7 @@ glsl_to_tgsi_visitor::visit_expression(ir_expression* ir, st_src_reg *op)
        * It is then multiplied with the source operand of DDY.
        */
       static const gl_state_index16 transform_y_state[STATE_LENGTH]
-         = { STATE_INTERNAL, STATE_FB_WPOS_Y_TRANSFORM };
+         = { STATE_FB_WPOS_Y_TRANSFORM };
 
       unsigned transform_y_index =
          _mesa_add_state_reference(this->prog->Parameters,
@@ -1898,14 +1898,14 @@ glsl_to_tgsi_visitor::visit_expression(ir_expression* ir, st_src_reg *op)
          emit_asm(ir, TGSI_OPCODE_I2F, result_dst, op[0]);
          break;
       }
-      /* fallthrough to next case otherwise */
+      FALLTHROUGH;
    case ir_unop_b2f:
       if (native_integers) {
          emit_asm(ir, TGSI_OPCODE_AND, result_dst, op[0],
                   st_src_reg_for_float(1.0));
          break;
       }
-      /* fallthrough to next case otherwise */
+      FALLTHROUGH;
    case ir_unop_i2u:
    case ir_unop_u2i:
    case ir_unop_i642u64:
@@ -2016,13 +2016,13 @@ glsl_to_tgsi_visitor::visit_expression(ir_expression* ir, st_src_reg *op)
          emit_asm(ir, TGSI_OPCODE_NOT, result_dst, op[0]);
          break;
       }
-      /* fallthrough */
+      FALLTHROUGH;
    case ir_unop_u2f:
       if (native_integers) {
          emit_asm(ir, TGSI_OPCODE_U2F, result_dst, op[0]);
          break;
       }
-      /* fallthrough */
+      FALLTHROUGH;
    case ir_binop_lshift:
    case ir_binop_rshift:
       if (native_integers) {
@@ -2044,19 +2044,19 @@ glsl_to_tgsi_visitor::visit_expression(ir_expression* ir, st_src_reg *op)
          emit_asm(ir, opcode, result_dst, op[0], count);
          break;
       }
-      /* fallthrough */
+      FALLTHROUGH;
    case ir_binop_bit_and:
       if (native_integers) {
          emit_asm(ir, TGSI_OPCODE_AND, result_dst, op[0], op[1]);
          break;
       }
-      /* fallthrough */
+      FALLTHROUGH;
    case ir_binop_bit_xor:
       if (native_integers) {
          emit_asm(ir, TGSI_OPCODE_XOR, result_dst, op[0], op[1]);
          break;
       }
-      /* fallthrough */
+      FALLTHROUGH;
    case ir_binop_bit_or:
       if (native_integers) {
          emit_asm(ir, TGSI_OPCODE_OR, result_dst, op[0], op[1]);
@@ -2235,7 +2235,7 @@ glsl_to_tgsi_visitor::visit_expression(ir_expression* ir, st_src_reg *op)
    case ir_binop_interpolate_at_offset: {
       /* The y coordinate needs to be flipped for the default fb */
       static const gl_state_index16 transform_y_state[STATE_LENGTH]
-         = { STATE_INTERNAL, STATE_FB_WPOS_Y_TRANSFORM };
+         = { STATE_FB_WPOS_Y_TRANSFORM };
 
       unsigned transform_y_index =
          _mesa_add_state_reference(this->prog->Parameters,
@@ -2458,6 +2458,7 @@ glsl_to_tgsi_visitor::visit_expression(ir_expression* ir, st_src_reg *op)
    case ir_binop_carry:
    case ir_binop_borrow:
    case ir_unop_ssbo_unsized_array_length:
+   case ir_unop_implicitly_sized_array_length:
    case ir_unop_atan:
    case ir_binop_atan2:
    case ir_unop_clz:
@@ -3965,9 +3966,9 @@ glsl_to_tgsi_visitor::visit_image_intrinsic(ir_call *ir)
       coord.swizzle = SWIZZLE_XXXX;
       switch (type->coordinate_components()) {
       case 4: assert(!"unexpected coord count");
-      /* fallthrough */
+      FALLTHROUGH;
       case 3: coord.swizzle |= SWIZZLE_Z << 6;
-      /* fallthrough */
+      FALLTHROUGH;
       case 2: coord.swizzle |= SWIZZLE_Y << 3;
       }
 
@@ -4868,7 +4869,7 @@ count_resources(glsl_to_tgsi_visitor *v, gl_program *prog)
 {
    v->samplers_used = 0;
    v->images_used = 0;
-   prog->info.textures_used_by_txf = 0;
+   BITSET_ZERO(prog->info.textures_used_by_txf);
 
    foreach_in_list(glsl_to_tgsi_instruction, inst, &v->instructions) {
       if (inst->info->is_tex) {
@@ -4882,7 +4883,7 @@ count_resources(glsl_to_tgsi_visitor *v, gl_program *prog)
                st_translate_texture_target(inst->tex_target, inst->tex_shadow);
 
             if (inst->op == TGSI_OPCODE_TXF || inst->op == TGSI_OPCODE_TXF_LZ) {
-               prog->info.textures_used_by_txf |= 1u << idx;
+               BITSET_SET(prog->info.textures_used_by_txf, idx);
             }
          }
       }
@@ -5473,7 +5474,7 @@ glsl_to_tgsi_visitor::eliminate_dead_code(void)
       case TGSI_OPCODE_IF:
       case TGSI_OPCODE_UIF:
          ++level;
-         /* fallthrough to default case to mark the condition as read */
+         FALLTHROUGH; /* to mark the condition as read */
       default:
          /* Continuing the block, clear any channels from the write array that
           * are read by this instruction.
@@ -5981,9 +5982,9 @@ dst_register(struct st_translate *t, gl_register_file file, unsigned index,
             find_inout_array(t->output_decls,
                              t->num_output_decls, array_id);
          unsigned mesa_index = decl->mesa_index;
-         int slot = t->outputMapping[mesa_index];
+         ubyte slot = t->outputMapping[mesa_index];
 
-         assert(slot != -1 && t->outputs[slot].File == TGSI_FILE_OUTPUT);
+         assert(slot != 0xff && t->outputs[slot].File == TGSI_FILE_OUTPUT);
 
          struct ureg_dst dst = t->outputs[slot];
          dst.ArrayID = array_id;
@@ -6116,9 +6117,9 @@ translate_src(struct st_translate *t, const st_src_reg *src_reg)
                                                     t->num_input_decls,
                                                     src_reg->array_id);
          unsigned mesa_index = decl->mesa_index;
-         int slot = t->inputMapping[mesa_index];
+         ubyte slot = t->inputMapping[mesa_index];
 
-         assert(slot != -1 && t->inputs[slot].File == TGSI_FILE_INPUT);
+         assert(slot != 0xff && t->inputs[slot].File == TGSI_FILE_INPUT);
 
          src = t->inputs[slot];
          src.ArrayID = src_reg->array_id;
@@ -6662,8 +6663,8 @@ st_translate_program(
    struct pipe_screen *screen = st_context(ctx)->screen;
    struct st_translate *t;
    unsigned i;
-   struct gl_program_constants *frag_const =
-      &ctx->Const.Program[MESA_SHADER_FRAGMENT];
+   struct gl_program_constants *prog_const =
+      &ctx->Const.Program[program->shader->Stage];
    enum pipe_error ret = PIPE_OK;
 
    assert(numInputs <= ARRAY_SIZE(t->inputs));
@@ -6999,7 +7000,7 @@ st_translate_program(
    assert(i == program->num_immediates);
 
    /* texture samplers */
-   for (i = 0; i < frag_const->MaxTextureImageUnits; i++) {
+   for (i = 0; i < prog_const->MaxTextureImageUnits; i++) {
       if (program->samplers_used & (1u << i)) {
          enum tgsi_return_type type =
             st_translate_texture_type(program->sampler_types[i]);
@@ -7020,7 +7021,7 @@ st_translate_program(
             unsigned index = (prog->info.num_ssbos +
                               prog->sh.AtomicBuffers[i]->Binding);
             assert(prog->sh.AtomicBuffers[i]->Binding <
-                   frag_const->MaxAtomicBuffers);
+                   prog_const->MaxAtomicBuffers);
             t->buffers[index] = ureg_DECL_buffer(ureg, index, true);
          }
       } else {
@@ -7033,7 +7034,7 @@ st_translate_program(
          }
       }
 
-      assert(prog->info.num_ssbos <= frag_const->MaxShaderStorageBlocks);
+      assert(prog->info.num_ssbos <= prog_const->MaxShaderStorageBlocks);
       for (i = 0; i < prog->info.num_ssbos; i++) {
          t->buffers[i] = ureg_DECL_buffer(ureg, i, false);
       }
@@ -7226,7 +7227,7 @@ get_mesa_program_tgsi(struct gl_context *ctx,
         BITSET_TEST(prog->info.system_values_read, SYSTEM_VALUE_FRAG_COORD) ||
         BITSET_TEST(prog->info.system_values_read, SYSTEM_VALUE_SAMPLE_POS))) {
       static const gl_state_index16 wposTransformState[STATE_LENGTH] = {
-         STATE_INTERNAL, STATE_FB_WPOS_Y_TRANSFORM
+         STATE_FB_WPOS_Y_TRANSFORM
       };
 
       v->wpos_transform_const = _mesa_add_state_reference(prog->Parameters,
@@ -7237,14 +7238,7 @@ get_mesa_program_tgsi(struct gl_context *ctx,
     * storage is only associated with the original parameter list.
     * This should be enough for Bitmap and DrawPixels constants.
     */
-   _mesa_reserve_parameter_storage(prog->Parameters, 8, 8);
-   _mesa_disallow_parameter_storage_realloc(prog->Parameters);
-
-   /* This has to be done last.  Any operation the can cause
-    * prog->ParameterValues to get reallocated (e.g., anything that adds a
-    * program constant) has to happen before creating this linkage.
-    */
-   _mesa_associate_uniform_storage(ctx, shader_program, prog);
+   _mesa_ensure_and_associate_uniform_storage(ctx, shader_program, prog, 8);
    if (!shader_program->data->LinkStatus) {
       free_glsl_to_tgsi_visitor(v);
       _mesa_reference_program(ctx, &shader->Program, NULL);

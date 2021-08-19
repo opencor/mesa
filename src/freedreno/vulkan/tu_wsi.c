@@ -29,10 +29,11 @@
 #include "wsi_common.h"
 #include "drm-uapi/drm_fourcc.h"
 
-static VKAPI_PTR PFN_vkVoidFunction
+static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
 tu_wsi_proc_addr(VkPhysicalDevice physicalDevice, const char *pName)
 {
-   return tu_lookup_entrypoint_unchecked(pName);
+   TU_FROM_HANDLE(tu_physical_device, pdevice, physicalDevice);
+   return vk_instance_get_proc_addr_unchecked(&pdevice->instance->vk, pName);
 }
 
 VkResult
@@ -43,7 +44,7 @@ tu_wsi_init(struct tu_physical_device *physical_device)
    result = wsi_device_init(&physical_device->wsi_device,
                             tu_physical_device_to_handle(physical_device),
                             tu_wsi_proc_addr,
-                            &physical_device->instance->alloc,
+                            &physical_device->instance->vk.alloc,
                             physical_device->master_fd, NULL,
                             false);
    if (result != VK_SUCCESS)
@@ -58,10 +59,10 @@ void
 tu_wsi_finish(struct tu_physical_device *physical_device)
 {
    wsi_device_finish(&physical_device->wsi_device,
-                     &physical_device->instance->alloc);
+                     &physical_device->instance->vk.alloc);
 }
 
-void
+VKAPI_ATTR void VKAPI_CALL
 tu_DestroySurfaceKHR(VkInstance _instance,
                      VkSurfaceKHR _surface,
                      const VkAllocationCallbacks *pAllocator)
@@ -69,10 +70,10 @@ tu_DestroySurfaceKHR(VkInstance _instance,
    TU_FROM_HANDLE(tu_instance, instance, _instance);
    ICD_FROM_HANDLE(VkIcdSurfaceBase, surface, _surface);
 
-   vk_free2(&instance->alloc, pAllocator, surface);
+   vk_free2(&instance->vk.alloc, pAllocator, surface);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetPhysicalDeviceSurfaceSupportKHR(VkPhysicalDevice physicalDevice,
                                       uint32_t queueFamilyIndex,
                                       VkSurfaceKHR surface,
@@ -84,7 +85,7 @@ tu_GetPhysicalDeviceSurfaceSupportKHR(VkPhysicalDevice physicalDevice,
       &device->wsi_device, queueFamilyIndex, surface, pSupported);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetPhysicalDeviceSurfaceCapabilitiesKHR(
    VkPhysicalDevice physicalDevice,
    VkSurfaceKHR surface,
@@ -96,7 +97,7 @@ tu_GetPhysicalDeviceSurfaceCapabilitiesKHR(
                                               pSurfaceCapabilities);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetPhysicalDeviceSurfaceCapabilities2KHR(
    VkPhysicalDevice physicalDevice,
    const VkPhysicalDeviceSurfaceInfo2KHR *pSurfaceInfo,
@@ -108,7 +109,7 @@ tu_GetPhysicalDeviceSurfaceCapabilities2KHR(
       &device->wsi_device, pSurfaceInfo, pSurfaceCapabilities);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetPhysicalDeviceSurfaceCapabilities2EXT(
    VkPhysicalDevice physicalDevice,
    VkSurfaceKHR surface,
@@ -120,7 +121,7 @@ tu_GetPhysicalDeviceSurfaceCapabilities2EXT(
       &device->wsi_device, surface, pSurfaceCapabilities);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice physicalDevice,
                                       VkSurfaceKHR surface,
                                       uint32_t *pSurfaceFormatCount,
@@ -132,7 +133,7 @@ tu_GetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice physicalDevice,
       &device->wsi_device, surface, pSurfaceFormatCount, pSurfaceFormats);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetPhysicalDeviceSurfaceFormats2KHR(
    VkPhysicalDevice physicalDevice,
    const VkPhysicalDeviceSurfaceInfo2KHR *pSurfaceInfo,
@@ -146,7 +147,7 @@ tu_GetPhysicalDeviceSurfaceFormats2KHR(
                                           pSurfaceFormats);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice physicalDevice,
                                            VkSurfaceKHR surface,
                                            uint32_t *pPresentModeCount,
@@ -158,7 +159,7 @@ tu_GetPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice physicalDevice,
       &device->wsi_device, surface, pPresentModeCount, pPresentModes);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_CreateSwapchainKHR(VkDevice _device,
                       const VkSwapchainCreateInfoKHR *pCreateInfo,
                       const VkAllocationCallbacks *pAllocator,
@@ -176,7 +177,7 @@ tu_CreateSwapchainKHR(VkDevice _device,
                                       pCreateInfo, alloc, pSwapchain);
 }
 
-void
+VKAPI_ATTR void VKAPI_CALL
 tu_DestroySwapchainKHR(VkDevice _device,
                        VkSwapchainKHR swapchain,
                        const VkAllocationCallbacks *pAllocator)
@@ -192,7 +193,7 @@ tu_DestroySwapchainKHR(VkDevice _device,
    wsi_common_destroy_swapchain(_device, swapchain, alloc);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetSwapchainImagesKHR(VkDevice device,
                          VkSwapchainKHR swapchain,
                          uint32_t *pSwapchainImageCount,
@@ -202,7 +203,7 @@ tu_GetSwapchainImagesKHR(VkDevice device,
                                 pSwapchainImages);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_AcquireNextImageKHR(VkDevice device,
                        VkSwapchainKHR swapchain,
                        uint64_t timeout,
@@ -222,7 +223,7 @@ tu_AcquireNextImageKHR(VkDevice device,
    return tu_AcquireNextImage2KHR(device, &acquire_info, pImageIndex);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_AcquireNextImage2KHR(VkDevice _device,
                         const VkAcquireNextImageInfoKHR *pAcquireInfo,
                         uint32_t *pImageIndex)
@@ -242,7 +243,7 @@ tu_AcquireNextImage2KHR(VkDevice _device,
    return result;
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_QueuePresentKHR(VkQueue _queue, const VkPresentInfoKHR *pPresentInfo)
 {
    TU_FROM_HANDLE(tu_queue, queue, _queue);
@@ -252,7 +253,7 @@ tu_QueuePresentKHR(VkQueue _queue, const VkPresentInfoKHR *pPresentInfo)
       pPresentInfo);
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetDeviceGroupPresentCapabilitiesKHR(
    VkDevice device, VkDeviceGroupPresentCapabilitiesKHR *pCapabilities)
 {
@@ -263,7 +264,7 @@ tu_GetDeviceGroupPresentCapabilitiesKHR(
    return VK_SUCCESS;
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetDeviceGroupSurfacePresentModesKHR(
    VkDevice device,
    VkSurfaceKHR surface,
@@ -274,7 +275,7 @@ tu_GetDeviceGroupSurfacePresentModesKHR(
    return VK_SUCCESS;
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice physicalDevice,
                                          VkSurfaceKHR surface,
                                          uint32_t *pRectCount,

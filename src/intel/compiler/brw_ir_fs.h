@@ -303,8 +303,12 @@ subscript(fs_reg reg, brw_reg_type type, unsigned i)
       reg.vstride += (reg.vstride ? delta : 0);
 
    } else if (reg.file == IMM) {
-      assert(reg.type == type);
-
+      unsigned bit_size = type_sz(type) * 8;
+      reg.u64 >>= i * bit_size;
+      reg.u64 &= BITFIELD64_MASK(bit_size);
+      if (bit_size <= 16)
+         reg.u64 |= reg.u64 << 16;
+      return retype(reg, type);
    } else {
       reg.stride *= type_sz(reg.type) / type_sz(type);
    }
@@ -351,7 +355,7 @@ public:
    bool is_partial_write() const;
    unsigned components_read(unsigned i) const;
    unsigned size_read(int arg) const;
-   bool can_do_source_mods(const struct gen_device_info *devinfo) const;
+   bool can_do_source_mods(const struct intel_device_info *devinfo) const;
    bool can_do_cmod();
    bool can_change_types() const;
    bool has_source_and_destination_hazard() const;
@@ -368,7 +372,7 @@ public:
     * Return the subset of flag registers read by the instruction as a bitset
     * with byte granularity.
     */
-   unsigned flags_read(const gen_device_info *devinfo) const;
+   unsigned flags_read(const intel_device_info *devinfo) const;
 
    /**
     * Return the subset of flag registers updated by the instruction (either
@@ -548,7 +552,7 @@ is_unordered(const fs_inst *inst)
  *     scalar source."
  */
 static inline bool
-has_dst_aligned_region_restriction(const gen_device_info *devinfo,
+has_dst_aligned_region_restriction(const intel_device_info *devinfo,
                                    const fs_inst *inst,
                                    brw_reg_type dst_type)
 {
@@ -566,13 +570,18 @@ has_dst_aligned_region_restriction(const gen_device_info *devinfo,
 
    if (type_sz(dst_type) > 4 || type_sz(exec_type) > 4 ||
        (type_sz(exec_type) == 4 && is_dword_multiply))
-      return devinfo->is_cherryview || gen_device_info_is_9lp(devinfo);
+      return devinfo->is_cherryview || intel_device_info_is_9lp(devinfo) ||
+             devinfo->verx10 >= 125;
+
+   else if (brw_reg_type_is_floating_point(dst_type))
+      return devinfo->verx10 >= 125;
+
    else
       return false;
 }
 
 static inline bool
-has_dst_aligned_region_restriction(const gen_device_info *devinfo,
+has_dst_aligned_region_restriction(const intel_device_info *devinfo,
                                    const fs_inst *inst)
 {
    return has_dst_aligned_region_restriction(devinfo, inst, inst->dst.type);
@@ -678,6 +687,6 @@ is_coalescing_payload(const brw::simple_allocator &alloc, const fs_inst *inst)
 }
 
 bool
-has_bank_conflict(const gen_device_info *devinfo, const fs_inst *inst);
+has_bank_conflict(const intel_device_info *devinfo, const fs_inst *inst);
 
 #endif

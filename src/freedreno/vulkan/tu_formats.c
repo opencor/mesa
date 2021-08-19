@@ -385,7 +385,6 @@ tu_physical_device_get_format_properties(
       optimal |= VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
                  VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
                  VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
-                 VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
                  VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_MINMAX_BIT |
                  VK_FORMAT_FEATURE_COSITED_CHROMA_SAMPLES_BIT |
                  VK_FORMAT_FEATURE_MIDPOINT_CHROMA_SAMPLES_BIT;
@@ -401,8 +400,12 @@ tu_physical_device_get_format_properties(
       if (desc->layout != UTIL_FORMAT_LAYOUT_SUBSAMPLED)
          optimal |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT;
 
-      if (physical_device->supported_extensions.EXT_filter_cubic)
-         optimal |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_EXT;
+      if (!vk_format_is_int(format)) {
+         optimal |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+
+         if (physical_device->vk.supported_extensions.EXT_filter_cubic)
+            optimal |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_EXT;
+      }
    }
 
    if (native_fmt.supported & FMT_COLOR) {
@@ -430,12 +433,8 @@ tu_physical_device_get_format_properties(
          buffer |= VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_ATOMIC_BIT;
       }
 
-      if (vk_format_is_float(format) ||
-          vk_format_is_unorm(format) ||
-          vk_format_is_snorm(format) ||
-          vk_format_is_srgb(format)) {
+      if (!vk_format_is_int(format))
          optimal |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT;
-      }
    }
 
    /* For the most part, we can do anything with a linear image that we could
@@ -451,15 +450,24 @@ tu_physical_device_get_format_properties(
    if (tu6_pipe2depth(format) != (enum a6xx_depth_format)~0)
       optimal |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
 
-   /* no tiling for special UBWC formats
-    * TODO: NV12 can be UBWC but has a special UBWC format for accessing the Y plane aspect
-    * for 3plane, tiling/UBWC might be supported, but the blob doesn't use tiling
-    */
    if (format == VK_FORMAT_G8B8G8R8_422_UNORM ||
        format == VK_FORMAT_B8G8R8G8_422_UNORM ||
        format == VK_FORMAT_G8_B8R8_2PLANE_420_UNORM ||
        format == VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM) {
+      /* no tiling for special UBWC formats
+       * TODO: NV12 can be UBWC but has a special UBWC format for accessing the Y plane aspect
+       * for 3plane, tiling/UBWC might be supported, but the blob doesn't use tiling
+       */
       optimal = 0;
+
+      /* Disable buffer texturing of subsampled (422) and planar YUV textures.
+       * The subsampling requirement comes from "If format is a block-compressed
+       * format, then bufferFeatures must not support any features for the
+       * format" plus the specification of subsampled as 2x1 compressed block
+       * format.  I couldn't find the citation for planar, but 1D access of
+       * planar YUV would be really silly.
+       */
+      buffer = 0;
    }
 
    /* D32_SFLOAT_S8_UINT is tiled as two images, so no linear format
@@ -474,7 +482,7 @@ end:
    out_properties->bufferFeatures = buffer;
 }
 
-void
+VKAPI_ATTR void VKAPI_CALL
 tu_GetPhysicalDeviceFormatProperties2(
    VkPhysicalDevice physicalDevice,
    VkFormat format,
@@ -500,7 +508,7 @@ tu_GetPhysicalDeviceFormatProperties2(
 
       /* note: ubwc_possible() argument values to be ignored except for format */
       if (pFormatProperties->formatProperties.optimalTilingFeatures &&
-          ubwc_possible(format, VK_IMAGE_TYPE_2D, 0, false)) {
+          ubwc_possible(format, VK_IMAGE_TYPE_2D, 0, 0, physical_device->info, VK_SAMPLE_COUNT_1_BIT)) {
          vk_outarray_append(&out, mod_props) {
             mod_props->drmFormatModifier = DRM_FORMAT_MOD_QCOM_COMPRESSED;
             mod_props->drmFormatModifierPlaneCount = 1;
@@ -547,7 +555,8 @@ tu_get_image_format_properties(
          if (info->flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT)
             return VK_ERROR_FORMAT_NOT_SUPPORTED;
 
-         if (!ubwc_possible(info->format, info->type, info->usage, physical_device->info.a6xx.has_z24uint_s8uint))
+
+         if (!ubwc_possible(info->format, info->type, info->usage, info->usage, physical_device->info, sampleCounts))
             return VK_ERROR_FORMAT_NOT_SUPPORTED;
 
          format_feature_flags = format_props.optimalTilingFeatures;
@@ -722,7 +731,7 @@ tu_get_external_image_format_properties(
    return VK_SUCCESS;
 }
 
-VkResult
+VKAPI_ATTR VkResult VKAPI_CALL
 tu_GetPhysicalDeviceImageFormatProperties2(
    VkPhysicalDevice physicalDevice,
    const VkPhysicalDeviceImageFormatInfo2 *base_info,
@@ -824,7 +833,7 @@ fail:
    return result;
 }
 
-void
+VKAPI_ATTR void VKAPI_CALL
 tu_GetPhysicalDeviceSparseImageFormatProperties2(
    VkPhysicalDevice physicalDevice,
    const VkPhysicalDeviceSparseImageFormatInfo2 *pFormatInfo,
@@ -835,7 +844,7 @@ tu_GetPhysicalDeviceSparseImageFormatProperties2(
    *pPropertyCount = 0;
 }
 
-void
+VKAPI_ATTR void VKAPI_CALL
 tu_GetPhysicalDeviceExternalBufferProperties(
    VkPhysicalDevice physicalDevice,
    const VkPhysicalDeviceExternalBufferInfo *pExternalBufferInfo,

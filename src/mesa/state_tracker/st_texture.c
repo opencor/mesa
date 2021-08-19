@@ -184,7 +184,9 @@ st_gl_texture_dims_to_pipe_dims(GLenum texture,
       break;
    default:
       assert(0 && "Unexpected texture in st_gl_texture_dims_to_pipe_dims()");
-      /* fall-through */
+#if defined(NDEBUG) || defined(DEBUG)
+      FALLTHROUGH;
+#endif
    case GL_TEXTURE_3D:
    case GL_PROXY_TEXTURE_3D:
       *widthOut = widthIn;
@@ -268,15 +270,15 @@ st_texture_image_map(struct st_context *st, struct st_texture_image *stImage,
       level = stImage->base.Level;
 
    if (stObj->base.Immutable) {
-      level += stObj->base.MinLevel;
-      z += stObj->base.MinLayer;
+      level += stObj->base.Attrib.MinLevel;
+      z += stObj->base.Attrib.MinLayer;
       if (stObj->pt->array_size > 1)
-         d = MIN2(d, stObj->base.NumLayers);
+         d = MIN2(d, stObj->base.Attrib.NumLayers);
    }
 
    z += stImage->base.Face;
 
-   map = pipe_transfer_map_3d(st->pipe, stImage->pt, level, usage,
+   map = pipe_texture_map_3d(st->pipe, stImage->pt, level, usage,
                               x, y, z, w, h, d, transfer);
    if (map) {
       /* Enlarge the transfer array if it's not large enough. */
@@ -308,12 +310,12 @@ st_texture_image_unmap(struct st_context *st,
    struct pipe_transfer **transfer;
 
    if (stObj->base.Immutable)
-      slice += stObj->base.MinLayer;
+      slice += stObj->base.Attrib.MinLayer;
    transfer = &stImage->transfer[slice + stImage->base.Face].transfer;
 
    DBG("%s\n", __func__);
 
-   pipe_transfer_unmap(pipe, *transfer);
+   pipe_texture_unmap(pipe, *transfer);
    *transfer = NULL;
 }
 
@@ -335,11 +337,11 @@ print_center_pixel(struct pipe_context *pipe, struct pipe_resource *src)
    region.height = 1;
    region.depth = 1;
 
-   map = pipe->transfer_map(pipe, src, 0, PIPE_MAP_READ, &region, &xfer);
+   map = pipe->texture_map(pipe, src, 0, PIPE_MAP_READ, &region, &xfer);
 
    printf("center pixel: %d %d %d %d\n", map[0], map[1], map[2], map[3]);
 
-   pipe->transfer_unmap(pipe, xfer);
+   pipe->texture_unmap(pipe, xfer);
 }
 
 
@@ -517,7 +519,8 @@ st_create_texture_handle_from_unit(struct st_context *st,
    struct pipe_sampler_state sampler = {0};
 
    /* TODO: Clarify the interaction of ARB_bindless_texture and EXT_texture_sRGB_decode */
-   st_update_single_texture(st, &view, texUnit, prog->sh.data->Version >= 130, true);
+   view = st_update_single_texture(st, texUnit, prog->sh.data->Version >= 130,
+                                   true, false);
    if (!view)
       return 0;
 

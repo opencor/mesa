@@ -115,9 +115,11 @@ blit_resolve(struct d3d12_context *ctx, const struct pipe_blit_info *info)
    struct d3d12_resource *dst = d3d12_resource(info->dst.resource);
 
    d3d12_transition_resource_state(ctx, src,
-                                   D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
+                                   D3D12_RESOURCE_STATE_RESOLVE_SOURCE,
+                                   D3D12_BIND_INVALIDATE_FULL);
    d3d12_transition_resource_state(ctx, dst,
-                                   D3D12_RESOURCE_STATE_RESOLVE_DEST);
+                                   D3D12_RESOURCE_STATE_RESOLVE_DEST,
+                                   D3D12_BIND_INVALIDATE_FULL);
 
    d3d12_apply_resource_states(ctx);
 
@@ -418,16 +420,17 @@ d3d12_direct_copy(struct d3d12_context *ctx,
       debug_printf("BLIT: Direct copy from subres %d to subres  %d\n",
                    src_subres, dst_subres);
 
-
    d3d12_transition_subresources_state(ctx, src, src_subres, 1, 0, 1,
                                        d3d12_get_format_start_plane(src->base.format),
                                        d3d12_get_format_num_planes(src->base.format),
-                                       D3D12_RESOURCE_STATE_COPY_SOURCE);
+                                       D3D12_RESOURCE_STATE_COPY_SOURCE,
+                                       D3D12_BIND_INVALIDATE_FULL);
 
    d3d12_transition_subresources_state(ctx, dst, dst_subres, 1, 0, 1,
                                        d3d12_get_format_start_plane(dst->base.format),
                                        d3d12_get_format_num_planes(dst->base.format),
-                                       D3D12_RESOURCE_STATE_COPY_DEST);
+                                       D3D12_RESOURCE_STATE_COPY_DEST,
+                                       D3D12_BIND_INVALIDATE_FULL);
 
    d3d12_apply_resource_states(ctx);
 
@@ -637,14 +640,17 @@ get_stencil_resolve_vs(struct d3d12_context *ctx)
 }
 
 static void *
-get_stencil_resolve_fs(struct d3d12_context *ctx)
+get_stencil_resolve_fs(struct d3d12_context *ctx, bool no_flip)
 {
-   if (ctx->stencil_resolve_fs)
+   if (!no_flip && ctx->stencil_resolve_fs)
       return ctx->stencil_resolve_fs;
+
+   if (no_flip && ctx->stencil_resolve_fs_no_flip)
+      return ctx->stencil_resolve_fs_no_flip;
 
    nir_builder b = nir_builder_init_simple_shader(MESA_SHADER_FRAGMENT,
                                                   dxil_get_nir_compiler_options(),
-                                                  "stencil_resolve_fs");
+                                                  no_flip ? "stencil_resolve_fs_no_flip" : "stencil_resolve_fs");
 
    nir_variable *stencil_out = nir_variable_create(b.shader,
                                                    nir_var_shader_out,
@@ -666,16 +672,44 @@ get_stencil_resolve_fs(struct d3d12_context *ctx)
    pos_in->data.location = VARYING_SLOT_POS; // VARYING_SLOT_VAR0?
    nir_ssa_def *pos = nir_load_var(&b, pos_in);
 
+   nir_ssa_def *pos_src;
+
+   if (no_flip)
+      pos_src = pos;
+   else {
+      nir_tex_instr *txs = nir_tex_instr_create(b.shader, 1);
+      txs->op = nir_texop_txs;
+      txs->sampler_dim = GLSL_SAMPLER_DIM_MS;
+      txs->src[0].src_type = nir_tex_src_texture_deref;
+      txs->src[0].src = nir_src_for_ssa(tex_deref);
+      txs->is_array = false;
+      txs->dest_type = nir_type_int;
+
+      nir_ssa_dest_init(&txs->instr, &txs->dest, 2, 32, "tex");
+      nir_builder_instr_insert(&b, &txs->instr);
+
+      pos_src = nir_vec4(&b,
+                         nir_channel(&b, pos, 0),
+                         /*Height - pos_dest.y - 1*/
+                         nir_fsub(&b,
+                                  nir_fsub(&b,
+                                           nir_channel(&b, nir_i2f32(&b, &txs->dest.ssa), 1),
+                                           nir_channel(&b, pos, 1)),
+                                  nir_imm_float(&b, 1.0)),
+                         nir_channel(&b, pos, 2),
+                         nir_channel(&b, pos, 3));
+   }
+
    nir_tex_instr *tex = nir_tex_instr_create(b.shader, 3);
    tex->sampler_dim = GLSL_SAMPLER_DIM_MS;
    tex->op = nir_texop_txf_ms;
    tex->src[0].src_type = nir_tex_src_coord;
-   tex->src[0].src = nir_src_for_ssa(nir_channels(&b, nir_f2i32(&b, pos), 0x3));
+   tex->src[0].src = nir_src_for_ssa(nir_channels(&b, nir_f2i32(&b, pos_src), 0x3));
    tex->src[1].src_type = nir_tex_src_ms_index;
    tex->src[1].src = nir_src_for_ssa(nir_imm_int(&b, 0)); /* just use first sample */
    tex->src[2].src_type = nir_tex_src_texture_deref;
    tex->src[2].src = nir_src_for_ssa(tex_deref);
-   tex->dest_type = nir_type_uint;
+   tex->dest_type = nir_type_uint32;
    tex->is_array = false;
    tex->coord_components = 2;
 
@@ -687,9 +721,16 @@ get_stencil_resolve_fs(struct d3d12_context *ctx)
    struct pipe_shader_state state = {};
    state.type = PIPE_SHADER_IR_NIR;
    state.ir.nir = b.shader;
-   ctx->stencil_resolve_fs = ctx->base.create_fs_state(&ctx->base, &state);
+   void *result;
+   if (no_flip) {
+      result = ctx->base.create_fs_state(&ctx->base, &state);
+      ctx->stencil_resolve_fs_no_flip = result;
+   } else {
+      result = ctx->base.create_fs_state(&ctx->base, &state);
+      ctx->stencil_resolve_fs = result;
+   }
 
-   return ctx->stencil_resolve_fs;
+   return result;
 }
 
 static void *
@@ -739,11 +780,11 @@ resolve_stencil_to_temp(struct d3d12_context *ctx,
    void *sampler_state = get_sampler_state(ctx);
 
    util_blit_save_state(ctx);
-   pctx->set_sampler_views(pctx, PIPE_SHADER_FRAGMENT, 0, 1, &src_view);
+   pctx->set_sampler_views(pctx, PIPE_SHADER_FRAGMENT, 0, 1, 0, &src_view);
    pctx->bind_sampler_states(pctx, PIPE_SHADER_FRAGMENT, 0, 1, &sampler_state);
    util_blitter_custom_shader(ctx->blitter, dst_surf,
                               get_stencil_resolve_vs(ctx),
-                              get_stencil_resolve_fs(ctx));
+                              get_stencil_resolve_fs(ctx, info->src.box.height == info->dst.box.height));
    util_blitter_restore_textures(ctx->blitter);
    pipe_surface_reference(&dst_surf, NULL);
    pipe_sampler_view_reference(&src_view, NULL);
@@ -777,10 +818,12 @@ blit_resolve_stencil(struct d3d12_context *ctx,
    struct d3d12_resource *dst = d3d12_resource(info->dst.resource);
    d3d12_transition_subresources_state(ctx, d3d12_resource(tmp),
                                        0, 1, 0, 1, 0, 1,
-                                       D3D12_RESOURCE_STATE_COPY_SOURCE);
+                                       D3D12_RESOURCE_STATE_COPY_SOURCE,
+                                       D3D12_BIND_INVALIDATE_NONE);
    d3d12_transition_subresources_state(ctx, dst,
                                        0, 1, 0, 1, 1, 1,
-                                       D3D12_RESOURCE_STATE_COPY_DEST);
+                                       D3D12_RESOURCE_STATE_COPY_DEST,
+                                       D3D12_BIND_INVALIDATE_FULL);
    d3d12_apply_resource_states(ctx);
 
    struct d3d12_batch *batch = d3d12_current_batch(ctx);

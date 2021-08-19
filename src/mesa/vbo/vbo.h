@@ -45,7 +45,7 @@ extern "C" {
 
 struct gl_context;
 struct pipe_draw_info;
-struct pipe_draw_start_count;
+struct pipe_draw_start_count_bias;
 
 /**
  * Max number of primitives (number of glBegin/End pairs) per VBO.
@@ -107,7 +107,7 @@ struct vbo_exec_context
    struct {
       /* Multi draw where the mode can vary between draws. */
       struct pipe_draw_info info;
-      struct pipe_draw_start_count draw[VBO_MAX_PRIM];
+      struct pipe_draw_start_count_bias draw[VBO_MAX_PRIM];
       GLubyte mode[VBO_MAX_PRIM];            /**< primitive modes per draw */
       struct vbo_markers markers[VBO_MAX_PRIM];
       unsigned prim_count;
@@ -169,8 +169,6 @@ struct vbo_save_context {
 
    GLboolean out_of_memory;  /**< True if last VBO allocation failed */
 
-   GLbitfield replay_flags;
-
    struct _mesa_prim *prims;
    GLuint prim_count, prim_max;
 
@@ -188,8 +186,6 @@ struct vbo_save_context {
    GLuint vert_count;
    GLuint max_vert;
    GLboolean dangling_attr_ref;
-
-   GLuint opcode_vertex_list;
 
    struct vbo_save_copied_vtx copied;
 
@@ -234,13 +230,6 @@ void
 vbo_save_EndList(struct gl_context *ctx);
 
 void
-vbo_save_BeginCallList(struct gl_context *ctx, struct gl_display_list *list);
-
-void
-vbo_save_EndCallList(struct gl_context *ctx);
-
-
-void
 vbo_delete_minmax_cache(struct gl_buffer_object *bufferObj);
 
 void
@@ -259,20 +248,8 @@ vbo_get_minmax_indices(struct gl_context *ctx, const struct _mesa_prim *prim,
 bool
 vbo_get_minmax_indices_gallium(struct gl_context *ctx,
                                struct pipe_draw_info *info,
-                               const struct pipe_draw_start_count *draws,
+                               const struct pipe_draw_start_count_bias *draws,
                                unsigned num_draws);
-
-void
-vbo_sw_primitive_restart(struct gl_context *ctx,
-                         const struct _mesa_prim *prim,
-                         GLuint nr_prims,
-                         const struct _mesa_index_buffer *ib,
-                         GLuint num_instances, GLuint base_instance,
-                         struct gl_buffer_object *indirect,
-                         GLsizeiptr indirect_offset,
-                         bool primitive_restart,
-                         unsigned restart_index);
-
 
 const struct gl_array_attributes*
 _vbo_current_attrib(const struct gl_context *ctx, gl_vert_attrib attr);

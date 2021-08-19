@@ -58,7 +58,7 @@ static void set_random_pixels(struct pipe_context *ctx, struct pipe_resource *te
    uint8_t *map;
    int x, y, z;
 
-   map = pipe_transfer_map_3d(ctx, tex, 0, PIPE_MAP_WRITE, 0, 0, 0, tex->width0, tex->height0,
+   map = pipe_texture_map_3d(ctx, tex, 0, PIPE_MAP_WRITE, 0, 0, 0, tex->width0, tex->height0,
                               tex->array_size, &t);
    assert(map);
 
@@ -77,7 +77,7 @@ static void set_random_pixels(struct pipe_context *ctx, struct pipe_resource *te
       }
    }
 
-   pipe_transfer_unmap(ctx, t);
+   pipe_texture_unmap(ctx, t);
 }
 
 static bool compare_textures(struct pipe_context *ctx, struct pipe_resource *tex,
@@ -89,7 +89,7 @@ static bool compare_textures(struct pipe_context *ctx, struct pipe_resource *tex
    bool pass = true;
    unsigned stride = util_format_get_stride(tex->format, tex->width0);
 
-   map = pipe_transfer_map_3d(ctx, tex, 0, PIPE_MAP_READ, 0, 0, 0, tex->width0, tex->height0,
+   map = pipe_texture_map_3d(ctx, tex, 0, PIPE_MAP_READ, 0, 0, 0, tex->width0, tex->height0,
                               tex->array_size, &t);
    assert(map);
 
@@ -105,7 +105,7 @@ static bool compare_textures(struct pipe_context *ctx, struct pipe_resource *tex
       }
    }
 done:
-   pipe_transfer_unmap(ctx, t);
+   pipe_texture_unmap(ctx, t);
    return pass;
 }
 
@@ -121,7 +121,7 @@ static enum pipe_format choose_format()
 static const char *array_mode_to_string(struct si_screen *sscreen, struct radeon_surf *surf)
 {
    if (sscreen->info.chip_class >= GFX9) {
-      switch (surf->u.gfx9.surf.swizzle_mode) {
+      switch (surf->u.gfx9.swizzle_mode) {
       case 0:
          return "  LINEAR";
       case 21:
@@ -135,7 +135,7 @@ static const char *array_mode_to_string(struct si_screen *sscreen, struct radeon
       case 27:
          return "64KB_R_X";
       default:
-         printf("Unhandled swizzle mode = %u\n", surf->u.gfx9.surf.swizzle_mode);
+         printf("Unhandled swizzle mode = %u\n", surf->u.gfx9.swizzle_mode);
          return " UNKNOWN";
       }
    } else {
@@ -293,7 +293,8 @@ void si_test_blit(struct si_screen *sscreen)
 
       /* clear dst pixels */
       uint32_t zero = 0;
-      si_clear_buffer(sctx, dst, 0, sdst->surface.surf_size, &zero, 4, SI_COHERENCY_SHADER, false);
+      si_clear_buffer(sctx, dst, 0, sdst->surface.surf_size, &zero, 4, SI_OP_SYNC_BEFORE_AFTER,
+                      SI_COHERENCY_SHADER, SI_AUTO_SELECT_CLEAR_METHOD);
       memset(dst_cpu.ptr, 0, dst_cpu.layer_stride * tdst.array_size);
 
       /* preparation */

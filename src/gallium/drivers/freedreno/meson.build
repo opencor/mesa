@@ -19,6 +19,8 @@
 # SOFTWARE.
 
 files_libfreedreno = files(
+  'freedreno_autotune.c',
+  'freedreno_autotune.h',
   'freedreno_batch.c',
   'freedreno_batch.h',
   'freedreno_batch_cache.c',
@@ -246,6 +248,23 @@ if cpp.has_argument('-Wpacked-bitfield-compat')
   freedreno_cpp_args += '-Wno-packed-bitfield-compat'
 endif
 
+libfreedreno_dependencies = [
+  dep_libdrm,
+  idep_mesautil,
+  idep_nir_headers,
+  idep_libfreedreno_common,
+  idep_u_tracepoints,
+]
+
+if with_perfetto
+  libfreedreno_dependencies += dep_perfetto
+  files_libfreedreno += 'freedreno_perfetto.cc'
+endif
+
+# The header file ends up part of the build (but just a stub)
+# in either case:
+files_libfreedreno += 'freedreno_perfetto.h'
+
 libfreedreno = static_library(
   'freedreno',
   [files_libfreedreno, freedreno_xml_header_files],
@@ -253,13 +272,7 @@ libfreedreno = static_library(
   c_args : [freedreno_c_args],
   cpp_args : [freedreno_cpp_args],
   gnu_symbol_visibility : 'hidden',
-  dependencies : [
-    dep_libdrm,
-    idep_mesautil,
-    idep_nir_headers,
-    idep_libfreedreno_common,
-    idep_u_tracepoints,
-  ],
+  dependencies : libfreedreno_dependencies,
 )
 
 driver_freedreno = declare_dependency(

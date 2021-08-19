@@ -36,6 +36,8 @@
 #include "panfrost-quirks.h"
 #include "pan_bo.h"
 #include "pan_texture.h"
+#include "wrap.h"
+#include "pan_util.h"
 
 /* Abstraction over the raw drm_panfrost_get_param ioctl for fetching
  * information about devices */
@@ -83,6 +85,20 @@ panfrost_query_gpu_revision(int fd)
         return panfrost_query_raw(fd, DRM_PANFROST_PARAM_GPU_REVISION, true, 0);
 }
 
+static struct panfrost_tiler_features
+panfrost_query_tiler_features(int fd)
+{
+        /* Default value (2^9 bytes and 8 levels) to match old behaviour */
+        uint32_t raw = panfrost_query_raw(fd, DRM_PANFROST_PARAM_TILER_FEATURES,
+                        false, 0x809);
+
+        /* Bin size is log2 in the first byte, max levels in the second byte */
+        return (struct panfrost_tiler_features) {
+                .bin_size = (1 << (raw & BITFIELD_MASK(5))),
+                .max_levels = (raw >> 8) & BITFIELD_MASK(4)
+        };
+}
+
 static unsigned
 panfrost_query_core_count(int fd)
 {
@@ -91,7 +107,13 @@ panfrost_query_core_count(int fd)
         unsigned mask = panfrost_query_raw(fd,
                         DRM_PANFROST_PARAM_SHADER_PRESENT, false, 0xffff);
 
-        return util_bitcount(mask);
+        /* Some cores might be absent. For TLS computation purposes, we care
+         * about the greatest ID + 1, which equals the core count if all cores
+         * are present, but allocates space for absent cores if needed.
+         * util_last_bit is defined to return the greatest bit set + 1, which
+         * is exactly what we need. */
+
+        return util_last_bit(mask);
 }
 
 /* Architectural maximums, since this register may be not implemented
@@ -209,6 +231,7 @@ panfrost_model_name(unsigned gpu_id)
         case 0x6221: return "Mali G72 (Panfrost)";
         case 0x7093: return "Mali G31 (Panfrost)";
         case 0x7212: return "Mali G52 (Panfrost)";
+        case 0x7402: return "Mali G52r1 (Panfrost)";
         default:
                     unreachable("Invalid GPU ID");
         }
@@ -227,6 +250,7 @@ panfrost_open_device(void *memctx, int fd, struct panfrost_device *dev)
         unsigned revision = panfrost_query_gpu_revision(fd);
         dev->quirks = panfrost_get_quirks(dev->gpu_id, revision);
         dev->compressed_formats = panfrost_query_compressed_formats(fd);
+        dev->tiler_features = panfrost_query_tiler_features(fd);
 
         if (dev->quirks & HAS_SWIZZLES)
                 dev->formats = panfrost_pipe_format_v6;
@@ -241,21 +265,27 @@ panfrost_open_device(void *memctx, int fd, struct panfrost_device *dev)
         for (unsigned i = 0; i < ARRAY_SIZE(dev->bo_cache.buckets); ++i)
                 list_inithead(&dev->bo_cache.buckets[i]);
 
+        /* Initialize pandecode before we start allocating */
+        if (dev->debug & (PAN_DBG_TRACE | PAN_DBG_SYNC))
+                pandecode_initialize(!(dev->debug & PAN_DBG_TRACE));
+
         /* Tiler heap is internally required by the tiler, which can only be
          * active for a single job chain at once, so a single heap can be
          * shared across batches/contextes */
 
-        dev->tiler_heap = panfrost_bo_create(dev, 4096 * 4096,
-                        PAN_BO_INVISIBLE | PAN_BO_GROWABLE);
+        dev->tiler_heap = panfrost_bo_create(dev, 64 * 1024 * 1024,
+                        PAN_BO_INVISIBLE | PAN_BO_GROWABLE, "Tiler heap");
 
         pthread_mutex_init(&dev->submit_lock, NULL);
+
+        /* Done once on init */
+        panfrost_upload_sample_positions(dev);
 }
 
 void
 panfrost_close_device(struct panfrost_device *dev)
 {
         pthread_mutex_destroy(&dev->submit_lock);
-        panfrost_bo_unreference(dev->blit_shaders.bo);
         panfrost_bo_unreference(dev->tiler_heap);
         panfrost_bo_cache_evict_all(dev);
         pthread_mutex_destroy(&dev->bo_cache.lock);

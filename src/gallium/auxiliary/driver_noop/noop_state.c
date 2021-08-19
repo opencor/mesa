@@ -31,8 +31,9 @@
 #include "util/u_transfer.h"
 
 static void noop_draw_vbo(struct pipe_context *ctx, const struct pipe_draw_info *info,
+                          unsigned drawid_offset,
                           const struct pipe_draw_indirect_info *indirect,
-                          const struct pipe_draw_start_count *draws,
+                          const struct pipe_draw_start_count_bias *draws,
                           unsigned num_draws)
 {
 }
@@ -114,6 +115,7 @@ static struct pipe_surface *noop_create_surface(struct pipe_context *ctx,
 static void noop_set_sampler_views(struct pipe_context *ctx,
                                    enum pipe_shader_type shader,
                                    unsigned start, unsigned count,
+                                   unsigned unbind_num_trailing_slots,
                                    struct pipe_sampler_view **views)
 {
 }
@@ -165,6 +167,7 @@ static void noop_set_framebuffer_state(struct pipe_context *ctx,
 
 static void noop_set_constant_buffer(struct pipe_context *ctx,
                                      enum pipe_shader_type shader, uint index,
+                                     bool take_ownership,
                                      const struct pipe_constant_buffer *cb)
 {
 }
@@ -202,6 +205,8 @@ static void noop_delete_state(struct pipe_context *ctx, void *state)
 
 static void noop_set_vertex_buffers(struct pipe_context *ctx,
                                     unsigned start_slot, unsigned count,
+                                    unsigned unbind_num_trailing_slots,
+                                    bool take_ownership,
                                     const struct pipe_vertex_buffer *buffers)
 {
 }

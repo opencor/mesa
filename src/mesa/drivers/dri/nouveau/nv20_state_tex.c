@@ -46,7 +46,7 @@ nv20_emit_tex_gen(struct gl_context *ctx, int emit)
 	for (j = 0; j < 4; j++) {
 		if (nctx->fallback == HWTNL && (unit->TexGenEnabled & 1 << j)) {
 			struct gl_texgen *coord = get_texgen_coord(unit, j);
-			float *k = get_texgen_coeff(coord);
+			float *k = get_texgen_coeff(unit, coord->Mode, j);
 
 			if (k) {
 				BEGIN_NV04(push, NV20_3D(TEX_GEN_COEFF(i, j)), 4);
@@ -213,14 +213,14 @@ nv20_emit_tex_obj(struct gl_context *ctx, int emit)
 		| nvgl_filter_mode(sa->Attrib.MinFilter) << 16
 		| 2 << 12;
 
-	r = FLOAT_TO_UBYTE(sa->Attrib.BorderColor.f[0]);
-	g = FLOAT_TO_UBYTE(sa->Attrib.BorderColor.f[1]);
-	b = FLOAT_TO_UBYTE(sa->Attrib.BorderColor.f[2]);
-	a = FLOAT_TO_UBYTE(sa->Attrib.BorderColor.f[3]);
+	r = FLOAT_TO_UBYTE(sa->Attrib.state.border_color.f[0]);
+	g = FLOAT_TO_UBYTE(sa->Attrib.state.border_color.f[1]);
+	b = FLOAT_TO_UBYTE(sa->Attrib.state.border_color.f[2]);
+	a = FLOAT_TO_UBYTE(sa->Attrib.state.border_color.f[3]);
 	switch (ti->_BaseFormat) {
 	case GL_LUMINANCE:
 		a = 0xff;
-		/* fallthrough */
+		FALLTHROUGH;
 	case GL_LUMINANCE_ALPHA:
 		g = b = r;
 		break;

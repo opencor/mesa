@@ -175,6 +175,8 @@ static int r300_get_param(struct pipe_screen* pscreen, enum pipe_cap param)
 
         case PIPE_CAP_GLSL_OPTIMIZE_CONSERVATIVELY:
             return 0;
+        case PIPE_CAP_SHAREABLE_SHADERS:
+            return 0;
 
         case PIPE_CAP_MAX_GS_INVOCATIONS:
             return 32;
@@ -294,6 +296,7 @@ static int r300_get_shader_param(struct pipe_screen *pscreen,
         case PIPE_SHADER_CAP_INT64_ATOMICS:
         case PIPE_SHADER_CAP_FP16:
         case PIPE_SHADER_CAP_FP16_DERIVATIVES:
+        case PIPE_SHADER_CAP_FP16_CONST_BUFFERS:
         case PIPE_SHADER_CAP_INT16:
         case PIPE_SHADER_CAP_GLSL_16BIT_CONSTS:
         case PIPE_SHADER_CAP_TGSI_DROUND_SUPPORTED:
@@ -365,6 +368,7 @@ static int r300_get_shader_param(struct pipe_screen *pscreen,
         case PIPE_SHADER_CAP_SUBROUTINES:
         case PIPE_SHADER_CAP_INTEGERS:
         case PIPE_SHADER_CAP_FP16:
+        case PIPE_SHADER_CAP_FP16_CONST_BUFFERS:
         case PIPE_SHADER_CAP_FP16_DERIVATIVES:
         case PIPE_SHADER_CAP_INT16:
         case PIPE_SHADER_CAP_GLSL_16BIT_CONSTS:
@@ -646,6 +650,13 @@ static bool r300_is_format_supported(struct pipe_screen* screen,
                 retval |= PIPE_BIND_VERTEX_BUFFER;
             }
         }
+    }
+
+    if (usage & PIPE_BIND_INDEX_BUFFER) {
+       if (format == PIPE_FORMAT_R8_UINT ||
+           format == PIPE_FORMAT_R16_UINT ||
+           format == PIPE_FORMAT_R32_UINT)
+          retval |= PIPE_BIND_INDEX_BUFFER;
     }
 
     return retval == usage;

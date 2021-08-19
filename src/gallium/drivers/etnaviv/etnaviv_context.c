@@ -50,6 +50,7 @@
 #include "pipe/p_state.h"
 #include "util/hash_table.h"
 #include "util/u_blitter.h"
+#include "util/u_draw.h"
 #include "util/u_helpers.h"
 #include "util/u_memory.h"
 #include "util/u_prim.h"
@@ -128,6 +129,9 @@ etna_context_destroy(struct pipe_context *pctx)
       _mesa_set_destroy(ctx->used_resources_write, NULL);
 
    }
+   if (ctx->flush_resources)
+      _mesa_set_destroy(ctx->flush_resources, NULL);
+
    mtx_unlock(&ctx->lock);
 
    if (ctx->dummy_desc_bo)
@@ -224,18 +228,13 @@ etna_get_fs(struct etna_context *ctx, struct etna_shader_key key)
 
 static void
 etna_draw_vbo(struct pipe_context *pctx, const struct pipe_draw_info *info,
+              unsigned drawid_offset,
               const struct pipe_draw_indirect_info *indirect,
-              const struct pipe_draw_start_count *draws,
+              const struct pipe_draw_start_count_bias *draws,
               unsigned num_draws)
 {
    if (num_draws > 1) {
-      struct pipe_draw_info tmp_info = *info;
-
-      for (unsigned i = 0; i < num_draws; i++) {
-         etna_draw_vbo(pctx, &tmp_info, indirect, &draws[i], 1);
-         if (tmp_info.increment_draw_id)
-            tmp_info.drawid++;
-      }
+      util_draw_multi(pctx, info, drawid_offset, indirect, draws, num_draws);
       return;
    }
 
@@ -259,7 +258,7 @@ etna_draw_vbo(struct pipe_context *pctx, const struct pipe_draw_info *info,
    if (!(ctx->prim_hwsupport & (1 << info->mode))) {
       struct primconvert_context *primconvert = ctx->primconvert;
       util_primconvert_save_rasterizer_state(primconvert, ctx->rasterizer);
-      util_primconvert_draw_vbo(primconvert, info, &draws[0]);
+      util_primconvert_draw_vbo(primconvert, info, drawid_offset, indirect, draws, num_draws);
       return;
    }
 
@@ -308,6 +307,8 @@ etna_draw_vbo(struct pipe_context *pctx, const struct pipe_draw_info *info,
 
    struct etna_shader_key key = {
       .front_ccw = ctx->rasterizer->front_ccw,
+      .sprite_coord_enable = ctx->rasterizer->sprite_coord_enable,
+      .sprite_coord_yinvert = !!ctx->rasterizer->sprite_coord_mode,
    };
 
    if (pfb->cbufs[0])
@@ -344,14 +345,14 @@ etna_draw_vbo(struct pipe_context *pctx, const struct pipe_draw_info *info,
    }
 
    /* Mark constant buffers as being read */
-   foreach_bit(i, ctx->constant_buffer[PIPE_SHADER_VERTEX].enabled_mask)
+   u_foreach_bit(i, ctx->constant_buffer[PIPE_SHADER_VERTEX].enabled_mask)
       resource_read(ctx, ctx->constant_buffer[PIPE_SHADER_VERTEX].cb[i].buffer);
 
-   foreach_bit(i, ctx->constant_buffer[PIPE_SHADER_FRAGMENT].enabled_mask)
+   u_foreach_bit(i, ctx->constant_buffer[PIPE_SHADER_FRAGMENT].enabled_mask)
       resource_read(ctx, ctx->constant_buffer[PIPE_SHADER_FRAGMENT].cb[i].buffer);
 
    /* Mark VBOs as being read */
-   foreach_bit(i, ctx->vertex_buffer.enabled_mask) {
+   u_foreach_bit(i, ctx->vertex_buffer.enabled_mask) {
       assert(!ctx->vertex_buffer.vb[i].is_user_buffer);
       resource_read(ctx, ctx->vertex_buffer.vb[i].buffer.resource);
    }
@@ -384,10 +385,10 @@ etna_draw_vbo(struct pipe_context *pctx, const struct pipe_draw_info *info,
    if (screen->specs.halti >= 2) {
       /* On HALTI2+ (GC3000 and higher) only use instanced drawing commands, as the blob does */
       etna_draw_instanced(ctx->stream, info->index_size, draw_mode, info->instance_count,
-         draws[0].count, info->index_size ? info->index_bias : draws[0].start);
+         draws[0].count, info->index_size ? draws->index_bias : draws[0].start);
    } else {
       if (info->index_size)
-         etna_draw_indexed_primitives(ctx->stream, draw_mode, 0, prims, info->index_bias);
+         etna_draw_indexed_primitives(ctx->stream, draw_mode, 0, prims, draws->index_bias);
       else
          etna_draw_primitives(ctx->stream, draw_mode, draws[0].start, prims);
    }
@@ -491,6 +492,14 @@ etna_flush(struct pipe_context *pctx, struct pipe_fence_handle **fence,
 
    list_for_each_entry(struct etna_acc_query, aq, &ctx->active_acc_queries, node)
       etna_acc_query_suspend(aq, ctx);
+
+   /* flush all resources that need an implicit flush */
+   set_foreach(ctx->flush_resources, entry) {
+      struct pipe_resource *prsc = (struct pipe_resource *)entry->key;
+
+      pctx->flush_resource(pctx, prsc);
+   }
+   _mesa_set_clear(ctx->flush_resources, NULL);
 
    etna_cmd_stream_flush(ctx->stream, ctx->in_fence_fd,
                           (flags & PIPE_FLUSH_FENCE_FD) ? &out_fence_fd : NULL);
@@ -596,6 +605,11 @@ etna_context_create(struct pipe_screen *pscreen, void *priv, unsigned flags)
    ctx->used_resources_write = _mesa_set_create(NULL, _mesa_hash_pointer,
                                           _mesa_key_pointer_equal);
    if (!ctx->used_resources_write)
+      goto fail;
+
+   ctx->flush_resources = _mesa_set_create(NULL, _mesa_hash_pointer,
+                                           _mesa_key_pointer_equal);
+   if (!ctx->flush_resources)
       goto fail;
 
    mtx_init(&ctx->lock, mtx_recursive);

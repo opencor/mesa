@@ -81,7 +81,7 @@ etna_set_sample_mask(struct pipe_context *pctx, unsigned sample_mask)
 
 static void
 etna_set_constant_buffer(struct pipe_context *pctx,
-      enum pipe_shader_type shader, uint index,
+      enum pipe_shader_type shader, uint index, bool take_ownership,
       const struct pipe_constant_buffer *cb)
 {
    struct etna_context *ctx = etna_context(pctx);
@@ -89,7 +89,7 @@ etna_set_constant_buffer(struct pipe_context *pctx,
 
    assert(index < ETNA_MAX_CONST_BUF);
 
-   util_copy_constant_buffer(&so->cb[index], cb);
+   util_copy_constant_buffer(&so->cb[index], cb, take_ownership);
 
    /* Note that the gallium frontends can unbind constant buffers by
     * passing NULL here. */
@@ -426,12 +426,15 @@ etna_set_viewport_states(struct pipe_context *pctx, unsigned start_slot,
 
 static void
 etna_set_vertex_buffers(struct pipe_context *pctx, unsigned start_slot,
-      unsigned num_buffers, const struct pipe_vertex_buffer *vb)
+      unsigned num_buffers, unsigned unbind_num_trailing_slots, bool take_ownership,
+      const struct pipe_vertex_buffer *vb)
 {
    struct etna_context *ctx = etna_context(pctx);
    struct etna_vertexbuf_state *so = &ctx->vertex_buffer;
 
-   util_set_vertex_buffers_mask(so->vb, &so->enabled_mask, vb, start_slot, num_buffers);
+   util_set_vertex_buffers_mask(so->vb, &so->enabled_mask, vb, start_slot,
+                                num_buffers, unbind_num_trailing_slots,
+                                take_ownership);
    so->count = util_last_bit(so->enabled_mask);
 
    for (unsigned idx = start_slot; idx < start_slot + num_buffers; ++idx) {
@@ -750,6 +753,21 @@ etna_update_zsa(struct etna_context *ctx)
    return true;
 }
 
+static bool
+etna_record_flush_resources(struct etna_context *ctx)
+{
+   struct pipe_framebuffer_state *fb = &ctx->framebuffer_s;
+
+   if (fb->nr_cbufs > 0) {
+      struct etna_surface *surf = etna_surface(fb->cbufs[0]);
+
+      if (!etna_resource(surf->prsc)->explicit_flush)
+         _mesa_set_add(ctx->flush_resources, surf->prsc);
+   }
+
+   return true;
+}
+
 struct etna_state_updater {
    bool (*update)(struct etna_context *ctx);
    uint32_t dirty;
@@ -777,6 +795,9 @@ static const struct etna_state_updater etna_state_updates[] = {
    },
    {
       etna_update_zsa, ETNA_DIRTY_ZSA | ETNA_DIRTY_SHADER,
+   },
+   {
+      etna_record_flush_resources, ETNA_DIRTY_FRAMEBUFFER,
    }
 };
 

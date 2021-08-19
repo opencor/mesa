@@ -209,7 +209,7 @@ ADDR_E_RETURNCODE Lib::Create(
                         pLib = SiHwlInit(&client);
                         break;
                     case FAMILY_VI:
-                    case FAMILY_CZ:
+                    case FAMILY_CZ: // VI based fusion
                     case FAMILY_CI:
                     case FAMILY_KV: // CI based fusion
                         pLib = CiHwlInit(&client);
@@ -228,6 +228,7 @@ ADDR_E_RETURNCODE Lib::Create(
                         break;
                     case FAMILY_NV:
                     case FAMILY_VGH:
+                    case FAMILY_YC:
                         pLib = Gfx10HwlInit(&client);
                         break;
                     default:

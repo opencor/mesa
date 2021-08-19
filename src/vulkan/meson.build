@@ -46,6 +46,9 @@ if with_platform_wayland
   vulkan_wsi_deps += dep_wayland_client
   vulkan_wsi_list += ['wayland']
 endif
+if with_platform_windows
+  vulkan_wsi_args += ['-DVK_USE_PLATFORM_WIN32_KHR']
+endif
 if system_has_kms_drm and not with_platform_android
   vulkan_wsi_args += '-DVK_USE_PLATFORM_DISPLAY_KHR'
   vulkan_wsi_deps += [dep_libdrm]
@@ -63,6 +66,6 @@ subdir('wsi')
 if with_vulkan_overlay_layer
   subdir('overlay-layer')
 endif
-if get_option('vulkan-device-select-layer')
+if with_vulkan_device_select_layer
   subdir('device-select-layer')
 endif

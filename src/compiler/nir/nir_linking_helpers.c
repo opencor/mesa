@@ -32,8 +32,8 @@
  */
 
 /**
- * Returns the bits in the inputs_read, outputs_written, or
- * system_values_read bitfield corresponding to this variable.
+ * Returns the bits in the inputs_read, or outputs_written
+ * bitfield corresponding to this variable.
  */
 static uint64_t
 get_variable_io_mask(nir_variable *var, gl_shader_stage stage)
@@ -45,12 +45,11 @@ get_variable_io_mask(nir_variable *var, gl_shader_stage stage)
       var->data.location - VARYING_SLOT_PATCH0 : var->data.location;
 
    assert(var->data.mode == nir_var_shader_in ||
-          var->data.mode == nir_var_shader_out ||
-          var->data.mode == nir_var_system_value);
+          var->data.mode == nir_var_shader_out);
    assert(var->data.location >= 0);
 
    const struct glsl_type *type = var->type;
-   if (nir_is_per_vertex_io(var, stage) || var->data.per_view) {
+   if (nir_is_arrayed_io(var, stage) || var->data.per_view) {
       assert(glsl_type_is_array(type));
       type = glsl_get_array_element(type);
    }
@@ -258,6 +257,7 @@ struct assigned_comps
    uint8_t interp_type;
    uint8_t interp_loc;
    bool is_32bit;
+   bool is_mediump;
 };
 
 /* Packing arrays and dual slot varyings is difficult so to avoid complex
@@ -279,7 +279,7 @@ get_unmoveable_components_masks(nir_shader *shader,
           var->data.location - VARYING_SLOT_VAR0 < MAX_VARYINGS_INCL_PATCH) {
 
          const struct glsl_type *type = var->type;
-         if (nir_is_per_vertex_io(var, stage) || var->data.per_view) {
+         if (nir_is_arrayed_io(var, stage) || var->data.per_view) {
             assert(glsl_type_is_array(type));
             type = glsl_get_array_element(type);
          }
@@ -326,6 +326,9 @@ get_unmoveable_components_masks(nir_shader *shader,
             comps[location + i].interp_loc = get_interp_loc(var);
             comps[location + i].is_32bit =
                glsl_type_is_32bit(glsl_without_array(type));
+            comps[location + i].is_mediump =
+               var->data.precision == GLSL_PRECISION_MEDIUM ||
+               var->data.precision == GLSL_PRECISION_LOW;
          }
       }
    }
@@ -377,7 +380,7 @@ remap_slots_and_components(nir_shader *shader, nir_variable_mode mode,
           var->data.location - VARYING_SLOT_VAR0 < MAX_VARYINGS_INCL_PATCH) {
 
          const struct glsl_type *type = var->type;
-         if (nir_is_per_vertex_io(var, stage) || var->data.per_view) {
+         if (nir_is_arrayed_io(var, stage) || var->data.per_view) {
             assert(glsl_type_is_array(type));
             type = glsl_get_array_element(type);
          }
@@ -444,6 +447,7 @@ struct varying_component {
    uint8_t interp_loc;
    bool is_32bit;
    bool is_patch;
+   bool is_mediump;
    bool is_intra_stage_only;
    bool initialised;
 };
@@ -463,6 +467,10 @@ cmp_varying_component(const void *comp1_v, const void *comp2_v)
     */
    if (comp1->is_intra_stage_only != comp2->is_intra_stage_only)
       return comp1->is_intra_stage_only ? 1 : -1;
+
+   /* Group mediump varyings together. */
+   if (comp1->is_mediump != comp2->is_mediump)
+      return comp1->is_mediump ? 1 : -1;
 
    /* We can only pack varyings with matching interpolation types so group
     * them together.
@@ -505,7 +513,7 @@ gather_varying_component_info(nir_shader *producer, nir_shader *consumer,
             continue;
 
          const struct glsl_type *type = var->type;
-         if (nir_is_per_vertex_io(var, producer->info.stage) || var->data.per_view) {
+         if (nir_is_arrayed_io(var, producer->info.stage) || var->data.per_view) {
             assert(glsl_type_is_array(type));
             type = glsl_get_array_element(type);
          }
@@ -562,7 +570,7 @@ gather_varying_component_info(nir_shader *producer, nir_shader *consumer,
 
          if (!vc_info->initialised) {
             const struct glsl_type *type = in_var->type;
-            if (nir_is_per_vertex_io(in_var, consumer->info.stage) ||
+            if (nir_is_arrayed_io(in_var, consumer->info.stage) ||
                 in_var->data.per_view) {
                assert(glsl_type_is_array(type));
                type = glsl_get_array_element(type);
@@ -574,6 +582,9 @@ gather_varying_component_info(nir_shader *producer, nir_shader *consumer,
             vc_info->interp_loc = get_interp_loc(in_var);
             vc_info->is_32bit = glsl_type_is_32bit(type);
             vc_info->is_patch = in_var->data.patch;
+            vc_info->is_mediump = !producer->options->linker_ignore_precision &&
+               (in_var->data.precision == GLSL_PRECISION_MEDIUM ||
+                in_var->data.precision == GLSL_PRECISION_LOW);
             vc_info->is_intra_stage_only = false;
             vc_info->initialised = true;
          }
@@ -625,7 +636,7 @@ gather_varying_component_info(nir_shader *producer, nir_shader *consumer,
 
             if (!vc_info->initialised) {
                const struct glsl_type *type = out_var->type;
-               if (nir_is_per_vertex_io(out_var, producer->info.stage)) {
+               if (nir_is_arrayed_io(out_var, producer->info.stage)) {
                   assert(glsl_type_is_array(type));
                   type = glsl_get_array_element(type);
                }
@@ -636,6 +647,9 @@ gather_varying_component_info(nir_shader *producer, nir_shader *consumer,
                vc_info->interp_loc = get_interp_loc(out_var);
                vc_info->is_32bit = glsl_type_is_32bit(type);
                vc_info->is_patch = out_var->data.patch;
+               vc_info->is_mediump = !producer->options->linker_ignore_precision &&
+                  (out_var->data.precision == GLSL_PRECISION_MEDIUM ||
+                   out_var->data.precision == GLSL_PRECISION_LOW);
                vc_info->is_intra_stage_only = true;
                vc_info->initialised = true;
             }
@@ -676,9 +690,14 @@ assign_remap_locations(struct varying_loc (*remap)[4],
           * expects this to be the same for all components. We could make this
           * check driver specfific or drop it if NIR ever become the only
           * radeonsi backend.
+          * TODO2: The radeonsi comment above is not true. Only "flat" is per
+          * vec4 (128-bit granularity), all other interpolation qualifiers are
+          * per component (16-bit granularity for float16, 32-bit granularity
+          * otherwise). Each vec4 (128 bits) must be either vec4 or f16vec8.
           */
          if (assigned_comps[tmp_cursor].interp_type != info->interp_type ||
-             assigned_comps[tmp_cursor].interp_loc != info->interp_loc) {
+             assigned_comps[tmp_cursor].interp_loc != info->interp_loc ||
+             assigned_comps[tmp_cursor].is_mediump != info->is_mediump) {
             tmp_comp = 0;
             continue;
          }
@@ -709,6 +728,7 @@ assign_remap_locations(struct varying_loc (*remap)[4],
       assigned_comps[tmp_cursor].interp_type = info->interp_type;
       assigned_comps[tmp_cursor].interp_loc = info->interp_loc;
       assigned_comps[tmp_cursor].is_32bit = info->is_32bit;
+      assigned_comps[tmp_cursor].is_mediump = info->is_mediump;
 
       /* Assign remap location */
       remap[location][info->var->data.location_frac].component = tmp_comp++;
@@ -946,7 +966,7 @@ replace_constant_input(nir_shader *shader, nir_intrinsic_instr *store_intr)
                                              intr->dest.ssa.bit_size,
                                              out_const->value);
 
-         nir_ssa_def_rewrite_uses(&intr->dest.ssa, nir_src_for_ssa(nconst));
+         nir_ssa_def_rewrite_uses(&intr->dest.ssa, nconst);
 
          progress = true;
       }
@@ -993,13 +1013,78 @@ replace_duplicate_input(nir_shader *shader, nir_variable *input_var,
          b.cursor = nir_before_instr(instr);
 
          nir_ssa_def *load = nir_load_var(&b, input_var);
-         nir_ssa_def_rewrite_uses(&intr->dest.ssa, nir_src_for_ssa(load));
+         nir_ssa_def_rewrite_uses(&intr->dest.ssa, load);
 
          progress = true;
       }
    }
 
    return progress;
+}
+
+/* The GLSL ES 3.20 spec says:
+ *
+ * "The precision of a vertex output does not need to match the precision of
+ * the corresponding fragment input. The minimum precision at which vertex
+ * outputs are interpolated is the minimum of the vertex output precision and
+ * the fragment input precision, with the exception that for highp,
+ * implementations do not have to support full IEEE 754 precision." (9.1 "Input
+ * Output Matching by Name in Linked Programs")
+ *
+ * To implement this, when linking shaders we will take the minimum precision
+ * qualifier (allowing drivers to interpolate at lower precision). For
+ * input/output between non-fragment stages (e.g. VERTEX to GEOMETRY), the spec
+ * requires we use the *last* specified precision if there is a conflict.
+ *
+ * Precisions are ordered as (NONE, HIGH, MEDIUM, LOW). If either precision is
+ * NONE, we'll return the other precision, since there is no conflict.
+ * Otherwise for fragment interpolation, we'll pick the smallest of (HIGH,
+ * MEDIUM, LOW) by picking the maximum of the raw values - note the ordering is
+ * "backwards". For non-fragment stages, we'll pick the latter precision to
+ * comply with the spec. (Note that the order matters.)
+ *
+ * For streamout, "Variables declared with lowp or mediump precision are
+ * promoted to highp before being written." (12.2 "Transform Feedback", p. 341
+ * of OpenGL ES 3.2 specification). So drivers should promote them
+ * the transform feedback memory store, but not the output store.
+ */
+
+static unsigned
+nir_link_precision(unsigned producer, unsigned consumer, bool fs)
+{
+   if (producer == GLSL_PRECISION_NONE)
+      return consumer;
+   else if (consumer == GLSL_PRECISION_NONE)
+      return producer;
+   else
+      return fs ? MAX2(producer, consumer) : consumer;
+}
+
+void
+nir_link_varying_precision(nir_shader *producer, nir_shader *consumer)
+{
+   bool frag = consumer->info.stage == MESA_SHADER_FRAGMENT;
+
+   nir_foreach_shader_out_variable(producer_var, producer) {
+      /* Skip if the slot is not assigned */
+      if (producer_var->data.location < 0)
+         continue;
+
+      nir_variable *consumer_var = nir_find_variable_with_location(consumer,
+            nir_var_shader_in, producer_var->data.location);
+
+      /* Skip if the variable will be eliminated */
+      if (!consumer_var)
+         continue;
+
+      /* Now we have a pair of variables. Let's pick the smaller precision. */
+      unsigned precision_1 = producer_var->data.precision;
+      unsigned precision_2 = consumer_var->data.precision;
+      unsigned minimum = nir_link_precision(precision_1, precision_2, frag);
+
+      /* Propagate the new precision */
+      producer_var->data.precision = consumer_var->data.precision = minimum;
+   }
 }
 
 bool
@@ -1102,7 +1187,7 @@ nir_assign_io_var_locations(nir_shader *shader, nir_variable_mode mode,
    bool last_partial = false;
    nir_foreach_variable_in_list(var, &io_vars) {
       const struct glsl_type *type = var->type;
-      if (nir_is_per_vertex_io(var, stage)) {
+      if (nir_is_arrayed_io(var, stage)) {
          assert(glsl_type_is_array(type));
          type = glsl_get_array_element(type);
       }
@@ -1247,7 +1332,7 @@ get_linked_variable_io_mask(nir_variable *variable, gl_shader_stage stage)
 {
    const struct glsl_type *type = variable->type;
 
-   if (nir_is_per_vertex_io(variable, stage)) {
+   if (nir_is_arrayed_io(variable, stage)) {
       assert(glsl_type_is_array(type));
       type = glsl_get_array_element(type);
    }

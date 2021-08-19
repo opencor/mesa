@@ -184,6 +184,7 @@ v3dv_bo_init(struct v3dv_bo *bo,
              bool private)
 {
    bo->handle = handle;
+   bo->handle_bit = 1ull << (handle % 64);
    bo->size = size;
    bo->offset = offset;
    bo->map = NULL;
@@ -319,8 +320,7 @@ v3dv_bo_map(struct v3dv_device *device, struct v3dv_bo *bo, uint32_t size)
    if (!ok)
       return false;
 
-   const uint64_t infinite = 0xffffffffffffffffull;
-   ok = v3dv_bo_wait(device, bo, infinite);
+   ok = v3dv_bo_wait(device, bo, PIPE_TIMEOUT_INFINITE);
    if (!ok) {
       fprintf(stderr, "memory wait for map failed\n");
       return false;

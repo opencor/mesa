@@ -133,6 +133,19 @@ llvmpipe_render_condition(struct pipe_context *pipe,
 }
 
 static void
+llvmpipe_render_condition_mem(struct pipe_context *pipe,
+                              struct pipe_resource *buffer,
+                              unsigned offset,
+                              bool condition)
+{
+   struct llvmpipe_context *llvmpipe = llvmpipe_context( pipe );
+
+   llvmpipe->render_cond_buffer = llvmpipe_resource(buffer);
+   llvmpipe->render_cond_offset = offset;
+   llvmpipe->render_cond_cond = condition;
+}
+
+static void
 llvmpipe_texture_barrier(struct pipe_context *pipe, unsigned flags)
 {
    llvmpipe_flush(pipe, NULL, __FUNCTION__);
@@ -166,11 +179,12 @@ llvmpipe_create_context(struct pipe_screen *screen, void *priv,
 {
    struct llvmpipe_context *llvmpipe;
 
+   if (!llvmpipe_screen_late_init(llvmpipe_screen(screen)))
+      return NULL;
+
    llvmpipe = align_malloc(sizeof(struct llvmpipe_context), 16);
    if (!llvmpipe)
       return NULL;
-
-   util_init_math();
 
    memset(llvmpipe, 0, sizeof *llvmpipe);
 
@@ -191,6 +205,7 @@ llvmpipe_create_context(struct pipe_screen *screen, void *priv,
    llvmpipe->pipe.texture_barrier = llvmpipe_texture_barrier;
 
    llvmpipe->pipe.render_condition = llvmpipe_render_condition;
+   llvmpipe->pipe.render_condition_mem = llvmpipe_render_condition_mem;
 
    llvmpipe->pipe.get_device_reset_status = llvmpipe_get_device_reset_status;
    llvmpipe_init_blend_funcs(llvmpipe);

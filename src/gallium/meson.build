@@ -52,11 +52,16 @@ else
 endif
 if with_gallium_softpipe
   subdir('drivers/softpipe')
-  if with_llvm
+  if draw_with_llvm
     subdir('drivers/llvmpipe')
   endif
 else
   driver_swrast = declare_dependency()
+endif
+if with_gallium_asahi
+  subdir('drivers/asahi')
+else
+  driver_asahi = declare_dependency()
 endif
 if with_gallium_r300 or with_gallium_radeonsi or with_gallium_r600
   subdir('winsys/radeon/drm')
@@ -123,6 +128,12 @@ if with_gallium_tegra
   subdir('drivers/tegra')
 else
   driver_tegra = declare_dependency()
+endif
+if with_gallium_crocus
+  subdir('winsys/crocus/drm')
+  subdir('drivers/crocus')
+else
+  driver_crocus = declare_dependency()
 endif
 if with_gallium_iris
   subdir('winsys/iris/drm')
@@ -216,6 +227,10 @@ endif
 if with_gallium_st_nine
   subdir('frontends/nine')
   subdir('targets/d3dadapter9')
+endif
+if with_gallium_st_d3d10umd
+  subdir('frontends/d3d10umd')
+  subdir('targets/d3d10sw')
 endif
 if with_platform_windows
   subdir('frontends/wgl')

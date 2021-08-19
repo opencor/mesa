@@ -119,6 +119,7 @@ llvmpipe_set_sampler_views(struct pipe_context *pipe,
                            enum pipe_shader_type shader,
                            unsigned start,
                            unsigned num,
+                           unsigned unbind_num_trailing_slots,
                            struct pipe_sampler_view **views)
 {
    struct llvmpipe_context *llvmpipe = llvmpipe_context(pipe);
@@ -151,6 +152,11 @@ llvmpipe_set_sampler_views(struct pipe_context *pipe,
          llvmpipe_flush_resource(pipe, view->texture, 0, true, false, false, "sampler_view");
       pipe_sampler_view_reference(&llvmpipe->sampler_views[shader][start + i],
                                   view);
+   }
+
+   for (; i < num + unbind_num_trailing_slots; i++) {
+      pipe_sampler_view_reference(&llvmpipe->sampler_views[shader][start + i],
+                                  NULL);
    }
 
    /* find highest non-null sampler_views[] entry */
@@ -335,13 +341,7 @@ prepare_shader_sampling(
          }
          else {
             /* display target texture/surface */
-            /*
-             * XXX: Where should this be unmapped?
-             */
-            struct llvmpipe_screen *screen = llvmpipe_screen(tex->screen);
-            struct sw_winsys *winsys = screen->winsys;
-            addr = winsys->displaytarget_map(winsys, lp_tex->dt,
-                                                PIPE_MAP_READ);
+            addr = llvmpipe_resource_map(tex, 0, 0, LP_TEX_USAGE_READ);
             row_stride[0] = lp_tex->row_stride[0];
             img_stride[0] = lp_tex->img_stride[0];
             mip_offsets[0] = 0;
@@ -403,6 +403,31 @@ llvmpipe_prepare_tess_eval_sampling(struct llvmpipe_context *lp,
 				    struct pipe_sampler_view **views)
 {
    prepare_shader_sampling(lp, num, views, PIPE_SHADER_TESS_EVAL);
+}
+
+void
+llvmpipe_cleanup_stage_sampling(struct llvmpipe_context *ctx,
+                                enum pipe_shader_type stage)
+{
+   unsigned num, i;
+   struct pipe_sampler_view **views;
+   assert(ctx);
+   assert(stage < ARRAY_SIZE(ctx->num_sampler_views));
+   assert(stage < ARRAY_SIZE(ctx->sampler_views));
+
+   num = ctx->num_sampler_views[stage];
+   views = ctx->sampler_views[stage];
+
+   assert(num <= PIPE_MAX_SHADER_SAMPLER_VIEWS);
+
+   for (i = 0; i < num; i++) {
+      struct pipe_sampler_view *view = views[i];
+      if (view) {
+         struct pipe_resource *tex = view->texture;
+         if (tex)
+            llvmpipe_resource_unmap(tex, 0, 0);
+      }
+   }
 }
 
 static void
@@ -476,13 +501,7 @@ prepare_shader_images(
          }
          else {
             /* display target texture/surface */
-            /*
-             * XXX: Where should this be unmapped?
-             */
-            struct llvmpipe_screen *screen = llvmpipe_screen(img->screen);
-            struct sw_winsys *winsys = screen->winsys;
-            addr = winsys->displaytarget_map(winsys, lp_img->dt,
-                                                PIPE_MAP_READ);
+            addr = llvmpipe_resource_map(img, 0, 0, LP_TEX_USAGE_READ);
             row_stride = lp_img->row_stride[0];
             img_stride = lp_img->img_stride[0];
             sample_stride = 0;
@@ -543,6 +562,30 @@ llvmpipe_prepare_tess_eval_images(struct llvmpipe_context *lp,
                                   struct pipe_image_view *views)
 {
    prepare_shader_images(lp, num, views, PIPE_SHADER_TESS_EVAL);
+}
+
+void
+llvmpipe_cleanup_stage_images(struct llvmpipe_context *ctx,
+                              enum pipe_shader_type stage)
+{
+   unsigned num, i;
+   struct pipe_image_view *views;
+   assert(ctx);
+   assert(stage < ARRAY_SIZE(ctx->num_images));
+   assert(stage < ARRAY_SIZE(ctx->images));
+
+   num = ctx->num_images[stage];
+   views = ctx->images[stage];
+
+   assert(num <= LP_MAX_TGSI_SHADER_IMAGES);
+
+   for (i = 0; i < num; i++) {
+      struct pipe_image_view *view = &views[i];
+      assert(view);
+      struct pipe_resource *img = view->resource;
+      if (img)
+         llvmpipe_resource_unmap(img, 0, 0);
+   }
 }
 
 void

@@ -73,7 +73,7 @@ static LLVMValueRef load_const_buffer_desc_fast_path(struct si_shader_context *c
                     S_008F0C_DST_SEL_Z(V_008F0C_SQ_SEL_Z) | S_008F0C_DST_SEL_W(V_008F0C_SQ_SEL_W);
 
    if (ctx->screen->info.chip_class >= GFX10)
-      rsrc3 |= S_008F0C_FORMAT(V_008F0C_IMG_FORMAT_32_FLOAT) |
+      rsrc3 |= S_008F0C_FORMAT(V_008F0C_GFX10_FORMAT_32_FLOAT) |
                S_008F0C_OOB_SELECT(V_008F0C_OOB_SELECT_RAW) | S_008F0C_RESOURCE_LEVEL(1);
    else
       rsrc3 |= S_008F0C_NUM_FORMAT(V_008F0C_BUF_NUM_FORMAT_FLOAT) |
@@ -106,7 +106,7 @@ static LLVMValueRef load_ubo(struct ac_shader_abi *abi,
    return ac_build_load_to_sgpr(&ctx->ac, ptr, index);
 }
 
-static LLVMValueRef load_ssbo(struct ac_shader_abi *abi, LLVMValueRef index, bool write)
+static LLVMValueRef load_ssbo(struct ac_shader_abi *abi, LLVMValueRef index, bool write, bool non_uniform)
 {
    struct si_shader_context *ctx = si_shader_context_from_abi(abi);
 
@@ -171,7 +171,7 @@ static LLVMValueRef si_load_image_desc(struct si_shader_context *ctx, LLVMValueR
    else
       rsrc = ac_build_load_to_sgpr(&ctx->ac, list, index);
 
-   if (desc_type == AC_DESC_IMAGE && uses_store)
+   if (desc_type == AC_DESC_IMAGE && uses_store && ctx->ac.chip_class <= GFX9)
       rsrc = force_dcc_off(ctx, rsrc);
    return rsrc;
 }

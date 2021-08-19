@@ -27,6 +27,8 @@
 
 #include "util/u_threaded_context.h"
 
+#include "ac_perfcounter.h"
+
 struct pipe_context;
 struct pipe_query;
 struct pipe_resource;
@@ -44,11 +46,8 @@ enum
 {
    SI_QUERY_DRAW_CALLS = PIPE_QUERY_DRIVER_SPECIFIC,
    SI_QUERY_DECOMPRESS_CALLS,
-   SI_QUERY_MRT_DRAW_CALLS,
    SI_QUERY_PRIM_RESTART_CALLS,
-   SI_QUERY_SPILL_DRAW_CALLS,
    SI_QUERY_COMPUTE_CALLS,
-   SI_QUERY_SPILL_COMPUTE_CALLS,
    SI_QUERY_CP_DMA_CALLS,
    SI_QUERY_NUM_VS_FLUSHES,
    SI_QUERY_NUM_PS_FLUSHES,
@@ -67,6 +66,8 @@ enum
    SI_QUERY_REQUESTED_GTT,
    SI_QUERY_MAPPED_VRAM,
    SI_QUERY_MAPPED_GTT,
+   SI_QUERY_SLAB_WASTED_VRAM,
+   SI_QUERY_SLAB_WASTED_GTT,
    SI_QUERY_BUFFER_WAIT_TIME,
    SI_QUERY_NUM_MAPPED_BUFFERS,
    SI_QUERY_NUM_GFX_IBS,
@@ -273,15 +274,10 @@ struct pipe_query *gfx10_sh_query_create(struct si_screen *screen, enum pipe_que
 
 /* Performance counters */
 struct si_perfcounters {
-   unsigned num_groups;
-   unsigned num_blocks;
-   struct si_pc_block *blocks;
+   struct ac_perfcounters base;
 
    unsigned num_stop_cs_dwords;
    unsigned num_instance_cs_dwords;
-
-   bool separate_se;
-   bool separate_instance;
 };
 
 struct pipe_query *si_create_batch_query(struct pipe_context *ctx, unsigned num_queries,
@@ -293,10 +289,7 @@ int si_get_perfcounter_group_info(struct si_screen *, unsigned index,
                                   struct pipe_driver_query_group_info *info);
 
 struct si_qbo_state {
-   void *saved_compute;
    struct pipe_constant_buffer saved_const0;
-   struct pipe_shader_buffer saved_ssbo[3];
-   unsigned saved_ssbo_writable_mask;
 };
 
 #endif /* SI_QUERY_H */

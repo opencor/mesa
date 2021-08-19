@@ -42,6 +42,32 @@
 #include "qpu/qpu_instr.h"
 #include "pipe/p_state.h"
 
+/**
+ * Maximum number of outstanding TMU operations we can queue for execution.
+ *
+ * This is mostly limited by the size of the TMU fifos. The Input and Config
+ * fifos can stall, but we prefer that than injecting TMU flushes manually
+ * in the driver, so we can ignore these, but we can't overflow the Output fifo,
+ * which has 16 / threads per-thread entries, meaning that the maximum number
+ * of outstanding LDTMUs we can ever have is 8, for a 2-way threaded shader.
+ * This means that at most we can have 8 outstanding TMU loads, if each load
+ * is just one component.
+ *
+ * NOTE: we could actually have a larger value here because TMU stores don't
+ * consume any entries in the Output fifo (so we could have any number of
+ * outstanding stores) and the driver keeps track of used Output fifo entries
+ * and will flush if we ever needs more than 8, but since loads are much more
+ * common than stores, it is probably not worth it.
+ */
+#define MAX_TMU_QUEUE_SIZE 8
+
+/**
+ * Maximum offset distance in bytes between two consecutive constant UBO loads
+ * for the same UBO where we would favor updating the unifa address by emitting
+ * dummy ldunifa instructions to avoid writing the unifa register.
+ */
+#define MAX_UNIFA_SKIP_DISTANCE 16
+
 struct nir_builder;
 
 struct v3d_fs_inputs {
@@ -273,6 +299,11 @@ enum quniform_contents {
          */
         QUNIFORM_NUM_WORK_GROUPS,
 
+        /* Base workgroup offset passed to vkCmdDispatchBase in the dimension
+         * selected by the data value.
+         */
+        QUNIFORM_WORK_GROUP_BASE,
+
         /**
          * Returns the the offset of the scratch buffer for register spilling.
          */
@@ -342,9 +373,6 @@ struct v3d_key {
         void *shader_state;
         struct {
                 uint8_t swizzle[4];
-                bool clamp_s:1;
-                bool clamp_t:1;
-                bool clamp_r:1;
         } tex[V3D_MAX_TEXTURE_SAMPLERS];
         struct {
                 uint8_t return_size;
@@ -366,13 +394,10 @@ struct v3d_fs_key {
         bool is_lines;
         bool line_smoothing;
         bool point_coord_upper_left;
-        bool light_twoside;
         bool msaa;
         bool sample_coverage;
         bool sample_alpha_to_coverage;
         bool sample_alpha_to_one;
-        bool clamp_color;
-        bool shade_model_flat;
         /* Mask of which color render targets are present. */
         uint8_t cbufs;
         uint8_t swap_color_rb;
@@ -396,6 +421,19 @@ struct v3d_fs_key {
         uint32_t point_sprite_mask;
 
         struct pipe_rt_blend_state blend;
+
+        /* If the fragment shader reads gl_PrimitiveID then we have 2 scenarios:
+         *
+         * - If there is a geometry shader, then gl_PrimitiveID must be written
+         *   by it and the fragment shader loads it as a regular explicit input
+         *   varying. This is the only valid use case in GLES 3.1.
+         *
+         * - If there is not a geometry shader (allowed since GLES 3.2 and
+         *   Vulkan 1.0), then gl_PrimitiveID must be implicitly written by
+         *   hardware and is considered an implicit input varying in the
+         *   fragment shader.
+         */
+        bool has_gs;
 };
 
 struct v3d_gs_key {
@@ -451,6 +489,12 @@ struct qblock {
         uint32_t start_uniform;
         /** Offset within the uniform stream of the branch instruction */
         uint32_t branch_uniform;
+
+        /**
+         * Has the terminating branch of this block already been emitted
+         * by a break or continue?
+         */
+        bool branch_emitted;
 
         /** @{ used by v3d_vir_live_variables.c */
         BITSET_WORD *def;
@@ -518,10 +562,10 @@ enum v3d_compilation_result {
 struct v3d_compiler {
         const struct v3d_device_info *devinfo;
         struct ra_regs *regs;
-        unsigned int reg_class_any[3];
-        unsigned int reg_class_r5[3];
-        unsigned int reg_class_phys[3];
-        unsigned int reg_class_phys_or_acc[3];
+        struct ra_class *reg_class_any[3];
+        struct ra_class *reg_class_r5[3];
+        struct ra_class *reg_class_phys[3];
+        struct ra_class *reg_class_phys_or_acc[3];
 };
 
 /**
@@ -556,6 +600,23 @@ struct v3d_compile {
         struct qinst **defs;
         uint32_t defs_array_size;
 
+        /* TMU pipelining tracking */
+        struct {
+                /* NIR registers that have been updated with a TMU operation
+                 * that has not been flushed yet.
+                 */
+                struct set *outstanding_regs;
+
+                uint32_t output_fifo_size;
+
+                struct {
+                        nir_dest *dest;
+                        uint8_t num_components;
+                        uint8_t component_mask;
+                } flush[MAX_TMU_QUEUE_SIZE];
+                uint32_t flush_count;
+        } tmu;
+
         /**
          * Inputs to the shader, arranged by TGSI declaration order.
          *
@@ -588,6 +649,9 @@ struct v3d_compile {
         bool writes_z;
         bool uses_implicit_point_line_varyings;
 
+        /* True if a fragment shader reads gl_PrimitiveID */
+        bool fs_uses_primitive_id;
+
         /* If the fragment shader does anything that requires to force
          * per-sample MSAA, such as reading gl_SampleID.
          */
@@ -598,13 +662,62 @@ struct v3d_compile {
          */
         bool fallback_scheduler;
 
+        /* Disable TMU pipelining. This may increase the chances of being able
+         * to compile shaders with high register pressure that require to emit
+         * TMU spills.
+         */
+        bool disable_tmu_pipelining;
+        bool pipelined_any_tmu;
+
+        /* Disable sorting of UBO loads with constant offset. This may
+         * increase the chances of being able to compile shaders with high
+         * register pressure.
+         */
+        bool disable_constant_ubo_load_sorting;
+        bool sorted_any_ubo_loads;
+
+        /* Emits ldunif for each new uniform, even if the uniform was already
+         * emitted in the same block. Useful to compile shaders with high
+         * register pressure or to disable the optimization during uniform
+         * spills.
+         */
+        bool disable_ldunif_opt;
+
+        /* Disables loop unrolling to reduce register pressure. */
+        bool disable_loop_unrolling;
+        bool unrolled_any_loops;
+
+        /* Minimum number of threads we are willing to use to register allocate
+         * a shader with the current compilation strategy. This only prevents
+         * us from lowering the thread count to register allocate successfully,
+         * which can be useful when we prefer doing other changes to the
+         * compilation strategy before dropping thread count.
+         */
+        uint32_t min_threads_for_reg_alloc;
+
+        /* Whether TMU spills are allowed. If this is disabled it may cause
+         * register allocation to fail. We set this to favor other compilation
+         * strategies that can reduce register pressure and hopefully reduce or
+         * eliminate TMU spills in the shader.
+         */
+        bool tmu_spilling_allowed;
+
+        /* The UBO index and block used with the last unifa load, as well as the
+         * current unifa offset *after* emitting that load. This is used to skip
+         * unifa writes (and their 3 delay slot) when the next UBO load reads
+         * right after the previous one in the same block.
+         */
+        struct qblock *current_unifa_block;
+        int32_t current_unifa_index;
+        uint32_t current_unifa_offset;
+
         /* State for whether we're executing on each channel currently.  0 if
          * yes, otherwise a block number + 1 that the channel jumped to.
          */
         struct qreg execute;
         bool in_control_flow;
 
-        struct qreg line_x, point_x, point_y;
+        struct qreg line_x, point_x, point_y, primitive_id;
 
         /**
          * Instance ID, which comes in before the vertex attribute payload if
@@ -630,6 +743,9 @@ struct v3d_compile {
         struct qreg cs_payload[2];
         struct qreg cs_shared_offset;
         int local_invocation_index_bits;
+
+        /* If the shader uses subgroup functionality */
+        bool has_subgroups;
 
         uint8_t vattr_sizes[V3D_MAX_VS_INPUTS / 4];
         uint32_t vpm_output_size;
@@ -690,11 +806,19 @@ struct v3d_compile {
         struct qblock *cur_block;
         struct qblock *loop_cont_block;
         struct qblock *loop_break_block;
+        /**
+         * Which temp, if any, do we currently have in the flags?
+         * This is set when processing a comparison instruction, and
+         * reset to -1 by anything else that touches the flags.
+         */
+        int32_t flags_temp;
+        enum v3d_qpu_cond flags_cond;
 
         uint64_t *qpu_insts;
         uint32_t qpu_inst_count;
         uint32_t qpu_inst_size;
         uint32_t qpu_inst_stalled_count;
+        uint32_t nop_count;
 
         /* For the FS, the number of varying inputs not counting the
          * point/line varyings payload
@@ -746,6 +870,8 @@ struct v3d_prog_data {
         bool single_seg;
 
         bool tmu_dirty_rcl;
+
+        bool has_control_barrier;
 };
 
 struct v3d_vs_prog_data {
@@ -769,6 +895,15 @@ struct v3d_vs_prog_data {
 
         /* Value to be programmed in VCM_CACHE_SIZE. */
         uint8_t vcm_cache_size;
+
+        /* Maps the nir->data.location to its
+         * nir->data.driver_location. In general we are using the
+         * driver location as index (like vattr_sizes above), so this
+         * map is useful when what we have is the location
+         *
+         * Returns -1 if the location is not used
+         */
+        int32_t driver_location_map[V3D_MAX_VS_INPUTS];
 };
 
 struct v3d_gs_prog_data {
@@ -799,10 +934,15 @@ struct v3d_gs_prog_data {
 
         /* Number of GS invocations */
         uint8_t num_invocations;
+
+        bool writes_psiz;
 };
 
 struct v3d_fs_prog_data {
         struct v3d_prog_data base;
+
+        /* Whether the program reads gl_PrimitiveID */
+        bool uses_pid;
 
         struct v3d_varying_slot input_slots[V3D_MAX_FS_INPUTS];
 
@@ -830,7 +970,29 @@ struct v3d_compute_prog_data {
         struct v3d_prog_data base;
         /* Size in bytes of the workgroup's shared space. */
         uint32_t shared_size;
+        uint16_t local_size[3];
+        /* If the shader uses subgroup functionality */
+        bool has_subgroups;
 };
+
+struct vpm_config {
+   uint32_t As;
+   uint32_t Vc;
+   uint32_t Gs;
+   uint32_t Gd;
+   uint32_t Gv;
+   uint32_t Ve;
+   uint32_t gs_width;
+};
+
+bool
+v3d_compute_vpm_config(struct v3d_device_info *devinfo,
+                       struct v3d_vs_prog_data *vs_bin,
+                       struct v3d_vs_prog_data *vs,
+                       struct v3d_gs_prog_data *gs_bin,
+                       struct v3d_gs_prog_data *gs,
+                       struct vpm_config *vpm_cfg_bin,
+                       struct vpm_config *vpm_cfg);
 
 static inline bool
 vir_has_uniform(struct qinst *inst)
@@ -838,11 +1000,9 @@ vir_has_uniform(struct qinst *inst)
         return inst->uniform != ~0;
 }
 
-extern const nir_shader_compiler_options v3d_nir_options;
-
 const struct v3d_compiler *v3d_compiler_init(const struct v3d_device_info *devinfo);
 void v3d_compiler_free(const struct v3d_compiler *compiler);
-void v3d_optimize_nir(struct nir_shader *s);
+void v3d_optimize_nir(struct v3d_compile *c, struct nir_shader *s);
 
 uint64_t *v3d_compile(const struct v3d_compiler *compiler,
                       struct v3d_key *key,
@@ -884,8 +1044,8 @@ struct v3d_qpu_instr v3d_qpu_nop(void);
 struct qreg vir_emit_def(struct v3d_compile *c, struct qinst *inst);
 struct qinst *vir_emit_nondef(struct v3d_compile *c, struct qinst *inst);
 void vir_set_cond(struct qinst *inst, enum v3d_qpu_cond cond);
-void vir_set_pf(struct qinst *inst, enum v3d_qpu_pf pf);
-void vir_set_uf(struct qinst *inst, enum v3d_qpu_uf uf);
+void vir_set_pf(struct v3d_compile *c, struct qinst *inst, enum v3d_qpu_pf pf);
+void vir_set_uf(struct v3d_compile *c, struct qinst *inst, enum v3d_qpu_uf uf);
 void vir_set_unpack(struct qinst *inst, int src,
                     enum v3d_qpu_input_unpack unpack);
 void vir_set_pack(struct qinst *inst, enum v3d_qpu_output_pack pack);
@@ -898,7 +1058,7 @@ bool vir_has_side_effects(struct v3d_compile *c, struct qinst *inst);
 bool vir_get_add_op(struct qinst *inst, enum v3d_qpu_add_op *op);
 bool vir_get_mul_op(struct qinst *inst, enum v3d_qpu_mul_op *op);
 bool vir_is_raw_mov(struct qinst *inst);
-bool vir_is_tex(struct qinst *inst);
+bool vir_is_tex(const struct v3d_device_info *devinfo, struct qinst *inst);
 bool vir_is_add(struct qinst *inst);
 bool vir_is_mul(struct qinst *inst);
 bool vir_writes_r3(const struct v3d_device_info *devinfo, struct qinst *inst);
@@ -908,6 +1068,10 @@ uint8_t vir_channels_written(struct qinst *inst);
 struct qreg ntq_get_src(struct v3d_compile *c, nir_src src, int i);
 void ntq_store_dest(struct v3d_compile *c, nir_dest *dest, int chan,
                     struct qreg result);
+bool ntq_tmu_fifo_overflow(struct v3d_compile *c, uint32_t components);
+void ntq_add_pending_tmu_flush(struct v3d_compile *c, nir_dest *dest,
+                               uint32_t component_mask);
+void ntq_flush_tmu(struct v3d_compile *c);
 void vir_emit_thrsw(struct v3d_compile *c);
 
 void vir_dump(struct v3d_compile *c);
@@ -925,6 +1089,7 @@ bool vir_opt_peephole_sf(struct v3d_compile *c);
 bool vir_opt_redundant_flags(struct v3d_compile *c);
 bool vir_opt_small_immediates(struct v3d_compile *c);
 bool vir_opt_vpm(struct v3d_compile *c);
+bool vir_opt_constant_alu(struct v3d_compile *c);
 void v3d_nir_lower_blend(nir_shader *s, struct v3d_compile *c);
 void v3d_nir_lower_io(nir_shader *s, struct v3d_compile *c);
 void v3d_nir_lower_line_smooth(nir_shader *shader);
@@ -1114,6 +1279,8 @@ VIR_A_ALU1(NEG)
 VIR_A_ALU1(FLAPUSH)
 VIR_A_ALU1(FLBPUSH)
 VIR_A_ALU1(FLPOP)
+VIR_A_ALU0(FLAFIRST)
+VIR_A_ALU0(FLNAFIRST)
 VIR_A_ALU1(SETMSF)
 VIR_A_ALU1(SETREVF)
 VIR_A_ALU0(TIDX)

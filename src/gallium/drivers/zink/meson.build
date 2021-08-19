@@ -24,8 +24,11 @@ files_libzink = files(
   'nir_to_spirv/spirv_builder.c',
   'zink_batch.c',
   'zink_blit.c',
+  'zink_clear.c',
   'zink_compiler.c',
   'zink_context.c',
+  'zink_descriptors.c',
+  'zink_descriptors_lazy.c',
   'zink_draw.c',
   'zink_fence.c',
   'zink_format.c',
@@ -45,7 +48,7 @@ zink_device_info = custom_target(
   input : ['zink_device_info.py'],
   output : ['zink_device_info.h', 'zink_device_info.c'],
   command : [
-    prog_python, '@INPUT@', '@OUTPUT@'
+    prog_python, '@INPUT@', '@OUTPUT@', join_paths(meson.source_root(), 'src/vulkan/registry/vk.xml')
   ]
 )
 
@@ -54,7 +57,7 @@ zink_instance = custom_target(
   input : ['zink_instance.py'],
   output : ['zink_instance.h', 'zink_instance.c'],
   command : [
-    prog_python, '@INPUT@', '@OUTPUT@'
+    prog_python, '@INPUT@', '@OUTPUT@', join_paths(meson.source_root(), 'src/vulkan/registry/vk.xml')
   ]
 )
 
@@ -70,12 +73,27 @@ zink_nir_algebraic_c = custom_target(
   depend_files : nir_algebraic_py,
 )
 
+zink_c_args = []
+inc_zink_vk = []
+
+if with_swrast_vk
+  zink_c_args += '-DZINK_WITH_SWRAST_VK'
+endif
+
+# MoltenVK options
+if with_moltenvk_dir != ''
+  inc_zink_vk  = [inc_zink_vk, include_directories( join_paths(with_moltenvk_dir, 'include') )]
+  zink_c_args += ['-x','objective-c'] # Put compiler into objective-C mode to allow for MacOS types, like IOSurface and CAMetalLayer
+  zink_c_args += ['-iframework' , 'Foundation']
+endif
+
 libzink = static_library(
   'zink',
-  [files_libzink, zink_device_info, zink_instance, zink_nir_algebraic_c],
+  [files_libzink, zink_device_info, zink_instance, zink_nir_algebraic_c, vk_dispatch_table],
   gnu_symbol_visibility : 'hidden',
-  include_directories : [inc_include, inc_src, inc_mapi, inc_mesa, inc_gallium, inc_gallium_aux, inc_vulkan_wsi, inc_vulkan_util],
-  dependencies: [dep_vulkan, idep_nir_headers, idep_mesautil],
+  include_directories : [inc_include, inc_src, inc_mapi, inc_mesa, inc_gallium, inc_gallium_aux, inc_vulkan_wsi, inc_vulkan_util, inc_zink_vk],
+  dependencies: [dep_vulkan, idep_nir_headers, idep_mesautil, idep_vulkan_util_headers],
+  c_args: zink_c_args,
 )
 
 driver_zink = declare_dependency(

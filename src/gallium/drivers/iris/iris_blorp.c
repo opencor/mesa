@@ -41,7 +41,7 @@
 #include "iris_context.h"
 
 #include "util/u_upload_mgr.h"
-#include "intel/common/gen_l3_config.h"
+#include "intel/common/intel_l3_config.h"
 
 #include "blorp/blorp_genX_exec.h"
 
@@ -177,7 +177,7 @@ blorp_alloc_vertex_buffer(struct blorp_batch *blorp_batch,
    struct iris_bo *bo;
    uint32_t offset;
 
-   void *map = stream_state(batch, ice->ctx.stream_uploader, size, 64,
+   void *map = stream_state(batch, ice->ctx.const_uploader, size, 64,
                             &offset, &bo);
 
    *addr = (struct blorp_address) {
@@ -200,7 +200,7 @@ blorp_vf_invalidate_for_vb_48b_transitions(struct blorp_batch *blorp_batch,
                                            UNUSED uint32_t *sizes,
                                            unsigned num_vbs)
 {
-#if GEN_GEN < 11
+#if GFX_VER < 11
    struct iris_context *ice = blorp_batch->blorp->driver_ctx;
    struct iris_batch *batch = blorp_batch->driver_batch;
    bool need_invalidate = false;
@@ -245,7 +245,7 @@ blorp_flush_range(UNUSED struct blorp_batch *blorp_batch,
     */
 }
 
-static const struct gen_l3_config *
+static const struct intel_l3_config *
 blorp_get_l3_config(struct blorp_batch *blorp_batch)
 {
    struct iris_batch *batch = blorp_batch->driver_batch;
@@ -259,7 +259,7 @@ iris_blorp_exec(struct blorp_batch *blorp_batch,
    struct iris_context *ice = blorp_batch->blorp->driver_ctx;
    struct iris_batch *batch = blorp_batch->driver_batch;
 
-#if GEN_GEN >= 11
+#if GFX_VER >= 11
    /* The PIPE_CONTROL command description says:
     *
     *    "Whenever a Binding Table Index (BTI) used by a Render Target Message
@@ -274,21 +274,35 @@ iris_blorp_exec(struct blorp_batch *blorp_batch,
                                 PIPE_CONTROL_STALL_AT_SCOREBOARD);
 #endif
 
-   /* Flush the render cache in cases where the same surface is reinterpreted
-    * with a differernt format, which blorp does for stencil and depth data
-    * among other things.  Invalidation of sampler caches and flushing of any
-    * caches which had previously written the source surfaces should already
-    * have been handled by the caller.
+#if GFX_VERx10 == 120
+   if (!(blorp_batch->flags & BLORP_BATCH_NO_EMIT_DEPTH_STENCIL)) {
+      /* Wa_14010455700
+       *
+       * ISL will change some CHICKEN registers depending on the depth surface
+       * format, along with emitting the depth and stencil packets. In that
+       * case, we want to do a depth flush and stall, so the pipeline is not
+       * using these settings while we change the registers.
+       */
+      iris_emit_end_of_pipe_sync(batch,
+                                 "Workaround: Stop pipeline for 14010455700",
+                                 PIPE_CONTROL_DEPTH_STALL |
+                                 PIPE_CONTROL_DEPTH_CACHE_FLUSH);
+   }
+#endif
+
+   /* Flush the render cache in cases where the same surface is used with
+    * different aux modes, which can lead to GPU hangs.  Invalidation of
+    * sampler caches and flushing of any caches which had previously written
+    * the source surfaces should already have been handled by the caller.
     */
    if (params->dst.enabled) {
       iris_cache_flush_for_render(batch, params->dst.addr.buffer,
-                                  params->dst.view.format,
                                   params->dst.aux_usage);
    }
 
    iris_require_command_space(batch, 1400);
 
-#if GEN_GEN == 8
+#if GFX_VER == 8
    genX(update_pma_fix)(ice, batch, false);
 #endif
 
@@ -298,7 +312,7 @@ iris_blorp_exec(struct blorp_batch *blorp_batch,
                               params->y1 - params->y0, scale);
    }
 
-#if GEN_GEN >= 12
+#if GFX_VER >= 12
    genX(invalidate_aux_map_state)(batch);
 #endif
 
@@ -360,6 +374,9 @@ iris_blorp_exec(struct blorp_batch *blorp_batch,
    ice->state.dirty |= ~skip_bits;
    ice->state.stage_dirty |= ~skip_stage_bits;
 
+   for (int i = 0; i < ARRAY_SIZE(ice->shaders.urb.size); i++)
+      ice->shaders.urb.size[i] = 0;
+
    if (params->src.enabled)
       iris_bo_bump_seqno(params->src.addr.buffer, batch->next_seqno,
                          IRIS_DOMAIN_OTHER_READ);
@@ -372,6 +389,19 @@ iris_blorp_exec(struct blorp_batch *blorp_batch,
    if (params->stencil.enabled)
       iris_bo_bump_seqno(params->stencil.addr.buffer, batch->next_seqno,
                          IRIS_DOMAIN_DEPTH_WRITE);
+}
+
+static void
+blorp_measure_start(struct blorp_batch *blorp_batch,
+                    const struct blorp_params *params)
+{
+   struct iris_context *ice = blorp_batch->blorp->driver_ctx;
+   struct iris_batch *batch = blorp_batch->driver_batch;
+
+   if (batch->measure == NULL)
+      return;
+
+   iris_measure_snapshot(ice, batch, params->snapshot_type, NULL, NULL, NULL);
 }
 
 void

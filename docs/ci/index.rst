@@ -6,7 +6,7 @@ GitLab CI
 
 GitLab provides a convenient framework for running commands in response to Git pushes.
 We use it to test merge requests (MRs) before merging them (pre-merge testing),
-as well as post-merge testing, for everything that hits ``master``
+as well as post-merge testing, for everything that hits ``main``
 (this is necessary because we still allow commits to be pushed outside of MRs,
 and even then the MR CI runs in the forked repository, which might have been
 modified and thus is unreliable).
@@ -14,7 +14,7 @@ modified and thus is unreliable).
 The CI runs a number of tests, from trivial build-testing to complex GPU rendering:
 
 - Build testing for a number of build systems, configurations and platforms
-- Sanity checks (``meson test`` & ``scons check``)
+- Sanity checks (``meson test``)
 - Some drivers (softpipe, llvmpipe, freedreno and panfrost) are also tested
   using `VK-GL-CTS <https://github.com/KhronosGroup/VK-GL-CTS>`__
 - Replay of application traces
@@ -37,7 +37,7 @@ empty (or set to the default ``.gitlab-ci.yml``), and that the
 "Public pipelines" box is checked.
 
 If you're having issues with the GitLab CI, your best bet is to ask
-about it on ``#freedesktop`` on Freenode and tag `Daniel Stone
+about it on ``#freedesktop`` on OFTC and tag `Daniel Stone
 <https://gitlab.freedesktop.org/daniels>`__ (``daniels`` on IRC) or
 `Eric Anholt <https://gitlab.freedesktop.org/anholt>`__ (``anholt`` on
 IRC).
@@ -79,10 +79,8 @@ and a few other tools.
 A typical run takes between 30 minutes and an hour.
 
 If you're having issues with the Intel CI, your best bet is to ask about
-it on ``#dri-devel`` on Freenode and tag `Clayton Craft
-<https://gitlab.freedesktop.org/craftyguy>`__ (``craftyguy`` on IRC) or
-`Nico Cortes <https://gitlab.freedesktop.org/ngcortes>`__ (``ngcortes``
-on IRC).
+it on ``#dri-devel`` on OFTC and tag `Nico Cortes
+<https://gitlab.freedesktop.org/ngcortes>`__ (``ngcortes`` on IRC).
 
 .. _CI-farm-expectations:
 
@@ -102,11 +100,11 @@ pipeline backing up.  As a result, we require that the test farm be
 able to handle a whole pipeline's worth of jobs in less than 15 minutes
 (to compare, the build stage is about 10 minutes).
 
-If a test farm is short the HW to provide these guarantees, consider
-dropping tests to reduce runtime.
-``VK-GL-CTS/scripts/log/bottleneck_report.py`` can help you find what
-tests were slow in a ``results.qpa`` file.  Or, you can have a job with
-no ``parallel`` field set and:
+If a test farm is short the HW to provide these guarantees, consider dropping
+tests to reduce runtime.  dEQP job logs print the slowest tests at the end of
+the run, and piglit logs the runtime of tests in the results.json.bz2 in the
+artifacts.  Or, you can add the following to your job to only run some fraction
+(in this case, 1/10th) of the deqp tests.
 
 .. code-block:: yaml
 
@@ -175,7 +173,7 @@ branch, which can get tedious.  Instead, you can navigate to the
 `container registry
 <https://gitlab.freedesktop.org/mesa/mesa/container_registry>`_ for
 your repository and delete the tag to force a rebuild.  When your code
-is eventually merged to master, a full image rebuild will occur again
+is eventually merged to main, a full image rebuild will occur again
 (forks inherit images from the main repo, but MRs don't propagate
 images from the fork into the main repo's registry).
 

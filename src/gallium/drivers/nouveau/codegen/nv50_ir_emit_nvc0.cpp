@@ -29,13 +29,11 @@ namespace nv50_ir {
 class CodeEmitterNVC0 : public CodeEmitter
 {
 public:
-   CodeEmitterNVC0(const TargetNVC0 *);
+   CodeEmitterNVC0(const TargetNVC0 *, Program::Type);
 
    virtual bool emitInstruction(Instruction *);
    virtual uint32_t getMinEncodingSize(const Instruction *) const;
    virtual void prepareEmission(Function *);
-
-   inline void setProgramType(Program::Type pType) { progType = pType; }
 
 private:
    const TargetNVC0 *targNVC0;
@@ -3022,7 +3020,8 @@ CodeEmitterNVC0::getMinEncodingSize(const Instruction *i) const
 class SchedDataCalculator : public Pass
 {
 public:
-   SchedDataCalculator(const Target *targ) : targ(targ) { }
+   SchedDataCalculator(const Target *targ) : score(NULL), prevData(0),
+      prevOp(OP_NOP), targ(targ) { }
 
 private:
    struct RegScores
@@ -3518,9 +3517,10 @@ CodeEmitterNVC0::prepareEmission(Function *func)
       calculateSchedDataNVC0(targ, func);
 }
 
-CodeEmitterNVC0::CodeEmitterNVC0(const TargetNVC0 *target)
+CodeEmitterNVC0::CodeEmitterNVC0(const TargetNVC0 *target, Program::Type type)
    : CodeEmitter(target),
      targNVC0(target),
+     progType(type),
      writeIssueDelays(target->hasSWSched)
 {
    code = NULL;
@@ -3531,8 +3531,7 @@ CodeEmitterNVC0::CodeEmitterNVC0(const TargetNVC0 *target)
 CodeEmitter *
 TargetNVC0::createCodeEmitterNVC0(Program::Type type)
 {
-   CodeEmitterNVC0 *emit = new CodeEmitterNVC0(this);
-   emit->setProgramType(type);
+   CodeEmitterNVC0 *emit = new CodeEmitterNVC0(this, type);
    return emit;
 }
 

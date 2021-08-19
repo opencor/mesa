@@ -408,6 +408,10 @@ opt_split_alu_of_phi(nir_builder *b, nir_loop *loop)
    if (header_block->predecessors->entries != 2)
       return false;
 
+   nir_block *continue_block = find_continue_block(loop);
+   if (continue_block == header_block)
+      return false;
+
    nir_foreach_instr_safe(instr, header_block) {
       if (instr->type != nir_instr_type_alu)
          continue;
@@ -499,8 +503,6 @@ opt_split_alu_of_phi(nir_builder *b, nir_loop *loop)
       }
 
       /* Split ALU of Phi */
-      nir_block *const continue_block = find_continue_block(loop);
-
       b->cursor = nir_after_block(prev_block);
       nir_ssa_def *prev_value = clone_alu_and_replace_src_defs(b, alu, prev_srcs);
 
@@ -541,7 +543,7 @@ opt_split_alu_of_phi(nir_builder *b, nir_loop *loop)
        * result of the phi.
        */
       nir_ssa_def_rewrite_uses(&alu->dest.dest.ssa,
-                               nir_src_for_ssa(&phi->dest.ssa));
+                               &phi->dest.ssa);
 
       /* Since the original ALU instruction no longer has any readers, just
        * remove it.
@@ -683,7 +685,7 @@ opt_simplify_bcsel_of_phi(nir_builder *b, nir_loop *loop)
        * continue_block from the other bcsel source.  Both sources have
        * already been verified to be phi nodes.
        */
-      nir_block *const continue_block = find_continue_block(loop);
+      nir_block *continue_block = find_continue_block(loop);
       nir_phi_instr *const phi = nir_phi_instr_create(b->shader);
       nir_phi_src *phi_src;
 
@@ -714,7 +716,7 @@ opt_simplify_bcsel_of_phi(nir_builder *b, nir_loop *loop)
        * the phi.
        */
       nir_ssa_def_rewrite_uses(&bcsel->dest.dest.ssa,
-                               nir_src_for_ssa(&phi->dest.ssa));
+                               &phi->dest.ssa);
 
       /* Since the original bcsel instruction no longer has any readers,
        * just remove it.
@@ -788,7 +790,7 @@ nir_block_ends_in_continue(nir_block *block)
 static bool
 opt_if_loop_last_continue(nir_loop *loop, bool aggressive_last_continue)
 {
-   nir_if *nif;
+   nir_if *nif = NULL;
    bool then_ends_in_continue = false;
    bool else_ends_in_continue = false;
 
@@ -824,7 +826,7 @@ opt_if_loop_last_continue(nir_loop *loop, bool aggressive_last_continue)
    }
 
    /* If we didn't find an if to optimise return */
-   if (!then_ends_in_continue && !else_ends_in_continue)
+   if (!nif || (!then_ends_in_continue && !else_ends_in_continue))
       return false;
 
    /* If there is nothing after the if-statement we bail */
@@ -1041,7 +1043,7 @@ clone_alu_and_replace_src_defs(nir_builder *b, const nir_alu_instr *alu,
 
    nir_ssa_dest_init(&nalu->instr, &nalu->dest.dest,
                      alu->dest.dest.ssa.num_components,
-                     alu->dest.dest.ssa.bit_size, alu->dest.dest.ssa.name);
+                     alu->dest.dest.ssa.bit_size, NULL);
 
    nalu->dest.saturate = alu->dest.saturate;
    nalu->dest.write_mask = alu->dest.write_mask;

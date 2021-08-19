@@ -22,6 +22,7 @@
 
 #include "pipe/p_context.h"
 #include "pipe/p_state.h"
+#include "util/u_draw.h"
 #include "util/u_inlines.h"
 #include "util/u_prim.h"
 #include "util/format/u_format.h"
@@ -757,23 +758,26 @@ nv50_draw_vbo_kick_notify(struct nouveau_pushbuf *chan)
 
 void
 nv50_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+              unsigned drawid_offset,
               const struct pipe_draw_indirect_info *indirect,
-              const struct pipe_draw_start_count *draws,
+              const struct pipe_draw_start_count_bias *draws,
               unsigned num_draws)
 {
    if (num_draws > 1) {
-      struct pipe_draw_info tmp_info = *info;
-
-      for (unsigned i = 0; i < num_draws; i++) {
-         nv50_draw_vbo(pipe, &tmp_info, indirect, &draws[i], 1);
-         if (tmp_info.increment_draw_id)
-            tmp_info.drawid++;
-      }
+      util_draw_multi(pipe, info, drawid_offset, indirect, draws, num_draws);
       return;
    }
 
    if (!indirect && (!draws[0].count || !info->instance_count))
       return;
+
+   /* We don't actually support indirect draws, so add a fallback for ES 3.1's
+    * benefit.
+    */
+   if (indirect && indirect->buffer) {
+      util_draw_indirect(pipe, info, indirect);
+      return;
+   }
 
    struct nv50_context *nv50 = nv50_context(pipe);
    struct nouveau_pushbuf *push = nv50->base.pushbuf;
@@ -785,7 +789,7 @@ nv50_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
 
    /* NOTE: caller must ensure that (min_index + index_bias) is >= 0 */
    if (info->index_bounds_valid) {
-      nv50->vb_elt_first = info->min_index + (info->index_size ? info->index_bias : 0);
+      nv50->vb_elt_first = info->min_index + (info->index_size ? draws->index_bias : 0);
       nv50->vb_elt_limit = info->max_index - info->min_index;
    } else {
       nv50->vb_elt_first = 0;
@@ -815,7 +819,7 @@ nv50_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
 
    push->kick_notify = nv50_draw_vbo_kick_notify;
 
-   for (s = 0; s < 3 && !nv50->cb_dirty; ++s) {
+   for (s = 0; s < NV50_MAX_3D_SHADER_STAGES && !nv50->cb_dirty; ++s) {
       if (nv50->constbuf_coherent[s])
          nv50->cb_dirty = true;
    }
@@ -827,7 +831,7 @@ nv50_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
       nv50->cb_dirty = false;
    }
 
-   for (s = 0; s < 3 && !tex_dirty; ++s) {
+   for (s = 0; s < NV50_MAX_3D_SHADER_STAGES && !tex_dirty; ++s) {
       if (nv50->textures_coherent[s])
          tex_dirty = true;
    }
@@ -909,7 +913,7 @@ nv50_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
 
       nv50_draw_elements(nv50, shorten, info,
                          info->mode, draws[0].start, draws[0].count,
-                         info->instance_count, info->index_bias, info->index_size);
+                         info->instance_count, draws->index_bias, info->index_size);
    } else
    if (unlikely(indirect && indirect->count_from_stream_output)) {
       nva0_draw_stream_output(nv50, info, indirect);

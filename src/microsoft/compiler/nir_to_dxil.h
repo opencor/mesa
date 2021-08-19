@@ -34,9 +34,6 @@ extern "C" {
 
 struct blob;
 
-const char *
-dxil_vs_attr_index_to_name(unsigned index);
-
 enum dxil_sysvalue_type {
    DXIL_NO_SYSVALUE = 0,
    DXIL_SYSVALUE,
@@ -53,6 +50,7 @@ struct nir_to_dxil_options {
    unsigned ubo_binding_offset;
    unsigned provoking_vertex;
    unsigned num_kernel_globals;
+   bool vulkan_environment;
 };
 
 bool

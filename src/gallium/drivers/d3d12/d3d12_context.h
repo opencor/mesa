@@ -87,22 +87,6 @@ enum d3d12_binding_type {
    D3D12_NUM_BINDING_TYPES
 };
 
-enum resource_dimension
-{
-   RESOURCE_DIMENSION_UNKNOWN = 0,
-   RESOURCE_DIMENSION_BUFFER = 1,
-   RESOURCE_DIMENSION_TEXTURE1D = 2,
-   RESOURCE_DIMENSION_TEXTURE2D = 3,
-   RESOURCE_DIMENSION_TEXTURE2DMS = 4,
-   RESOURCE_DIMENSION_TEXTURE3D = 5,
-   RESOURCE_DIMENSION_TEXTURECUBE = 6,
-   RESOURCE_DIMENSION_TEXTURE1DARRAY = 7,
-   RESOURCE_DIMENSION_TEXTURE2DARRAY = 8,
-   RESOURCE_DIMENSION_TEXTURE2DMSARRAY = 9,
-   RESOURCE_DIMENSION_TEXTURECUBEARRAY = 10,
-   RESOURCE_DIMENSION_COUNT
-};
-
 struct d3d12_sampler_state {
    struct d3d12_descriptor_handle handle, handle_without_shadow;
    bool is_integer_texture;
@@ -230,13 +214,7 @@ struct d3d12_context {
    struct list_head active_queries;
    bool queries_disabled;
 
-   struct d3d12_descriptor_pool *rtv_pool;
-   struct d3d12_descriptor_pool *dsv_pool;
    struct d3d12_descriptor_pool *sampler_pool;
-   struct d3d12_descriptor_pool *view_pool;
-
-   struct d3d12_descriptor_handle null_srvs[RESOURCE_DIMENSION_COUNT];
-   struct d3d12_descriptor_handle null_rtv;
    struct d3d12_descriptor_handle null_sampler;
 
    PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE D3D12SerializeVersionedRootSignature;
@@ -251,7 +229,8 @@ struct d3d12_context {
 #endif
    struct pipe_query *timestamp_query;
 
-   void *stencil_resolve_vs, *stencil_resolve_fs, *sampler_state; /* used by d3d12_blit.cpp */
+   /* used by d3d12_blit.cpp */
+   void *stencil_resolve_vs, *stencil_resolve_fs, *stencil_resolve_fs_no_flip, *sampler_state;
 };
 
 static inline struct d3d12_context *
@@ -292,10 +271,16 @@ void
 d3d12_flush_cmdlist_and_wait(struct d3d12_context *ctx);
 
 
+enum d3d12_bind_invalidate_option {
+   D3D12_BIND_INVALIDATE_NONE,
+   D3D12_BIND_INVALIDATE_FULL,
+};
+
 void
 d3d12_transition_resource_state(struct d3d12_context* ctx,
                                 struct d3d12_resource* res,
-                                D3D12_RESOURCE_STATES state);
+                                D3D12_RESOURCE_STATES state,
+                                d3d12_bind_invalidate_option bind_invalidate);
 
 void
 d3d12_transition_subresources_state(struct d3d12_context *ctx,
@@ -303,7 +288,8 @@ d3d12_transition_subresources_state(struct d3d12_context *ctx,
                                     unsigned start_level, unsigned num_levels,
                                     unsigned start_layer, unsigned num_layers,
                                     unsigned start_plane, unsigned num_planes,
-                                    D3D12_RESOURCE_STATES state);
+                                    D3D12_RESOURCE_STATES state,
+                                    d3d12_bind_invalidate_option bind_invalidate);
 
 void
 d3d12_apply_resource_states(struct d3d12_context* ctx);
@@ -311,8 +297,9 @@ d3d12_apply_resource_states(struct d3d12_context* ctx);
 void
 d3d12_draw_vbo(struct pipe_context *pctx,
                const struct pipe_draw_info *dinfo,
+               unsigned drawid_offset,
                const struct pipe_draw_indirect_info *indirect,
-               const struct pipe_draw_start_count *draws,
+               const struct pipe_draw_start_count_bias *draws,
                unsigned num_draws);
 
 void

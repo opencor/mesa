@@ -47,13 +47,20 @@
 
 #include "c11/threads.h"
 #include "main/macros.h"
+#include "util/bitscan.h"
 #include "util/list.h"
 #include "util/log.h"
 #include "util/macros.h"
 #include "util/u_atomic.h"
+#include "util/u_dynarray.h"
 #include "vk_alloc.h"
-#include "vk_object.h"
 #include "vk_debug_report.h"
+#include "vk_device.h"
+#include "vk_dispatch_table.h"
+#include "vk_extensions.h"
+#include "vk_instance.h"
+#include "vk_physical_device.h"
+#include "vk_shader_module.h"
 #include "wsi_common.h"
 
 #include "ir3/ir3_compiler.h"
@@ -67,7 +74,6 @@
 #include "perfcntrs/freedreno_perfcntr.h"
 
 #include "tu_descriptor_set.h"
-#include "tu_extensions.h"
 #include "tu_util.h"
 
 /* Pre-declarations needed for WSI entrypoints */
@@ -80,7 +86,6 @@ typedef uint32_t xcb_window_t;
 #include <vulkan/vk_android_native_buffer.h>
 #include <vulkan/vk_icd.h>
 #include <vulkan/vulkan.h>
-#include <vulkan/vulkan_intel.h>
 
 #include "tu_entrypoints.h"
 
@@ -113,10 +118,6 @@ typedef uint32_t xcb_window_t;
 
 #define A6XX_TEX_CONST_DWORDS 16
 #define A6XX_TEX_SAMP_DWORDS 4
-
-#define for_each_bit(b, dword)                                               \
-   for (uint32_t __dword = (dword);                                          \
-        (b) = __builtin_ffs(__dword) - 1, __dword; __dword &= ~(1 << (b)))
 
 #define COND(bool, val) ((bool) ? (val) : 0)
 #define BIT(bit) (1u << (bit))
@@ -170,22 +171,30 @@ __tu_finishme(const char *file, int line, const char *format, ...)
       tu_finishme("stub %s", __func__);                                      \
    } while (0)
 
-void *
-tu_lookup_entrypoint_unchecked(const char *name);
-void *
-tu_lookup_entrypoint_checked(
-   const char *name,
-   uint32_t core_version,
-   const struct tu_instance_extension_table *instance,
-   const struct tu_device_extension_table *device);
+struct tu_memory_heap {
+   /* Standard bits passed on to the client */
+   VkDeviceSize      size;
+   VkMemoryHeapFlags flags;
+
+   /** Copied from ANV:
+    *
+    * Driver-internal book-keeping.
+    *
+    * Align it to 64 bits to make atomic operations faster on 32 bit platforms.
+    */
+   VkDeviceSize      used __attribute__ ((aligned (8)));
+};
+
+uint64_t
+tu_get_system_heap_size(void);
 
 struct tu_physical_device
 {
-   struct vk_object_base base;
+   struct vk_physical_device vk;
 
    struct tu_instance *instance;
 
-   char name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE];
+   const char *name;
    uint8_t driver_uuid[VK_UUID_SIZE];
    uint8_t device_uuid[VK_UUID_SIZE];
    uint8_t cache_uuid[VK_UUID_SIZE];
@@ -198,8 +207,10 @@ struct tu_physical_device
    unsigned gpu_id;
    uint32_t gmem_size;
    uint64_t gmem_base;
+   uint32_t ccu_offset_gmem;
+   uint32_t ccu_offset_bypass;
 
-   struct freedreno_dev_info info;
+   const struct fd_dev_info *info;
 
    int msm_major_version;
    int msm_minor_version;
@@ -209,7 +220,7 @@ struct tu_physical_device
     */
    struct disk_cache *disk_cache;
 
-   struct tu_device_extension_table supported_extensions;
+   struct tu_memory_heap heap;
 };
 
 enum tu_debug_flags
@@ -227,19 +238,13 @@ enum tu_debug_flags
 
 struct tu_instance
 {
-   struct vk_object_base base;
-
-   VkAllocationCallbacks alloc;
+   struct vk_instance vk;
 
    uint32_t api_version;
    int physical_device_count;
    struct tu_physical_device physical_devices[TU_MAX_DRM_DEVICES];
 
    enum tu_debug_flags debug_flags;
-
-   struct vk_debug_report_instance debug_report_callbacks;
-
-   struct tu_instance_extension_table enabled_extensions;
 };
 
 VkResult
@@ -296,6 +301,9 @@ struct tu_queue
 
    uint32_t msm_queue_id;
    int fence;
+
+   /* Queue containing deferred submits */
+   struct list_head queued_submits;
 };
 
 struct tu_bo
@@ -381,8 +389,6 @@ struct tu_device
 
    struct tu_bo global_bo;
 
-   struct tu_device_extension_table enabled_extensions;
-
    uint32_t vsc_draw_strm_pitch;
    uint32_t vsc_prim_strm_pitch;
    BITSET_DECLARE(custom_border_color, TU_BORDER_COLOR_COUNT);
@@ -398,6 +404,20 @@ struct tu_device
    /* Command streams to set pass index to a scratch reg */
    struct tu_cs *perfcntrs_pass_cs;
    struct tu_cs_entry *perfcntrs_pass_cs_entries;
+
+   /* Condition variable for timeline semaphore to notify waiters when a
+    * new submit is executed. */
+   pthread_cond_t timeline_cond;
+   pthread_mutex_t submit_mutex;
+
+#ifdef ANDROID
+   const void *gralloc;
+   enum {
+      TU_GRALLOC_UNKNOWN,
+      TU_GRALLOC_CROS,
+      TU_GRALLOC_OTHER,
+   } gralloc_type;
+#endif
 };
 
 VkResult _tu_device_set_lost(struct tu_device *device,
@@ -412,7 +432,18 @@ tu_device_is_lost(struct tu_device *device)
 }
 
 VkResult
-tu_bo_init_new(struct tu_device *dev, struct tu_bo *bo, uint64_t size, bool dump);
+tu_device_submit_deferred_locked(struct tu_device *dev);
+
+enum tu_bo_alloc_flags
+{
+   TU_BO_ALLOC_NO_FLAGS = 0,
+   TU_BO_ALLOC_ALLOW_DUMP = 1 << 0,
+   TU_BO_ALLOC_GPU_READ_ONLY = 1 << 1,
+};
+
+VkResult
+tu_bo_init_new(struct tu_device *dev, struct tu_bo *bo, uint64_t size,
+               enum tu_bo_alloc_flags flags);
 VkResult
 tu_bo_init_dmabuf(struct tu_device *dev,
                   struct tu_bo *bo,
@@ -469,6 +500,7 @@ enum tu_dynamic_state
 
 enum tu_draw_state_group_id
 {
+   TU_DRAW_STATE_PROGRAM_CONFIG,
    TU_DRAW_STATE_PROGRAM,
    TU_DRAW_STATE_PROGRAM_BINNING,
    TU_DRAW_STATE_TESS,
@@ -477,10 +509,7 @@ enum tu_draw_state_group_id
    TU_DRAW_STATE_VI_BINNING,
    TU_DRAW_STATE_RAST,
    TU_DRAW_STATE_BLEND,
-   TU_DRAW_STATE_VS_CONST,
-   TU_DRAW_STATE_HS_CONST,
-   TU_DRAW_STATE_DS_CONST,
-   TU_DRAW_STATE_GS_CONST,
+   TU_DRAW_STATE_SHADER_GEOM_CONST,
    TU_DRAW_STATE_FS_CONST,
    TU_DRAW_STATE_DESC_SETS,
    TU_DRAW_STATE_DESC_SETS_LOAD,
@@ -488,6 +517,7 @@ enum tu_draw_state_group_id
    TU_DRAW_STATE_INPUT_ATTACHMENTS_GMEM,
    TU_DRAW_STATE_INPUT_ATTACHMENTS_SYSMEM,
    TU_DRAW_STATE_LRZ,
+   TU_DRAW_STATE_DEPTH_PLANE,
 
    /* dynamic state related draw states */
    TU_DRAW_STATE_DYNAMIC,
@@ -681,8 +711,9 @@ enum tu_cmd_dirty_bits
    TU_CMD_DIRTY_COMPUTE_DESC_SETS_LOAD = BIT(6),
    TU_CMD_DIRTY_SHADER_CONSTS = BIT(7),
    TU_CMD_DIRTY_LRZ = BIT(8),
+   TU_CMD_DIRTY_VS_PARAMS = BIT(9),
    /* all draw states were disabled and need to be re-enabled: */
-   TU_CMD_DIRTY_DRAW_STATE = BIT(9)
+   TU_CMD_DIRTY_DRAW_STATE = BIT(10)
 };
 
 /* There are only three cache domains we have to care about: the CCU, or
@@ -834,15 +865,25 @@ struct tu_cache_state {
    enum tu_cmd_flush_bits flush_bits;
 };
 
+enum tu_lrz_force_disable_mask {
+   TU_LRZ_FORCE_DISABLE_LRZ = 1 << 0,
+   TU_LRZ_FORCE_DISABLE_WRITE = 1 << 1,
+};
+
+enum tu_lrz_direction {
+   TU_LRZ_UNKNOWN,
+   /* Depth func less/less-than: */
+   TU_LRZ_LESS,
+   /* Depth func greater/greater-than: */
+   TU_LRZ_GREATER,
+};
+
 struct tu_lrz_pipeline
 {
-   bool write : 1;
-   bool invalidate : 1;
-
-   bool enable : 1;
-   bool greater : 1;
-   bool z_test_enable : 1;
-   bool blend_disable_write : 1;
+   uint32_t force_disable_mask;
+   bool fs_has_kill;
+   bool force_late_z;
+   bool early_fragment_tests;
 };
 
 struct tu_lrz_state
@@ -851,6 +892,13 @@ struct tu_lrz_state
    struct tu_image *image;
    bool valid : 1;
    struct tu_draw_state state;
+   enum tu_lrz_direction prev_direction;
+};
+
+struct tu_vs_params {
+   uint32_t params_offset;
+   uint32_t vertex_offset;
+   uint32_t first_instance;
 };
 
 struct tu_cmd_state
@@ -884,7 +932,7 @@ struct tu_cmd_state
    /* saved states to re-emit in TU_CMD_DIRTY_DRAW_STATE case */
    struct tu_draw_state dynamic_state[TU_DYNAMIC_STATE_COUNT];
    struct tu_draw_state vertex_buffers;
-   struct tu_draw_state shader_const[MESA_SHADER_STAGES];
+   struct tu_draw_state shader_const[2];
    struct tu_draw_state desc_sets;
 
    struct tu_draw_state vs_params;
@@ -924,6 +972,10 @@ struct tu_cmd_state
    bool predication_active;
 
    struct tu_lrz_state lrz;
+
+   struct tu_draw_state depth_plane_state;
+
+   struct tu_vs_params last_vs_params;
 };
 
 struct tu_cmd_pool
@@ -1017,14 +1069,6 @@ struct tu_event
    struct tu_bo bo;
 };
 
-struct tu_shader_module
-{
-   struct vk_object_base base;
-
-   uint32_t code_size;
-   uint32_t code[];
-};
-
 struct tu_push_constant_range
 {
    uint32_t lo;
@@ -1070,11 +1114,25 @@ struct tu_program_descriptor_linkage
    struct tu_push_constant_range push_consts;
 };
 
+struct tu_pipeline_executable {
+   gl_shader_stage stage;
+
+   struct ir3_info stats;
+   bool is_binning;
+
+   char *nir_from_spirv;
+   char *nir_final;
+   char *disasm;
+};
+
 struct tu_pipeline
 {
    struct vk_object_base base;
 
    struct tu_cs cs;
+
+   /* Separate BO for private memory since it should GPU writable */
+   struct tu_bo pvtmem_bo;
 
    struct tu_pipeline_layout *layout;
 
@@ -1092,6 +1150,7 @@ struct tu_pipeline
    uint32_t gras_su_cntl, gras_su_cntl_mask;
    uint32_t rb_depth_cntl, rb_depth_cntl_mask;
    uint32_t rb_stencil_cntl, rb_stencil_cntl_mask;
+   uint32_t stencil_wrmask;
 
    bool rb_depth_cntl_disable;
 
@@ -1103,6 +1162,7 @@ struct tu_pipeline
 
    struct
    {
+      struct tu_draw_state config_state;
       struct tu_draw_state state;
       struct tu_draw_state binning_state;
 
@@ -1133,9 +1193,16 @@ struct tu_pipeline
    struct
    {
       uint32_t local_size[3];
+      uint32_t subgroup_size;
    } compute;
 
+   bool provoking_vertex_last;
+
    struct tu_lrz_pipeline lrz;
+
+   void *executables_mem_ctx;
+   /* tu_pipeline_executable */
+   struct util_dynarray executables;
 };
 
 void
@@ -1172,9 +1239,14 @@ struct tu_pvtmem_config {
 void
 tu6_emit_xs_config(struct tu_cs *cs,
                    gl_shader_stage stage,
-                   const struct ir3_shader_variant *xs,
-                   const struct tu_pvtmem_config *pvtmem,
-                   uint64_t binary_iova);
+                   const struct ir3_shader_variant *xs);
+
+void
+tu6_emit_xs(struct tu_cs *cs,
+            gl_shader_stage stage,
+            const struct ir3_shader_variant *xs,
+            const struct tu_pvtmem_config *pvtmem,
+            uint64_t binary_iova);
 
 void
 tu6_emit_vpc(struct tu_cs *cs,
@@ -1183,8 +1255,7 @@ tu6_emit_vpc(struct tu_cs *cs,
              const struct ir3_shader_variant *ds,
              const struct ir3_shader_variant *gs,
              const struct ir3_shader_variant *fs,
-             uint32_t patch_control_points,
-             bool vshs_workgroup);
+             uint32_t patch_control_points);
 
 void
 tu6_emit_fs_inputs(struct tu_cs *cs, const struct ir3_shader_variant *fs);
@@ -1280,6 +1351,8 @@ struct tu_image
    uint32_t lrz_height;
    uint32_t lrz_pitch;
    uint32_t lrz_offset;
+
+   bool shareable;
 };
 
 static inline uint32_t
@@ -1395,7 +1468,8 @@ tu_image_view_init(struct tu_image_view *iview,
                    bool limited_z24s8);
 
 bool
-ubwc_possible(VkFormat format, VkImageType type, VkImageUsageFlags usage, bool limited_z24s8);
+ubwc_possible(VkFormat format, VkImageType type, VkImageUsageFlags usage, VkImageUsageFlags stencil_usage,
+              const struct fd_dev_info *info, VkSampleCountFlagBits samples);
 
 struct tu_buffer_view
 {
@@ -1539,7 +1613,8 @@ uint32_t
 tu_subpass_get_attachment_to_resolve(const struct tu_subpass *subpass, uint32_t index);
 
 void
-tu_update_descriptor_sets(VkDescriptorSet overrideSet,
+tu_update_descriptor_sets(const struct tu_device *device,
+                          VkDescriptorSet overrideSet,
                           uint32_t descriptorWriteCount,
                           const VkWriteDescriptorSet *pDescriptorWrites,
                           uint32_t descriptorCopyCount,
@@ -1547,6 +1622,7 @@ tu_update_descriptor_sets(VkDescriptorSet overrideSet,
 
 void
 tu_update_descriptor_set_with_template(
+   const struct tu_device *device,
    struct tu_descriptor_set *set,
    VkDescriptorUpdateTemplate descriptorUpdateTemplate,
    const void *pData);
@@ -1625,9 +1701,11 @@ TU_DEFINE_NONDISP_HANDLE_CASTS(tu_query_pool, VkQueryPool)
 TU_DEFINE_NONDISP_HANDLE_CASTS(tu_render_pass, VkRenderPass)
 TU_DEFINE_NONDISP_HANDLE_CASTS(tu_sampler, VkSampler)
 TU_DEFINE_NONDISP_HANDLE_CASTS(tu_sampler_ycbcr_conversion, VkSamplerYcbcrConversion)
-TU_DEFINE_NONDISP_HANDLE_CASTS(tu_shader_module, VkShaderModule)
 
 /* for TU_FROM_HANDLE with both VkFence and VkSemaphore: */
 #define tu_syncobj_from_handle(x) ((struct tu_syncobj*) (uintptr_t) (x))
+
+void
+update_stencil_mask(uint32_t *value, VkStencilFaceFlags face, uint32_t mask);
 
 #endif /* TU_PRIVATE_H */

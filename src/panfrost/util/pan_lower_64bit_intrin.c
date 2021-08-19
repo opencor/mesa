@@ -44,8 +44,8 @@ nir_lower_64bit_intrin_instr(nir_builder *b, nir_instr *instr, void *data)
         switch (intr->intrinsic) {
         case nir_intrinsic_load_global_invocation_id:
         case nir_intrinsic_load_global_invocation_id_zero_base:
-        case nir_intrinsic_load_work_group_id:
-        case nir_intrinsic_load_num_work_groups:
+        case nir_intrinsic_load_workgroup_id:
+        case nir_intrinsic_load_num_workgroups:
                 break;
 
         default:
@@ -62,7 +62,8 @@ nir_lower_64bit_intrin_instr(nir_builder *b, nir_instr *instr, void *data)
 
         nir_ssa_def *conv = nir_u2u64(b, &intr->dest.ssa);
 
-        nir_ssa_def_rewrite_uses_after(&intr->dest.ssa, nir_src_for_ssa(conv), conv->parent_instr);
+        nir_ssa_def_rewrite_uses_after(&intr->dest.ssa, conv,
+                                       conv->parent_instr);
 
         return true;
 }

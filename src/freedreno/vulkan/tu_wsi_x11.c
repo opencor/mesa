@@ -34,7 +34,8 @@
 #include "wsi_common_x11.h"
 #include "tu_private.h"
 
-VkBool32 tu_GetPhysicalDeviceXcbPresentationSupportKHR(
+VKAPI_ATTR VkBool32 VKAPI_CALL
+tu_GetPhysicalDeviceXcbPresentationSupportKHR(
    VkPhysicalDevice                            physicalDevice,
    uint32_t                                    queueFamilyIndex,
    xcb_connection_t*                           connection,
@@ -48,7 +49,8 @@ VkBool32 tu_GetPhysicalDeviceXcbPresentationSupportKHR(
              connection, visual_id);
 }
 
-VkBool32 tu_GetPhysicalDeviceXlibPresentationSupportKHR(
+VKAPI_ATTR VkBool32 VKAPI_CALL
+tu_GetPhysicalDeviceXlibPresentationSupportKHR(
    VkPhysicalDevice                            physicalDevice,
    uint32_t                                    queueFamilyIndex,
    Display*                                    dpy,
@@ -62,7 +64,8 @@ VkBool32 tu_GetPhysicalDeviceXlibPresentationSupportKHR(
              XGetXCBConnection(dpy), visualID);
 }
 
-VkResult tu_CreateXcbSurfaceKHR(
+VKAPI_ATTR VkResult VKAPI_CALL
+tu_CreateXcbSurfaceKHR(
    VkInstance                                  _instance,
    const VkXcbSurfaceCreateInfoKHR*            pCreateInfo,
    const VkAllocationCallbacks*                pAllocator,
@@ -75,12 +78,13 @@ VkResult tu_CreateXcbSurfaceKHR(
    if (pAllocator)
       alloc = pAllocator;
    else
-      alloc = &instance->alloc;
+      alloc = &instance->vk.alloc;
 
    return wsi_create_xcb_surface(alloc, pCreateInfo, pSurface);
 }
 
-VkResult tu_CreateXlibSurfaceKHR(
+VKAPI_ATTR VkResult VKAPI_CALL
+tu_CreateXlibSurfaceKHR(
    VkInstance                                  _instance,
    const VkXlibSurfaceCreateInfoKHR*           pCreateInfo,
    const VkAllocationCallbacks*                pAllocator,
@@ -94,7 +98,7 @@ VkResult tu_CreateXlibSurfaceKHR(
    if (pAllocator)
       alloc = pAllocator;
    else
-      alloc = &instance->alloc;
+      alloc = &instance->vk.alloc;
 
    return wsi_create_xlib_surface(alloc, pCreateInfo, pSurface);
 }

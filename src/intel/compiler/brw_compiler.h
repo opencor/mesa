@@ -25,7 +25,7 @@
 #define BRW_COMPILER_H
 
 #include <stdio.h>
-#include "dev/gen_device_info.h"
+#include "dev/intel_device_info.h"
 #include "main/macros.h"
 #include "main/mtypes.h"
 #include "util/ralloc.h"
@@ -41,7 +41,7 @@ struct brw_program;
 typedef struct nir_shader nir_shader;
 
 struct brw_compiler {
-   const struct gen_device_info *devinfo;
+   const struct intel_device_info *devinfo;
 
    struct {
       struct ra_regs *regs;
@@ -50,13 +50,7 @@ struct brw_compiler {
        * Array of the ra classes for the unaligned contiguous register
        * block sizes used.
        */
-      int *classes;
-
-      /**
-       * Mapping for register-allocated objects in *regs to the first
-       * GRF for that object.
-       */
-      uint8_t *ra_reg_to_grf;
+      struct ra_class **classes;
    } vec4_reg_set;
 
    struct {
@@ -66,29 +60,13 @@ struct brw_compiler {
        * Array of the ra classes for the unaligned contiguous register
        * block sizes used, indexed by register size.
        */
-      int classes[16];
-
-      /**
-       * Mapping from classes to ra_reg ranges.  Each of the per-size
-       * classes corresponds to a range of ra_reg nodes.  This array stores
-       * those ranges in the form of first ra_reg in each class and the
-       * total number of ra_reg elements in the last array element.  This
-       * way the range of the i'th class is given by:
-       * [ class_to_ra_reg_range[i], class_to_ra_reg_range[i+1] )
-       */
-      int class_to_ra_reg_range[17];
-
-      /**
-       * Mapping for register-allocated objects in *regs to the first
-       * GRF for that object.
-       */
-      uint8_t *ra_reg_to_grf;
+      struct ra_class *classes[16];
 
       /**
        * ra class for the aligned barycentrics we use for PLN, which doesn't
        * appear in *classes.
        */
-      int aligned_bary_class;
+      struct ra_class *aligned_bary_class;
    } fs_reg_sets[3];
 
    void (*shader_debug_log)(void *, const char *str, ...) PRINTFLIKE(2, 3);
@@ -179,7 +157,7 @@ brw_shader_stage_is_bindless(gl_shader_stage stage)
  *  @{
  */
 
-enum PACKED gen6_gather_sampler_wa {
+enum PACKED gfx6_gather_sampler_wa {
    WA_SIGN = 1,      /* whether we need to sign extend */
    WA_8BIT = 2,      /* if we have an 8bit format needing wa */
    WA_16BIT = 4,     /* if we have a 16bit format needing wa */
@@ -216,7 +194,7 @@ struct brw_sampler_prog_key_data {
    /**
     * For Sandybridge, which shader w/a we need for gather quirks.
     */
-   enum gen6_gather_sampler_wa gen6_gather_wa[MAX_SAMPLERS];
+   enum gfx6_gather_sampler_wa gfx6_gather_wa[MAX_SAMPLERS];
 
    /**
     * Texture units that have a YUV image bound.
@@ -254,7 +232,7 @@ struct brw_base_prog_key {
    unsigned program_string_id;
 
    enum brw_subgroup_size_type subgroup_size_type;
-
+   bool robust_buffer_access;
    struct brw_sampler_prog_key_data tex;
 };
 
@@ -277,6 +255,31 @@ struct brw_base_prog_key {
  */
 #define MAX_GL_VERT_ATTRIB     VERT_ATTRIB_MAX
 #define MAX_VK_VERT_ATTRIB     (VERT_ATTRIB_GENERIC0 + 28)
+
+/**
+ * Max number of binding table entries used for stream output.
+ *
+ * From the OpenGL 3.0 spec, table 6.44 (Transform Feedback State), the
+ * minimum value of MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS is 64.
+ *
+ * On Gfx6, the size of transform feedback data is limited not by the number
+ * of components but by the number of binding table entries we set aside.  We
+ * use one binding table entry for a float, one entry for a vector, and one
+ * entry per matrix column.  Since the only way we can communicate our
+ * transform feedback capabilities to the client is via
+ * MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS, we need to plan for the
+ * worst case, in which all the varyings are floats, so we use up one binding
+ * table entry per component.  Therefore we need to set aside at least 64
+ * binding table entries for use by transform feedback.
+ *
+ * Note: since we don't currently pack varyings, it is currently impossible
+ * for the client to actually use up all of these binding table entries--if
+ * all of their varyings were floats, they would run out of varying slots and
+ * fail to link.  But that's a bug, so it seems prudent to go ahead and
+ * allocate the number of binding table entries we will need once the bug is
+ * fixed.
+ */
+#define BRW_MAX_SOL_BINDINGS 64
 
 /** The program key for Vertex Shaders. */
 struct brw_vs_prog_key {
@@ -310,7 +313,7 @@ struct brw_vs_prog_key {
    unsigned nr_userclip_plane_consts:4;
 
    /**
-    * For pre-Gen6 hardware, a bitfield indicating which texture coordinates
+    * For pre-Gfx6 hardware, a bitfield indicating which texture coordinates
     * are going to be replaced with point coordinates (as a consequence of a
     * call to glTexEnvi(GL_POINT_SPRITE, GL_COORD_REPLACE, GL_TRUE)).  Because
     * our SF thread requires exact matching between VS outputs and FS inputs,
@@ -477,10 +480,11 @@ struct brw_wm_prog_key {
    bool force_dual_color_blend:1;
    bool coherent_fb_fetch:1;
    bool ignore_sample_mask_out:1;
+   bool coarse_pixel:1;
 
    uint8_t color_outputs_valid;
    uint64_t input_slots_valid;
-   GLenum alpha_test_func;          /* < For Gen4/5 MRT alpha test */
+   GLenum alpha_test_func;          /* < For Gfx4/5 MRT alpha test */
    float alpha_test_ref;
 };
 
@@ -490,6 +494,37 @@ struct brw_cs_prog_key {
 
 struct brw_bs_prog_key {
    struct brw_base_prog_key base;
+};
+
+struct brw_ff_gs_prog_key {
+   uint64_t attrs;
+
+   /**
+    * Hardware primitive type being drawn, e.g. _3DPRIM_TRILIST.
+    */
+   unsigned primitive:8;
+
+   unsigned pv_first:1;
+   unsigned need_gs_prog:1;
+
+   /**
+    * Number of varyings that are output to transform feedback.
+    */
+   unsigned num_transform_feedback_bindings:7; /* 0-BRW_MAX_SOL_BINDINGS */
+
+   /**
+    * Map from the index of a transform feedback binding table entry to the
+    * gl_varying_slot that should be streamed out through that binding table
+    * entry.
+    */
+   unsigned char transform_feedback_bindings[BRW_MAX_SOL_BINDINGS];
+
+   /**
+    * Map from the index of a transform feedback binding table entry to the
+    * swizzles that should be used when streaming out data through that
+    * binding table entry.
+    */
+   unsigned char transform_feedback_swizzles[BRW_MAX_SOL_BINDINGS];
 };
 
 /* brw_any_prog_key is any of the keys that map to an API stage */
@@ -550,34 +585,9 @@ struct brw_image_param {
 #define BRW_MAX_DRAW_BUFFERS 8
 
 /**
- * Max number of binding table entries used for stream output.
- *
- * From the OpenGL 3.0 spec, table 6.44 (Transform Feedback State), the
- * minimum value of MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS is 64.
- *
- * On Gen6, the size of transform feedback data is limited not by the number
- * of components but by the number of binding table entries we set aside.  We
- * use one binding table entry for a float, one entry for a vector, and one
- * entry per matrix column.  Since the only way we can communicate our
- * transform feedback capabilities to the client is via
- * MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS, we need to plan for the
- * worst case, in which all the varyings are floats, so we use up one binding
- * table entry per component.  Therefore we need to set aside at least 64
- * binding table entries for use by transform feedback.
- *
- * Note: since we don't currently pack varyings, it is currently impossible
- * for the client to actually use up all of these binding table entries--if
- * all of their varyings were floats, they would run out of varying slots and
- * fail to link.  But that's a bug, so it seems prudent to go ahead and
- * allocate the number of binding table entries we will need once the bug is
- * fixed.
+ * Binding table index for the first gfx6 SOL binding.
  */
-#define BRW_MAX_SOL_BINDINGS 64
-
-/**
- * Binding table index for the first gen6 SOL binding.
- */
-#define BRW_GEN6_SOL_BINDING_START 0
+#define BRW_GFX6_SOL_BINDING_START 0
 
 /**
  * Stride in bytes between shader_time entries.
@@ -665,6 +675,21 @@ enum brw_param_builtin {
 #define BRW_PARAM_BUILTIN_CLIP_PLANE_COMP(param) \
    (((param) - BRW_PARAM_BUILTIN_CLIP_PLANE_0_X) & 0x3)
 
+enum brw_shader_reloc_id {
+   BRW_SHADER_RELOC_CONST_DATA_ADDR_LOW,
+   BRW_SHADER_RELOC_CONST_DATA_ADDR_HIGH,
+   BRW_SHADER_RELOC_SHADER_START_OFFSET,
+   BRW_SHADER_RELOC_RESUME_SBT_ADDR_LOW,
+   BRW_SHADER_RELOC_RESUME_SBT_ADDR_HIGH,
+};
+
+enum brw_shader_reloc_type {
+   /** An arbitrary 32-bit value */
+   BRW_SHADER_RELOC_TYPE_U32,
+   /** A MOV instruction with an immediate source */
+   BRW_SHADER_RELOC_TYPE_MOV_IMM,
+};
+
 /** Represents a code relocation
  *
  * Relocatable constants are immediates in the code which we want to be able
@@ -674,12 +699,18 @@ struct brw_shader_reloc {
    /** The 32-bit ID of the relocatable constant */
    uint32_t id;
 
-   /** The offset in the shader to the relocatable instruction
+   /** Type of this relocation */
+   enum brw_shader_reloc_type type;
+
+   /** The offset in the shader to the relocated value
     *
-    * This is the offset to the instruction rather than the immediate value
-    * itself.  This allows us to do some sanity checking while we relocate.
+    * For MOV_IMM relocs, this is an offset to the MOV instruction.  This
+    * allows us to do some sanity checking while we update the value.
     */
    uint32_t offset;
+
+   /** Value to be added to the relocated value before it is written */
+   uint32_t delta;
 };
 
 /** A value to write to a relocation */
@@ -842,6 +873,7 @@ struct brw_wm_prog_data {
    bool uses_kill;
    bool uses_src_depth;
    bool uses_src_w;
+   bool uses_depth_w_coefficients;
    bool uses_sample_mask;
    bool has_render_target_reads;
    bool has_side_effects;
@@ -851,8 +883,13 @@ struct brw_wm_prog_data {
    bool contains_noperspective_varying;
 
    /**
+    * Shader is ran at the coarse pixel shading dispatch rate (3DSTATE_CPS).
+    */
+   bool per_coarse_pixel_dispatch;
+
+   /**
     * Mask of which interpolation modes are required by the fragment shader.
-    * Used in hardware setup on gen6+.
+    * Used in hardware setup on gfx6+.
     */
    uint32_t barycentric_interp_modes;
 
@@ -868,7 +905,7 @@ struct brw_wm_prog_data {
    uint64_t inputs;
 
    /* Mapping of VUE slots to interpolation modes.
-    * Used by the Gen4-5 clip/sf/wm stages.
+    * Used by the Gfx4-5 clip/sf/wm stages.
     */
    unsigned char interp_mode[65]; /* BRW_VARYING_SLOT_COUNT */
 
@@ -998,6 +1035,7 @@ struct brw_cs_prog_data {
 
    bool uses_barrier;
    bool uses_num_work_groups;
+   bool uses_inline_data;
    bool uses_btd_stack_ids;
 
    struct {
@@ -1028,8 +1066,26 @@ brw_cs_prog_data_prog_offset(const struct brw_cs_prog_data *prog_data,
 
 struct brw_bs_prog_data {
    struct brw_stage_prog_data base;
+
+   /** SIMD size of the root shader */
    uint8_t simd_size;
-   uint32_t stack_size;
+
+   /** Maximum stack size of all shaders */
+   uint32_t max_stack_size;
+
+   /** Offset into the shader where the resume SBT is located */
+   uint32_t resume_sbt_offset;
+};
+
+struct brw_ff_gs_prog_data {
+   unsigned urb_read_length;
+   unsigned total_grf;
+
+   /**
+    * Gfx6 transform feedback: Amount by which the streaming vertex buffer
+    * indices should be incremented each time the GS is invoked.
+    */
+   unsigned svbi_postincrement_value;
 };
 
 /**
@@ -1054,8 +1110,8 @@ typedef enum
 /**
  * We always program SF to start reading at an offset of 1 (2 varying slots)
  * from the start of the vertex URB entry.  This causes it to skip:
- * - VARYING_SLOT_PSIZ and BRW_VARYING_SLOT_NDC on gen4-5
- * - VARYING_SLOT_PSIZ and VARYING_SLOT_POS on gen6+
+ * - VARYING_SLOT_PSIZ and BRW_VARYING_SLOT_NDC on gfx4-5
+ * - VARYING_SLOT_PSIZ and VARYING_SLOT_POS on gfx6+
  */
 #define BRW_SF_URB_ENTRY_READ_OFFSET 1
 
@@ -1132,7 +1188,8 @@ struct brw_vue_map {
    int num_per_vertex_slots;
 };
 
-void brw_print_vue_map(FILE *fp, const struct brw_vue_map *vue_map);
+void brw_print_vue_map(FILE *fp, const struct brw_vue_map *vue_map,
+                       gl_shader_stage stage);
 
 /**
  * Convert a VUE slot number into a byte offset within the VUE.
@@ -1152,7 +1209,7 @@ GLuint brw_varying_to_offset(const struct brw_vue_map *vue_map, GLuint varying)
    return brw_vue_slot_to_offset(vue_map->varying_to_slot[varying]);
 }
 
-void brw_compute_vue_map(const struct gen_device_info *devinfo,
+void brw_compute_vue_map(const struct intel_device_info *devinfo,
                          struct brw_vue_map *vue_map,
                          uint64_t slots_valid,
                          bool separate_shader,
@@ -1163,7 +1220,7 @@ void brw_compute_tess_vue_map(struct brw_vue_map *const vue_map,
                               uint32_t is_patch);
 
 /* brw_interpolation_map.c */
-void brw_setup_vue_interpolation(struct brw_vue_map *vue_map,
+void brw_setup_vue_interpolation(const struct brw_vue_map *vue_map,
                                  struct nir_shader *nir,
                                  struct brw_wm_prog_data *prog_data);
 
@@ -1287,9 +1344,9 @@ struct brw_gs_prog_data
    unsigned control_data_header_size_hwords;
 
    /**
-    * Format of the control data (either GEN7_GS_CONTROL_DATA_FORMAT_GSCTL_SID
+    * Format of the control data (either GFX7_GS_CONTROL_DATA_FORMAT_GSCTL_SID
     * if the control data is StreamID bits, or
-    * GEN7_GS_CONTROL_DATA_FORMAT_GSCTL_CUT if the control data is cut bits).
+    * GFX7_GS_CONTROL_DATA_FORMAT_GSCTL_CUT if the control data is cut bits).
     * Ignored if control_data_header_size is 0.
     */
    unsigned control_data_format;
@@ -1304,25 +1361,25 @@ struct brw_gs_prog_data
    int invocations;
 
    /**
-    * Gen6: Provoking vertex convention for odd-numbered triangles
+    * Gfx6: Provoking vertex convention for odd-numbered triangles
     * in tristrips.
     */
    GLuint pv_first:1;
 
    /**
-    * Gen6: Number of varyings that are output to transform feedback.
+    * Gfx6: Number of varyings that are output to transform feedback.
     */
    GLuint num_transform_feedback_bindings:7; /* 0-BRW_MAX_SOL_BINDINGS */
 
    /**
-    * Gen6: Map from the index of a transform feedback binding table entry to the
+    * Gfx6: Map from the index of a transform feedback binding table entry to the
     * gl_varying_slot that should be streamed out through that binding table
     * entry.
     */
    unsigned char transform_feedback_bindings[64 /* BRW_MAX_SOL_BINDINGS */];
 
    /**
-    * Gen6: Map from the index of a transform feedback binding table entry to the
+    * Gfx6: Map from the index of a transform feedback binding table entry to the
     * swizzles that should be used when streaming out data through that
     * binding table entry.
     */
@@ -1410,7 +1467,7 @@ struct brw_compile_stats {
 /** @} */
 
 struct brw_compiler *
-brw_compiler_create(void *mem_ctx, const struct gen_device_info *devinfo);
+brw_compiler_create(void *mem_ctx, const struct intel_device_info *devinfo);
 
 /**
  * Returns a compiler configuration for use with disk shader cache
@@ -1434,19 +1491,39 @@ void
 brw_prog_key_set_id(union brw_any_prog_key *key, gl_shader_stage, unsigned id);
 
 /**
+ * Parameters for compiling a vertex shader.
+ *
+ * Some of these will be modified during the shader compilation.
+ */
+struct brw_compile_vs_params {
+   nir_shader *nir;
+
+   const struct brw_vs_prog_key *key;
+   struct brw_vs_prog_data *prog_data;
+
+   bool edgeflag_is_last; /* true for gallium */
+   bool shader_time;
+   int shader_time_index;
+
+   struct brw_compile_stats *stats;
+
+   void *log_data;
+
+   char *error_str;
+
+   /* If unset, DEBUG_VS is used. */
+   uint64_t debug_flag;
+};
+
+/**
  * Compile a vertex shader.
  *
- * Returns the final assembly and the program's size.
+ * Returns the final assembly and updates the parameters structure.
  */
 const unsigned *
-brw_compile_vs(const struct brw_compiler *compiler, void *log_data,
+brw_compile_vs(const struct brw_compiler *compiler,
                void *mem_ctx,
-               const struct brw_vs_prog_key *key,
-               struct brw_vs_prog_data *prog_data,
-               nir_shader *nir,
-               int shader_time_index,
-               struct brw_compile_stats *stats,
-               char **error_str);
+               struct brw_compile_vs_params *params);
 
 /**
  * Compile a tessellation control shader.
@@ -1491,7 +1568,6 @@ brw_compile_gs(const struct brw_compiler *compiler, void *log_data,
                const struct brw_gs_prog_key *key,
                struct brw_gs_prog_data *prog_data,
                nir_shader *nir,
-               struct gl_program *prog,
                int shader_time_index,
                struct brw_compile_stats *stats,
                char **error_str);
@@ -1529,38 +1605,75 @@ brw_compile_clip(const struct brw_compiler *compiler,
                  unsigned *final_assembly_size);
 
 /**
+ * Parameters for compiling a fragment shader.
+ *
+ * Some of these will be modified during the shader compilation.
+ */
+struct brw_compile_fs_params {
+   nir_shader *nir;
+
+   const struct brw_wm_prog_key *key;
+   struct brw_wm_prog_data *prog_data;
+   const struct brw_vue_map *vue_map;
+
+   bool shader_time;
+   int shader_time_index8;
+   int shader_time_index16;
+   int shader_time_index32;
+
+   bool allow_spilling;
+   bool use_rep_send;
+
+   struct brw_compile_stats *stats;
+
+   void *log_data;
+
+   char *error_str;
+
+   /* If unset, DEBUG_WM is used. */
+   uint64_t debug_flag;
+};
+
+/**
  * Compile a fragment shader.
  *
- * Returns the final assembly and the program's size.
+ * Returns the final assembly and updates the parameters structure.
  */
 const unsigned *
-brw_compile_fs(const struct brw_compiler *compiler, void *log_data,
+brw_compile_fs(const struct brw_compiler *compiler,
                void *mem_ctx,
-               const struct brw_wm_prog_key *key,
-               struct brw_wm_prog_data *prog_data,
-               nir_shader *nir,
-               int shader_time_index8,
-               int shader_time_index16,
-               int shader_time_index32,
-               bool allow_spilling,
-               bool use_rep_send, struct brw_vue_map *vue_map,
-               struct brw_compile_stats *stats, /**< Array of three stats */
-               char **error_str);
+               struct brw_compile_fs_params *params);
+
+/**
+ * Parameters for compiling a compute shader.
+ *
+ * Some of these will be modified during the shader compilation.
+ */
+struct brw_compile_cs_params {
+   nir_shader *nir;
+
+   const struct brw_cs_prog_key *key;
+   struct brw_cs_prog_data *prog_data;
+
+   bool shader_time;
+   int shader_time_index;
+
+   struct brw_compile_stats *stats;
+
+   void *log_data;
+
+   char *error_str;
+};
 
 /**
  * Compile a compute shader.
  *
- * Returns the final assembly and the program's size.
+ * Returns the final assembly and updates the parameters structure.
  */
 const unsigned *
-brw_compile_cs(const struct brw_compiler *compiler, void *log_data,
+brw_compile_cs(const struct brw_compiler *compiler,
                void *mem_ctx,
-               const struct brw_cs_prog_key *key,
-               struct brw_cs_prog_data *prog_data,
-               const nir_shader *nir,
-               int shader_time_index,
-               struct brw_compile_stats *stats,
-               char **error_str);
+               struct brw_compile_cs_params *params);
 
 /**
  * Compile a Ray Tracing shader.
@@ -1573,13 +1686,41 @@ brw_compile_bs(const struct brw_compiler *compiler, void *log_data,
                const struct brw_bs_prog_key *key,
                struct brw_bs_prog_data *prog_data,
                struct nir_shader *shader,
+               unsigned num_resume_shaders,
+               struct nir_shader **resume_shaders,
                struct brw_compile_stats *stats,
                char **error_str);
+
+/**
+ * Compile a fixed function geometry shader.
+ *
+ * Returns the final assembly and the program's size.
+ */
+const unsigned *
+brw_compile_ff_gs_prog(struct brw_compiler *compiler,
+		       void *mem_ctx,
+		       const struct brw_ff_gs_prog_key *key,
+		       struct brw_ff_gs_prog_data *prog_data,
+		       struct brw_vue_map *vue_map,
+		       unsigned *final_assembly_size);
 
 void brw_debug_key_recompile(const struct brw_compiler *c, void *log,
                              gl_shader_stage stage,
                              const struct brw_base_prog_key *old_key,
                              const struct brw_base_prog_key *key);
+
+/* Shared Local Memory Size is specified as powers of two,
+ * and also have a Gen-dependent minimum value if not zero.
+ */
+static inline uint32_t
+intel_calculate_slm_size(unsigned gen, uint32_t bytes)
+{
+   assert(bytes <= 64 * 1024);
+   if (bytes > 0)
+      return MAX2(util_next_power_of_two(bytes), gen >= 9 ? 1024 : 4096);
+   else
+      return 0;
+}
 
 static inline uint32_t
 encode_slm_size(unsigned gen, uint32_t bytes)
@@ -1591,22 +1732,23 @@ encode_slm_size(unsigned gen, uint32_t bytes)
     *
     * Size   | 0 kB | 1 kB | 2 kB | 4 kB | 8 kB | 16 kB | 32 kB | 64 kB |
     * -------------------------------------------------------------------
-    * Gen7-8 |    0 | none | none |    1 |    2 |     4 |     8 |    16 |
+    * Gfx7-8 |    0 | none | none |    1 |    2 |     4 |     8 |    16 |
     * -------------------------------------------------------------------
-    * Gen9+  |    0 |    1 |    2 |    3 |    4 |     5 |     6 |     7 |
+    * Gfx9+  |    0 |    1 |    2 |    3 |    4 |     5 |     6 |     7 |
     */
-   assert(bytes <= 64 * 1024);
 
    if (bytes > 0) {
-      /* Shared Local Memory Size is specified as powers of two. */
-      slm_size = util_next_power_of_two(bytes);
+      slm_size = intel_calculate_slm_size(gen, bytes);
+      assert(util_is_power_of_two_nonzero(slm_size));
 
       if (gen >= 9) {
-         /* Use a minimum of 1kB; turn an exponent of 10 (1024 kB) into 1. */
-         slm_size = ffs(MAX2(slm_size, 1024)) - 10;
+         /* Turn an exponent of 10 (1024 kB) into 1. */
+         assert(slm_size >= 1024);
+         slm_size = ffs(slm_size) - 10;
       } else {
-         /* Use a minimum of 4kB; convert to the pre-Gen9 representation. */
-         slm_size = MAX2(slm_size, 4096) / 4096;
+         assert(slm_size >= 4096);
+         /* Convert to the pre-Gfx9 representation. */
+         slm_size = slm_size / 4096;
       }
    }
 
@@ -1617,30 +1759,35 @@ unsigned
 brw_cs_push_const_total_size(const struct brw_cs_prog_data *cs_prog_data,
                              unsigned threads);
 
-unsigned
-brw_cs_simd_size_for_group_size(const struct gen_device_info *devinfo,
-                                const struct brw_cs_prog_data *cs_prog_data,
-                                unsigned group_size);
-
 void
-brw_write_shader_relocs(const struct gen_device_info *devinfo,
+brw_write_shader_relocs(const struct intel_device_info *devinfo,
                         void *program,
                         const struct brw_stage_prog_data *prog_data,
                         struct brw_shader_reloc_value *values,
                         unsigned num_values);
 
+struct brw_cs_dispatch_info {
+   uint32_t group_size;
+   uint32_t simd_size;
+   uint32_t threads;
+
+   /* RightExecutionMask field used in GPGPU_WALKER. */
+   uint32_t right_mask;
+};
+
 /**
- * Calculate the RightExecutionMask field used in GPGPU_WALKER.
+ * Get the dispatch information for a shader to be used with GPGPU_WALKER and
+ * similar instructions.
+ *
+ * If override_local_size is not NULL, it must to point to a 3-element that
+ * will override the value from prog_data->local_size.  This is used by
+ * ARB_compute_variable_group_size, where the size is set only at dispatch
+ * time (so prog_data is outdated).
  */
-static inline unsigned
-brw_cs_right_mask(unsigned group_size, unsigned simd_size)
-{
-   const uint32_t remainder = group_size & (simd_size - 1);
-   if (remainder > 0)
-      return ~0u >> (32 - remainder);
-   else
-      return ~0u >> (32 - simd_size);
-}
+struct brw_cs_dispatch_info
+brw_cs_get_dispatch_info(const struct intel_device_info *devinfo,
+                         const struct brw_cs_prog_data *prog_data,
+                         const unsigned *override_local_size);
 
 /**
  * Return true if the given shader stage is dispatched contiguously by the
@@ -1649,7 +1796,7 @@ brw_cs_right_mask(unsigned group_size, unsigned simd_size)
  * '2^n - 1' for some n.
  */
 static inline bool
-brw_stage_has_packed_dispatch(ASSERTED const struct gen_device_info *devinfo,
+brw_stage_has_packed_dispatch(ASSERTED const struct intel_device_info *devinfo,
                               gl_shader_stage stage,
                               const struct brw_stage_prog_data *prog_data)
 {
@@ -1658,7 +1805,7 @@ brw_stage_has_packed_dispatch(ASSERTED const struct gen_device_info *devinfo,
     * to do a full test run with brw_fs_test_dispatch_packing() hooked up to
     * the NIR front-end before changing this assertion.
     */
-   assert(devinfo->gen <= 12);
+   assert(devinfo->ver <= 12);
 
    switch (stage) {
    case MESA_SHADER_FRAGMENT: {

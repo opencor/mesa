@@ -757,6 +757,22 @@ validate_intrinsic_instr(nir_intrinsic_instr *instr, validate_state *state)
       break;
    }
 
+   case nir_intrinsic_image_deref_atomic_fmin:
+   case nir_intrinsic_image_deref_atomic_fmax:
+   case nir_intrinsic_image_atomic_fmin:
+   case nir_intrinsic_image_atomic_fmax:
+   case nir_intrinsic_bindless_image_atomic_fmin:
+   case nir_intrinsic_bindless_image_atomic_fmax: {
+      enum pipe_format format = image_intrin_format(instr);
+      validate_assert(state, format == PIPE_FORMAT_COUNT ||
+                             format == PIPE_FORMAT_R16_FLOAT ||
+                             format == PIPE_FORMAT_R32_FLOAT ||
+                             format == PIPE_FORMAT_R64_FLOAT);
+      validate_assert(state, nir_dest_bit_size(instr->dest) ==
+                             util_format_get_blocksizebits(format));
+      break;
+   }
+
    default:
       break;
    }
@@ -824,6 +840,10 @@ validate_tex_instr(nir_tex_instr *instr, validate_state *state)
    }
 
    validate_dest(&instr->dest, state, 0, nir_tex_instr_dest_size(instr));
+
+   validate_assert(state,
+                   nir_alu_type_get_type_size(instr->dest_type) ==
+                   nir_dest_bit_size(instr->dest));
 }
 
 static void
@@ -1389,7 +1409,7 @@ validate_var_decl(nir_variable *var, nir_variable_mode valid_modes,
       assert(glsl_type_is_array(var->type));
 
       const struct glsl_type *type = glsl_get_array_element(var->type);
-      if (nir_is_per_vertex_io(var, state->shader->info.stage)) {
+      if (nir_is_arrayed_io(var, state->shader->info.stage)) {
          assert(glsl_type_is_array(type));
          assert(glsl_type_is_scalar(glsl_get_array_element(type)));
       } else {

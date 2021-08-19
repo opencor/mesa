@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <inttypes.h>
 #include "util.h"
+#include "util/compiler.h"
 
 struct rnndeccontext *rnndec_newcontext(struct rnndb *db) {
 	struct rnndeccontext *res = calloc (sizeof *res, 1);
@@ -266,7 +267,7 @@ char *rnndec_decodeval(struct rnndeccontext *ctx, struct rnntypeinfo *ti, uint64
 						ctx->colors->reset);
 				break;
 			}
-			/* fallthrough */
+			FALLTHROUGH;
 		case RNN_TTYPE_UFIXED:
 			asprintf (&res, "%s%lf%s", ctx->colors->num,
 					((double)value) / ((double)(1LL << ti->radix)),
@@ -397,7 +398,14 @@ static struct rnndecaddrinfo *trymatch (struct rnndeccontext *ctx, struct rnndel
 				if (elems[i]->length != 1)
 					res->name = appendidx(ctx, res->name, idx, elems[i]->index);
 				if (offset) {
-					asprintf (&tmp, "%s+%s%#"PRIx64"%s", res->name, ctx->colors->err, offset, ctx->colors->reset);
+					/* use _HI suffix for addresses */
+					if (offset == 1 &&
+						(!strcmp(res->typeinfo->name, "address") ||
+						 !strcmp(res->typeinfo->name, "waddress")))  {
+						asprintf (&tmp, "%s_HI", res->name);
+					} else {
+						asprintf (&tmp, "%s+%s%#"PRIx64"%s", res->name, ctx->colors->err, offset, ctx->colors->reset);
+					}
 					free(res->name);
 					res->name = tmp;
 				}

@@ -22,11 +22,13 @@ files_mesa_format = [
   'u_format.c',
   'u_format_bptc.c',
   'u_format_etc.c',
+  'u_format_fxt1.c',
   'u_format_latc.c',
   'u_format_other.c',
   'u_format_rgtc.c',
   'u_format_s3tc.c',
   'u_format_tests.c',
+  'u_format_unpack_neon.c',
   'u_format_yuv.c',
   'u_format_zs.c',
 ]

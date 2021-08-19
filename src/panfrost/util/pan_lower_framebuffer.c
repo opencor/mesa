@@ -66,11 +66,12 @@ pan_unpacked_type_for_format(const struct util_format_description *desc)
                 unreachable("Void format not renderable");
 
         bool large = (desc->channel[c].size > 16);
+        bool large_norm = (desc->channel[c].size > 8);
         bool bit8 = (desc->channel[c].size == 8);
         assert(desc->channel[c].size <= 32);
 
         if (desc->channel[c].normalized)
-                return large ? nir_type_float32 : nir_type_float16;
+                return large_norm ? nir_type_float32 : nir_type_float16;
 
         switch (desc->channel[c].type) {
         case UTIL_FORMAT_TYPE_UNSIGNED:
@@ -241,7 +242,7 @@ pan_extend(nir_builder *b, nir_ssa_def *v, unsigned N)
                 q[j] = nir_channel(b, v, j);
 
         for (unsigned j = v->num_components; j < N; ++j)
-                q[j] = nir_imm_int(b, 0);
+                q[j] = nir_imm_intN_t(b, 0, v->bit_size);
 
         return nir_vec(b, q, N);
 }
@@ -315,7 +316,7 @@ pan_unpack_unorm_small(nir_builder *b, nir_ssa_def *pack,
                 nir_ssa_def *scales, nir_ssa_def *shifts)
 {
         nir_ssa_def *channels = nir_unpack_32_4x8(b, nir_channel(b, pack, 0));
-        nir_ssa_def *raw = nir_ushr(b, nir_i2imp(b, channels), shifts);
+        nir_ssa_def *raw = nir_ushr(b, nir_i2i16(b, channels), shifts);
         return nir_fmul(b, nir_u2f16(b, raw), scales);
 }
 
@@ -402,12 +403,12 @@ pan_unpack_unorm_1010102(nir_builder *b, nir_ssa_def *packed)
 {
         nir_ssa_def *p = nir_channel(b, packed, 0);
         nir_ssa_def *bytes = nir_unpack_32_4x8(b, p);
-        nir_ssa_def *ubytes = nir_i2imp(b, bytes);
+        nir_ssa_def *ubytes = nir_i2i16(b, bytes);
 
         nir_ssa_def *shifts = nir_ushr(b, pan_replicate_4(b, nir_channel(b, ubytes, 3)),
                         nir_imm_ivec4(b, 0, 2, 4, 6));
         nir_ssa_def *precision = nir_iand(b, shifts,
-                        nir_i2imp(b, nir_imm_ivec4(b, 0x3, 0x3, 0x3, 0x3)));
+                        nir_i2i16(b, nir_imm_ivec4(b, 0x3, 0x3, 0x3, 0x3)));
 
         nir_ssa_def *top_rgb = nir_ishl(b, nir_channels(b, ubytes, 0x7), nir_imm_int(b, 2));
         top_rgb = nir_ior(b, nir_channels(b, precision, 0x7), top_rgb);
@@ -449,7 +450,7 @@ pan_unpack_uint_1010102(nir_builder *b, nir_ssa_def *packed)
         nir_ssa_def *mask = nir_iand(b, shift,
                         nir_imm_ivec4(b, 0x3ff, 0x3ff, 0x3ff, 0x3));
 
-        return nir_i2imp(b, mask);
+        return nir_i2i16(b, mask);
 }
 
 /* NIR means we can *finally* catch a break */
@@ -706,8 +707,7 @@ pan_lower_fb_load(nir_shader *shader,
         unpacked = nir_convert_to_bit_size(b, unpacked, src_type, bits);
         unpacked = pan_extend(b, unpacked, nir_dest_num_components(intr->dest));
 
-        nir_src rewritten = nir_src_for_ssa(unpacked);
-        nir_ssa_def_rewrite_uses_after(&intr->dest.ssa, rewritten, &intr->instr);
+        nir_ssa_def_rewrite_uses_after(&intr->dest.ssa, unpacked, &intr->instr);
 }
 
 bool
@@ -738,15 +738,11 @@ pan_lower_framebuffer(nir_shader *shader, const enum pipe_format *rt_fmts,
                                 if (var->data.mode != nir_var_shader_out)
                                         continue;
 
-                                unsigned base = var->data.driver_location;
-
-                                unsigned rt;
-                                if (var->data.location == FRAG_RESULT_COLOR)
-                                        rt = 0;
-                                else if (var->data.location >= FRAG_RESULT_DATA0)
-                                        rt = var->data.location - FRAG_RESULT_DATA0;
-                                else
+                                if (var->data.location < FRAG_RESULT_DATA0)
                                         continue;
+
+                                unsigned base = var->data.driver_location;
+                                unsigned rt = var->data.location - FRAG_RESULT_DATA0;
 
                                 if (rt_fmts[rt] == PIPE_FORMAT_NONE)
                                         continue;

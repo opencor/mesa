@@ -46,9 +46,9 @@ static const bool debug = false;
  * replaced with a GRF source.
  */
 static bool
-could_coissue(const struct gen_device_info *devinfo, const fs_inst *inst)
+could_coissue(const struct intel_device_info *devinfo, const fs_inst *inst)
 {
-   if (devinfo->gen != 7)
+   if (devinfo->ver != 7)
       return false;
 
    switch (inst->opcode) {
@@ -73,11 +73,11 @@ could_coissue(const struct gen_device_info *devinfo, const fs_inst *inst)
  * Returns true for instructions that don't support immediate sources.
  */
 static bool
-must_promote_imm(const struct gen_device_info *devinfo, const fs_inst *inst)
+must_promote_imm(const struct intel_device_info *devinfo, const fs_inst *inst)
 {
    switch (inst->opcode) {
    case SHADER_OPCODE_POW:
-      return devinfo->gen < 8;
+      return devinfo->ver < 8;
    case BRW_OPCODE_MAD:
    case BRW_OPCODE_LRP:
       return true;
@@ -211,7 +211,7 @@ compare(const void *_a, const void *_b)
 }
 
 static bool
-get_constant_value(const struct gen_device_info *devinfo,
+get_constant_value(const struct intel_device_info *devinfo,
                    const fs_inst *inst, uint32_t src_idx,
                    void *out, brw_reg_type *out_type)
 {
@@ -336,11 +336,13 @@ representable_as_hf(float f, uint16_t *hf)
 }
 
 static bool
-represent_src_as_imm(const struct gen_device_info *devinfo,
+represent_src_as_imm(const struct intel_device_info *devinfo,
                      fs_reg *src)
 {
-   /* TODO : consider specific platforms also */
-   if (devinfo->gen == 12) {
+   /* TODO - Fix the codepath below to use a bfloat16 immediate on XeHP,
+    *        since HF/F mixed mode has been removed from the hardware.
+    */
+   if (devinfo->ver == 12 && devinfo->verx10 < 125) {
       uint16_t hf;
       if (representable_as_hf(src->f, &hf)) {
          *src = retype(brw_imm_uw(hf), BRW_REGISTER_TYPE_HF);
@@ -465,7 +467,7 @@ fs_visitor::opt_combine_constants()
        * replicating the single one we want. To avoid this, we always populate
        * both HF slots within a DWord with the constant.
        */
-      const uint32_t width = devinfo->gen == 8 && imm->is_half_float ? 2 : 1;
+      const uint32_t width = devinfo->ver == 8 && imm->is_half_float ? 2 : 1;
       const fs_builder ibld = bld.at(imm->block, n).exec_all().group(width, 0);
 
       /* Put the immediate in an offset aligned to its size. Some instructions

@@ -20,21 +20,31 @@
 
 subdir('glcpp')
 
+bison_command = []
+if yacc_is_bison
+  bison_command = [
+    prog_bison, '-o', '@OUTPUT0@', '-p', '_mesa_glsl_', '--defines=@OUTPUT1@',
+    '@INPUT@',
+  ]
+else
+  bison_command = [
+    prog_bison, '-o', '@OUTPUT0@', '-p', '_mesa_glsl_', '-H', '@OUTPUT1@',
+    '@INPUT@',
+  ]
+endif
+
 glsl_parser = custom_target(
   'glsl_parser',
   input : 'glsl_parser.yy',
   output : ['glsl_parser.cpp', 'glsl_parser.h'],
-  command : [
-    prog_bison, '-o', '@OUTPUT0@', '-p', '_mesa_glsl_', '--defines=@OUTPUT1@',
-    '@INPUT@',
-  ],
+  command : bison_command
 )
 
 glsl_lexer_cpp = custom_target(
   'glsl_lexer_cpp',
   input : 'glsl_lexer.ll',
   output : 'glsl_lexer.cpp',
-  command : [prog_flex, '-o', '@OUTPUT@', '@INPUT@'],
+  command : [prog_flex_cpp, '-o', '@OUTPUT@', '@INPUT@'],
 )
 
 ir_expression_operation_constant_h = custom_target(
@@ -165,7 +175,6 @@ files_libglsl = files(
   'lower_precision.cpp',
   'lower_subroutine.cpp',
   'lower_tess_level.cpp',
-  'lower_texture_projection.cpp',
   'lower_variable_index_to_cond_assign.cpp',
   'lower_vec_index_to_cond_assign.cpp',
   'lower_vec_index_to_swizzle.cpp',

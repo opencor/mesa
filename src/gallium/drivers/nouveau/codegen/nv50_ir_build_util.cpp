@@ -44,6 +44,8 @@ BuildUtil::init(Program *prog)
    bb = NULL;
    pos = NULL;
 
+   tail = false;
+
    memset(imms, 0, sizeof(imms));
    immCount = 0;
 }
@@ -354,6 +356,18 @@ BuildUtil::mkClobber(DataFile f, uint32_t rMask, int unit)
 }
 
 ImmediateValue *
+BuildUtil::mkImm(uint16_t u)
+{
+   ImmediateValue *imm = new_ImmediateValue(prog, (uint32_t)0);
+
+   imm->reg.size = 2;
+   imm->reg.type = TYPE_U16;
+   imm->reg.data.u32 = u;
+
+   return imm;
+}
+
+ImmediateValue *
 BuildUtil::mkImm(uint32_t u)
 {
    unsigned int pos = u32Hash(u);
@@ -411,6 +425,12 @@ BuildUtil::loadImm(Value *dst, double d)
 }
 
 Value *
+BuildUtil::loadImm(Value *dst, uint16_t u)
+{
+   return mkOp1v(OP_MOV, TYPE_U16, dst ? dst : getScratch(2), mkImm(u));
+}
+
+Value *
 BuildUtil::loadImm(Value *dst, uint32_t u)
 {
    return mkOp1v(OP_MOV, TYPE_U32, dst ? dst : getScratch(), mkImm(u));
@@ -463,6 +483,16 @@ BuildUtil::mkSysVal(SVSemantic svName, uint32_t svIndex)
    sym->reg.data.sv.sv = svName;
    sym->reg.data.sv.index = svIndex;
 
+   return sym;
+}
+
+Symbol *
+BuildUtil::mkTSVal(TSSemantic tsName)
+{
+   Symbol *sym = new_Symbol(prog, FILE_THREAD_STATE, 0);
+   sym->reg.type = TYPE_U32;
+   sym->reg.size = typeSizeof(sym->reg.type);
+   sym->reg.data.ts = tsName;
    return sym;
 }
 
@@ -572,7 +602,7 @@ BuildUtil::split64BitOpPostRA(Function *fn, Instruction *i,
          hTy = TYPE_U32;
          break;
       }
-      /* fallthrough */
+      FALLTHROUGH;
    default:
       return NULL;
    }

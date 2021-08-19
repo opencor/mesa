@@ -53,7 +53,7 @@ const uint8_t Target::operationSrcNr[] =
    1, 2, 1, 2, 0, 0,       // RDSV, WRSV, PIXLD, QUADOP, QUADON, QUADPOP
    2, 3, 2, 1, 1, 2, 3,    // POPCNT, INSBF, EXTBF, BFIND, BREV, BMSK, PERMT
    2,                      // SGXT
-   2, 2,                   // ATOM, BAR
+   3, 2,                   // ATOM, BAR
    2, 2, 2, 2, 3, 2,       // VADD, VAVG, VMIN, VMAX, VSAD, VSET,
    2, 2, 2, 1,             // VSHR, VSHL, VSEL, CCTL
    3,                      // SHFL
@@ -183,7 +183,8 @@ void Target::destroy(Target *targ)
    delete targ;
 }
 
-CodeEmitter::CodeEmitter(const Target *target) : targ(target), fixupInfo(NULL)
+CodeEmitter::CodeEmitter(const Target *target) : targ(target), code(NULL),
+   codeSize(0), codeSizeLimit(0), relocInfo(NULL), fixupInfo(NULL)
 {
 }
 
@@ -222,7 +223,7 @@ CodeEmitter::prepareEmission(Program *prog)
       func->binPos = prog->binSize;
       prepareEmission(func);
 
-      // adjust sizes & positions for schedulding info:
+      // adjust sizes & positions for scheduling info:
       if (prog->getTarget()->hasSWSched) {
          uint32_t adjPos = func->binPos;
          BasicBlock *bb = NULL;
@@ -295,11 +296,6 @@ CodeEmitter::prepareEmission(BasicBlock *bb)
    nShort = 0;
    for (i = bb->getEntry(); i; i = next) {
       next = i->next;
-
-      if (i->op == OP_MEMBAR && !targ->isOpSupported(OP_MEMBAR, TYPE_NONE)) {
-         bb->remove(i);
-         continue;
-      }
 
       i->encSize = getMinEncodingSize(i);
       if (next && i->encSize < 8)
@@ -390,7 +386,7 @@ Program::emitBinary(struct nv50_ir_prog_info_out *info)
    info->bin.relocData = emit->getRelocInfo();
    info->bin.fixupData = emit->getFixupInfo();
 
-   // the nvc0 driver will print the binary iself together with the header
+   // the nvc0 driver will print the binary itself together with the header
    if ((dbgFlags & NV50_IR_DEBUG_BASIC) && getTarget()->getChipset() < 0xc0)
       emit->printBinary();
 

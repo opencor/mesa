@@ -34,17 +34,24 @@ struct zink_screen;
 struct zink_rt_attrib {
   VkFormat format;
   VkSampleCountFlagBits samples;
+  bool clear_color;
+  bool clear_stencil;
+  union {
+     bool swapchain;
+     bool needs_write;
+  };
 };
 
 struct zink_render_pass_state {
    uint8_t num_cbufs : 4; /* PIPE_MAX_COLOR_BUFS = 8 */
    uint8_t have_zsbuf : 1;
+   bool swapchain_init;
    struct zink_rt_attrib rts[PIPE_MAX_COLOR_BUFS + 1];
+   unsigned num_rts;
+   uint32_t clears; //for extra verification and update flagging
 };
 
 struct zink_render_pass {
-   struct pipe_reference reference;
-
    VkRenderPass render_pass;
    struct zink_render_pass_state state;
 };
@@ -57,20 +64,6 @@ void
 zink_destroy_render_pass(struct zink_screen *screen,
                          struct zink_render_pass *rp);
 
-void
-debug_describe_zink_render_pass(char* buf, const struct zink_render_pass *ptr);
-
-static inline void
-zink_render_pass_reference(struct zink_screen *screen,
-                           struct zink_render_pass **dst,
-                           struct zink_render_pass *src)
-{
-   struct zink_render_pass *old_dst = *dst;
-
-   if (pipe_reference_described(&old_dst->reference, &src->reference,
-                                (debug_reference_descriptor)debug_describe_zink_render_pass))
-      zink_destroy_render_pass(screen, old_dst);
-   *dst = src;
-}
-
+VkImageLayout
+zink_render_pass_attachment_get_barrier_info(const struct zink_render_pass *rp, unsigned idx, VkPipelineStageFlags *pipeline, VkAccessFlags *access);
 #endif

@@ -46,7 +46,9 @@
 
 /* Conversion to apply in the fragment shader. */
 enum st_pbo_conversion {
-   ST_PBO_CONVERT_NONE = 0,
+   ST_PBO_CONVERT_FLOAT = 0,
+   ST_PBO_CONVERT_UINT,
+   ST_PBO_CONVERT_SINT,
    ST_PBO_CONVERT_UINT_TO_SINT,
    ST_PBO_CONVERT_SINT_TO_UINT,
 
@@ -194,6 +196,7 @@ st_pbo_draw(struct st_context *st, const struct st_pbo_addresses *addr,
             unsigned surface_width, unsigned surface_height)
 {
    struct cso_context *cso = st->cso_context;
+   struct pipe_context *pipe = st->pipe;
 
    /* Setup vertex and geometry shaders */
    if (!st->pbo.vs) {
@@ -255,6 +258,7 @@ st_pbo_draw(struct st_context *st, const struct st_pbo_addresses *addr,
       cso_set_vertex_elements(cso, &velem);
 
       cso_set_vertex_buffers(cso, 0, 1, &vbo);
+      st->last_num_vbuffers = MAX2(st->last_num_vbuffers, 1);
 
       pipe_resource_reference(&vbo.buffer.resource, NULL);
    }
@@ -268,7 +272,7 @@ st_pbo_draw(struct st_context *st, const struct st_pbo_addresses *addr,
       cb.buffer_offset = 0;
       cb.buffer_size = sizeof(addr->constants);
 
-      cso_set_constant_buffer(cso, PIPE_SHADER_FRAGMENT, 0, &cb);
+      pipe->set_constant_buffer(pipe, PIPE_SHADER_FRAGMENT, 0, false, &cb);
 
       pipe_resource_reference(&cb.buffer, NULL);
    }
@@ -381,7 +385,8 @@ st_pbo_create_gs(struct st_context *st)
 }
 
 static const struct glsl_type *
-sampler_type_for_target(enum pipe_texture_target target)
+sampler_type_for_target(enum pipe_texture_target target,
+                        enum st_pbo_conversion conv)
 {
    bool is_array = target >= PIPE_TEXTURE_1D_ARRAY;
    static const enum glsl_sampler_dim dim[] = {
@@ -396,7 +401,15 @@ sampler_type_for_target(enum pipe_texture_target target)
       [PIPE_TEXTURE_CUBE_ARRAY] = GLSL_SAMPLER_DIM_CUBE,
    };
 
-   return glsl_sampler_type(dim[target], false, is_array, GLSL_TYPE_FLOAT);
+   static const enum glsl_base_type type[] = {
+      [ST_PBO_CONVERT_FLOAT] = GLSL_TYPE_FLOAT,
+      [ST_PBO_CONVERT_UINT] = GLSL_TYPE_UINT,
+      [ST_PBO_CONVERT_UINT_TO_SINT] = GLSL_TYPE_UINT,
+      [ST_PBO_CONVERT_SINT] = GLSL_TYPE_INT,
+      [ST_PBO_CONVERT_SINT_TO_UINT] = GLSL_TYPE_INT,
+   };
+
+   return glsl_sampler_type(dim[target], false, is_array, type[conv]);
 }
 
 
@@ -499,7 +512,8 @@ create_fs(struct st_context *st, bool download,
 
    nir_variable *tex_var =
       nir_variable_create(b.shader, nir_var_uniform,
-                          sampler_type_for_target(target), "tex");
+                          sampler_type_for_target(target, conversion),
+                          "tex");
    tex_var->data.explicit_binding = true;
    tex_var->data.binding = 0;
 
@@ -510,7 +524,8 @@ create_fs(struct st_context *st, bool download,
    tex->sampler_dim = glsl_get_sampler_dim(tex_var->type);
    tex->coord_components =
       glsl_get_sampler_coordinate_components(tex_var->type);
-   tex->dest_type = nir_type_float;
+
+   tex->dest_type = nir_get_nir_type_for_glsl_base_type(glsl_get_sampler_result_type(tex_var->type));
    tex->src[0].src_type = nir_tex_src_texture_deref;
    tex->src[0].src = nir_src_for_ssa(&tex_deref->dest.ssa);
    tex->src[1].src_type = nir_tex_src_sampler_deref;
@@ -527,10 +542,17 @@ create_fs(struct st_context *st, bool download,
       result = nir_umin(&b, result, nir_imm_int(&b, (1u << 31) - 1));
 
    if (download) {
+      static const enum glsl_base_type type[] = {
+         [ST_PBO_CONVERT_FLOAT] = GLSL_TYPE_FLOAT,
+         [ST_PBO_CONVERT_UINT] = GLSL_TYPE_UINT,
+         [ST_PBO_CONVERT_UINT_TO_SINT] = GLSL_TYPE_INT,
+         [ST_PBO_CONVERT_SINT] = GLSL_TYPE_INT,
+         [ST_PBO_CONVERT_SINT_TO_UINT] = GLSL_TYPE_UINT,
+      };
       nir_variable *img_var =
          nir_variable_create(b.shader, nir_var_uniform,
                              glsl_image_type(GLSL_SAMPLER_DIM_BUF, false,
-                                             GLSL_TYPE_FLOAT), "img");
+                                             type[conversion]), "img");
       img_var->data.access = ACCESS_NON_READABLE;
       img_var->data.explicit_binding = true;
       img_var->data.binding = 0;
@@ -557,14 +579,18 @@ static enum st_pbo_conversion
 get_pbo_conversion(enum pipe_format src_format, enum pipe_format dst_format)
 {
    if (util_format_is_pure_uint(src_format)) {
+      if (util_format_is_pure_uint(dst_format))
+         return ST_PBO_CONVERT_UINT;
       if (util_format_is_pure_sint(dst_format))
          return ST_PBO_CONVERT_UINT_TO_SINT;
    } else if (util_format_is_pure_sint(src_format)) {
+      if (util_format_is_pure_sint(dst_format))
+         return ST_PBO_CONVERT_SINT;
       if (util_format_is_pure_uint(dst_format))
          return ST_PBO_CONVERT_SINT_TO_UINT;
    }
 
-   return ST_PBO_CONVERT_NONE;
+   return ST_PBO_CONVERT_FLOAT;
 }
 
 void *

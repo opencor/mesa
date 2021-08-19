@@ -117,6 +117,7 @@ struct pipe_rasterizer_state
    unsigned line_smooth:1;
    unsigned line_stipple_enable:1;
    unsigned line_last_pixel:1;
+   unsigned line_rectangular:1; /** lines rasterized as rectangles or parallelograms */
    unsigned conservative_raster_mode:2; /**< PIPE_CONSERVATIVE_RASTER_x */
 
    /**
@@ -328,8 +329,8 @@ struct pipe_depth_stencil_alpha_state
    unsigned depth_bounds_test:1;     /**< depth bounds test enabled? */
 
    float alpha_ref_value;            /**< reference value */
-   float depth_bounds_min;           /**< minimum depth bound */
-   float depth_bounds_max;           /**< maximum depth bound */
+   double depth_bounds_min;          /**< minimum depth bound */
+   double depth_bounds_max;          /**< maximum depth bound */
 };
 
 
@@ -412,6 +413,8 @@ struct pipe_sampler_state
    unsigned normalized_coords:1; /**< Are coords normalized to [0,1]? */
    unsigned max_anisotropy:5;
    unsigned seamless_cube_map:1;
+   unsigned border_color_is_integer:1;
+   unsigned reduction_mode:2;    /**< PIPE_TEX_REDUCTION_x */
    float lod_bias;               /**< LOD/lambda bias */
    float min_lod, max_lod;       /**< LOD clamp range, after bias */
    union pipe_color_union border_color;
@@ -579,11 +582,16 @@ struct pipe_memory_allocation;
 struct pipe_transfer
 {
    struct pipe_resource *resource; /**< resource to transfer to/from  */
-   unsigned level;                 /**< texture mipmap level */
-   enum pipe_map_flags usage;
+   enum pipe_map_flags usage:24;
+   unsigned level:8;               /**< texture mipmap level */
    struct pipe_box box;            /**< region of the resource to access */
    unsigned stride;                /**< row stride in bytes */
    unsigned layer_stride;          /**< image/layer stride in bytes */
+
+   /* Offset into a driver-internal staging buffer to make use of unused
+    * padding in this structure.
+    */
+   unsigned offset;
 };
 
 
@@ -732,9 +740,10 @@ struct pipe_draw_indirect_info
    struct pipe_stream_output_target *count_from_stream_output;
 };
 
-struct pipe_draw_start_count {
+struct pipe_draw_start_count_bias {
    unsigned start;
    unsigned count;
+   int index_bias; /**< a bias to be added to each index */
 };
 
 /**
@@ -744,23 +753,19 @@ struct pipe_draw_info
 {
    enum pipe_prim_type mode:8;  /**< the mode of the primitive */
    ubyte vertices_per_patch; /**< the number of vertices per patch */
-   ubyte index_size;  /**< if 0, the draw is not indexed. */
+   unsigned index_size:4;  /**< if 0, the draw is not indexed. */
+   unsigned view_mask:6; /**< mask of multiviews for this draw */
    bool primitive_restart:1;
    bool has_user_indices:1;   /**< if true, use index.user_buffer */
    bool index_bounds_valid:1; /**< whether min_index and max_index are valid;
                                    they're always invalid if index_size == 0 */
    bool increment_draw_id:1;  /**< whether drawid increments for direct draws */
-   char _pad:4;               /**< padding for memcmp */
+   bool take_index_buffer_ownership:1; /**< callee inherits caller's refcount
+         (no need to reference indexbuf, but still needs to unreference it) */
+   bool index_bias_varies:1;   /**< true if index_bias varies between draws */
 
    unsigned start_instance; /**< first instance id */
    unsigned instance_count; /**< number of instances */
-
-   unsigned drawid; /**< id of this draw in a multidraw */
-
-   /**
-    * For indexed drawing, these fields apply after index lookup.
-    */
-   int index_bias; /**< a bias to be added to each index */
 
    /**
     * Primitive restart enable/index (only applies to indexed drawing)

@@ -75,7 +75,13 @@ struct radeon_info {
    bool has_tc_compat_zrange_bug;
    bool has_msaa_sample_loc_bug;
    bool has_ls_vgpr_init_bug;
+   bool has_zero_index_buffer_bug;
+   bool has_image_load_dcc_bug;
+   bool has_two_planes_iterate256_bug;
+   bool has_vgt_flush_ngg_legacy_bug;
+   bool has_cs_regalloc_hang_bug;
    bool has_32bit_predication;
+   bool has_3d_cube_border_color_mipmap;
 
    /* Display features. */
    /* There are 2 display DCC codepaths, because display expects unaligned DCC. */
@@ -87,6 +93,8 @@ struct radeon_info {
    /* Memory info. */
    uint32_t pte_fragment_size;
    uint32_t gart_page_size;
+   uint32_t gart_size_kb;
+   uint32_t vram_size_kb;
    uint64_t gart_size;
    uint64_t vram_size;
    uint64_t vram_vis_size;
@@ -102,14 +110,14 @@ struct radeon_info {
    bool smart_access_memory;
    bool has_l2_uncached;
    bool r600_has_virtual_memory;
-   uint32_t num_sdp_interfaces;
    uint32_t max_tcc_blocks;
    uint32_t num_tcc_blocks;
    uint32_t tcc_cache_line_size;
    bool tcc_rb_non_coherent; /* whether L2 inv is needed for render->texture transitions */
    unsigned pc_lines;
    uint32_t lds_size_per_workgroup;
-   uint32_t lds_granularity;
+   uint32_t lds_alloc_granularity;
+   uint32_t lds_encode_granularity;
    uint32_t max_memory_clock;
    uint32_t ce_ram_size;
    uint32_t l1_cache_size;
@@ -126,11 +134,28 @@ struct radeon_info {
    uint32_t ce_fw_feature;
 
    /* Multimedia info. */
-   bool has_hw_decode;
-   bool uvd_enc_supported;
+   struct {
+      bool uvd_decode;
+      bool vcn_decode;
+      bool jpeg_decode;
+      bool vce_encode;
+      bool uvd_encode;
+      bool vcn_encode;
+   } has_video_hw;
+
    uint32_t uvd_fw_version;
    uint32_t vce_fw_version;
    uint32_t vce_harvest_config;
+   struct video_caps_info {
+      struct {
+         uint32_t valid;
+         uint32_t max_width;
+         uint32_t max_height;
+         uint32_t max_pixels_per_frame;
+         uint32_t max_level;
+         uint32_t pad;
+      } codec_info[8]; /* the number of available codecs */
+   } dec_caps, enc_caps;
 
    /* Kernel & winsys capabilities. */
    uint32_t drm_major; /* version */
@@ -139,10 +164,8 @@ struct radeon_info {
    bool is_amdgpu;
    bool has_userptr;
    bool has_syncobj;
-   bool has_syncobj_wait_for_submit;
    bool has_timeline_syncobj;
    bool has_fence_to_handle;
-   bool has_ctx_priority;
    bool has_local_buffers;
    bool kernel_flushes_hdp_before_ib;
    bool htile_cmask_support_1d_tiling;
@@ -184,7 +207,7 @@ struct radeon_info {
    uint32_t min_wave64_vgpr_alloc;
    uint32_t max_vgpr_alloc;
    uint32_t wave64_vgpr_alloc_granularity;
-   bool use_late_alloc; /* VS and GS: late pos/param allocation */
+   bool use_late_alloc; /* deprecated: remove this after radv switches to ac_compute_late_alloc */
 
    /* Render backends (color + depth blocks). */
    uint32_t r300_num_gb_pipes;

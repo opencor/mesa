@@ -614,7 +614,8 @@ generate_fs_loop(struct gallivm_state *gallivm,
    /* truncate then sign extend. */
    system_values.front_facing = LLVMBuildTrunc(gallivm->builder, facing, LLVMInt1TypeInContext(gallivm->context), "");
    system_values.front_facing = LLVMBuildSExt(gallivm->builder, system_values.front_facing, LLVMInt32TypeInContext(gallivm->context), "");
-
+   system_values.view_index = lp_jit_thread_data_raster_state_view_index(gallivm,
+                                                                         thread_data_ptr);
    if (key->depth.enabled ||
        key->stencil[0].enabled) {
 
@@ -1131,12 +1132,19 @@ generate_fs_loop(struct gallivm_state *gallivm,
             z = interp->pos[2];
          }
       }
+
       /*
        * Clamp according to ARB_depth_clamp semantics.
        */
       if (key->depth_clamp) {
          z = lp_build_depth_clamp(gallivm, builder, type, context_ptr,
                                   thread_data_ptr, z);
+      } else {
+         struct lp_build_context f32_bld;
+         lp_build_context_init(&f32_bld, gallivm, type);
+         z = lp_build_clamp(&f32_bld, z,
+                            lp_build_const_vec(gallivm, type, 0.0),
+                            lp_build_const_vec(gallivm, type, 1.0));
       }
 
       if (s_out != -1 && outputs[s_out][1]) {
@@ -2355,7 +2363,7 @@ generate_unswizzled_blend(struct gallivm_state *gallivm,
          continue;
       }
 
-      /* Ensure we havn't already found all channels */
+      /* Ensure we haven't already found all channels */
       if (dst_channels >= out_format_desc->nr_channels) {
          continue;
       }
@@ -3283,7 +3291,7 @@ generate_fragment(struct llvmpipe_context *lp,
                                 LLVMBuildGEP(builder, stride_ptr, &index, 1, ""),
                                 "");
 
-         if (key->multisample)
+         if (key->cbuf_nr_samples[cbuf] > 1)
             sample_stride = LLVMBuildLoad(builder,
                                           LLVMBuildGEP(builder, color_sample_stride_ptr,
                                                        &index, 1, ""), "");
@@ -3293,7 +3301,7 @@ generate_fragment(struct llvmpipe_context *lp,
             unsigned out_idx = key->min_samples == 1 ? 0 : s;
             LLVMValueRef out_ptr = color_ptr;;
 
-            if (key->multisample) {
+            if (sample_stride) {
                LLVMValueRef sample_offset = LLVMBuildMul(builder, sample_stride, lp_build_const_int32(gallivm, s), "");
                out_ptr = LLVMBuildGEP(builder, out_ptr, &sample_offset, 1, "");
             }
@@ -3398,6 +3406,7 @@ dump_fs_variant_key(struct lp_fragment_shader_variant_key *key)
       debug_printf("  .lod_bias_non_zero = %u\n", sampler->lod_bias_non_zero);
       debug_printf("  .apply_min_lod = %u\n", sampler->apply_min_lod);
       debug_printf("  .apply_max_lod = %u\n", sampler->apply_max_lod);
+      debug_printf("  .reduction_mode = %u\n", sampler->reduction_mode);
    }
    for (i = 0; i < key->nr_sampler_views; ++i) {
       const struct lp_static_texture_state *texture = &key->samplers[i].texture_state;
@@ -3668,7 +3677,7 @@ llvmpipe_create_fs_state(struct pipe_context *pipe,
       shader->inputs[i].src_index = i+1;
    }
 
-   if (LP_DEBUG & DEBUG_TGSI) {
+   if (LP_DEBUG & DEBUG_TGSI && templ->type == PIPE_SHADER_IR_TGSI) {
       unsigned attrib;
       debug_printf("llvmpipe: Create fragment shader #%u %p:\n",
                    shader->no, (void *) shader);
@@ -3786,6 +3795,7 @@ llvmpipe_delete_fs_state(struct pipe_context *pipe, void *fs)
 static void
 llvmpipe_set_constant_buffer(struct pipe_context *pipe,
                              enum pipe_shader_type shader, uint index,
+                             bool take_ownership,
                              const struct pipe_constant_buffer *cb)
 {
    struct llvmpipe_context *llvmpipe = llvmpipe_context(pipe);
@@ -3795,7 +3805,8 @@ llvmpipe_set_constant_buffer(struct pipe_context *pipe,
    assert(index < ARRAY_SIZE(llvmpipe->constants[shader]));
 
    /* note: reference counting */
-   util_copy_constant_buffer(&llvmpipe->constants[shader][index], cb);
+   util_copy_constant_buffer(&llvmpipe->constants[shader][index], cb,
+                             take_ownership);
 
    if (constants) {
        if (!(constants->bind & PIPE_BIND_CONSTANT_BUFFER)) {
@@ -3874,7 +3885,8 @@ llvmpipe_set_shader_buffers(struct pipe_context *pipe,
 static void
 llvmpipe_set_shader_images(struct pipe_context *pipe,
                             enum pipe_shader_type shader, unsigned start_slot,
-                           unsigned count, const struct pipe_image_view *images)
+                           unsigned count, unsigned unbind_num_trailing_slots,
+                           const struct pipe_image_view *images)
 {
    struct llvmpipe_context *llvmpipe = llvmpipe_context(pipe);
    unsigned i, idx;
@@ -3899,6 +3911,11 @@ llvmpipe_set_shader_images(struct pipe_context *pipe,
       llvmpipe->cs_dirty |= LP_CSNEW_IMAGES;
    else
       llvmpipe->dirty |= LP_NEW_FS_IMAGES;
+
+   if (unbind_num_trailing_slots) {
+      llvmpipe_set_shader_images(pipe, shader, start_slot + count,
+                                 unbind_num_trailing_slots, 0, NULL);
+   }
 }
 
 /**
@@ -3969,20 +3986,8 @@ make_variant_key(struct llvmpipe_context *lp,
     * Propagate the depth clamp setting from the rasterizer state.
     * depth_clip == 0 implies depth clamping is enabled.
     *
-    * When clip_halfz is enabled, then always clamp the depth values.
-    *
-    * XXX: This is incorrect for GL, but correct for d3d10 (depth
-    * clamp is always active in d3d10, regardless if depth clip is
-    * enabled or not).
-    * (GL has an always-on [0,1] clamp on fs depth output instead
-    * to ensure the depth values stay in range. Doesn't look like
-    * we do that, though...)
     */
-   if (lp->rasterizer->clip_halfz) {
-      key->depth_clamp = 1;
-   } else {
-      key->depth_clamp = (lp->rasterizer->depth_clip_near == 0) ? 1 : 0;
-   }
+   key->depth_clamp = (lp->rasterizer->depth_clip_near == 0) ? 1 : 0;
 
    /* alpha test only applies if render buffer 0 is non-integer (or does not exist) */
    if (!lp->framebuffer.nr_cbufs ||
@@ -4227,7 +4232,8 @@ llvmpipe_update_fs(struct llvmpipe_context *lp)
             assert(item);
             assert(item->base);
             llvmpipe_remove_shader_variant(lp, item->base);
-            lp_fs_variant_reference(lp, &item->base, NULL);
+            struct lp_fragment_shader_variant *variant = item->base;
+            lp_fs_variant_reference(lp, &variant, NULL);
          }
       }
 

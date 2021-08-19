@@ -26,7 +26,6 @@
 
 extern "C" {
 #include "nouveau_debug.h"
-#include "nv50/nv50_program.h"
 }
 
 namespace nv50_ir {
@@ -111,12 +110,12 @@ bool ValueRef::getImmediate(ImmediateValue &imm) const
    return false;
 }
 
-ValueDef::ValueDef(Value *v) : value(NULL), insn(NULL)
+ValueDef::ValueDef(Value *v) : value(NULL), origin(NULL), insn(NULL)
 {
    set(v);
 }
 
-ValueDef::ValueDef(const ValueDef& def) : value(NULL), insn(NULL)
+ValueDef::ValueDef(const ValueDef& def) : value(NULL), origin(NULL), insn(NULL)
 {
    set(def.get());
 }
@@ -439,7 +438,7 @@ ImmediateValue::applyLog2()
    case TYPE_S16:
    case TYPE_S32:
       assert(!this->isNegative());
-      // fall through
+      FALLTHROUGH;
    case TYPE_U8:
    case TYPE_U16:
    case TYPE_U32:
@@ -447,7 +446,7 @@ ImmediateValue::applyLog2()
       break;
    case TYPE_S64:
       assert(!this->isNegative());
-      // fall through
+      FALLTHROUGH;
    case TYPE_U64:
       reg.data.u64 = util_logbase2_64(reg.data.u64);
       break;
@@ -563,6 +562,7 @@ Symbol::equals(const Value *that, bool strict) const
 void Instruction::init()
 {
    next = prev = 0;
+   serial = 0;
 
    cc = CC_ALWAYS;
    rnd = ROUND_N;
@@ -589,6 +589,9 @@ void Instruction::init()
    predSrc = -1;
    flagsDef = -1;
    flagsSrc = -1;
+
+   sched = 0;
+   bb = NULL;
 }
 
 Instruction::Instruction()
@@ -599,7 +602,6 @@ Instruction::Instruction()
    dType = sType = TYPE_F32;
 
    id = -1;
-   bb = 0;
 }
 
 Instruction::Instruction(Function *fn, operation opr, DataType ty)
@@ -747,7 +749,7 @@ Instruction::clone(ClonePolicy<Function>& pol, Instruction *i) const
 {
    if (!i)
       i = new_Instruction(pol.context(), op, dType);
-#ifndef NDEBUG // non-conformant assert, so this is required
+#if !defined(NDEBUG) && defined(__cpp_rtti)
    assert(typeid(*i) == typeid(*this));
 #endif
 

@@ -941,6 +941,7 @@ do_assignment(exec_list *instructions, struct _mesa_glsl_parse_state *state,
    if (lhs_var)
       lhs_var->data.assigned = true;
 
+   bool omit_assignment = false;
    if (!error_emitted) {
       if (non_lvalue_description != NULL) {
          _mesa_glsl_error(&lhs_loc, state,
@@ -957,10 +958,15 @@ do_assignment(exec_list *instructions, struct _mesa_glsl_parse_state *state,
           * no such distinction, that is why this check here is limited to
           * buffer variables alone.
           */
-         _mesa_glsl_error(&lhs_loc, state,
-                          "assignment to read-only variable '%s'",
-                          lhs_var->name);
-         error_emitted = true;
+
+         if (state->ignore_write_to_readonly_var)
+            omit_assignment = true;
+         else {
+            _mesa_glsl_error(&lhs_loc, state,
+                             "assignment to read-only variable '%s'",
+                             lhs_var->name);
+            error_emitted = true;
+         }
       } else if (lhs->type->is_array() &&
                  !state->check_version(state->allow_glsl_120_subset_in_110 ? 110 : 120,
                                        300, &lhs_loc,
@@ -1016,6 +1022,11 @@ do_assignment(exec_list *instructions, struct _mesa_glsl_parse_state *state,
       }
    } else {
      error_emitted = true;
+   }
+
+   if (omit_assignment) {
+      *out_rvalue = needs_rvalue ? ir_rvalue::error_value(ctx) : NULL;
+      return error_emitted;
    }
 
    /* Most callers of do_assignment (assign, add_assign, pre_inc/dec,
@@ -2448,7 +2459,7 @@ get_type_name_for_precision_qualifier(const glsl_type *type)
    case GLSL_TYPE_ATOMIC_UINT:
       return "atomic_uint";
    case GLSL_TYPE_IMAGE:
-   /* fallthrough */
+   FALLTHROUGH;
    case GLSL_TYPE_SAMPLER: {
       const unsigned type_idx =
          type->sampler_array + 2 * type->sampler_shadow;
@@ -2738,6 +2749,33 @@ is_allowed_invariant(ir_variable *var, struct _mesa_glsl_parse_state *state)
        var->data.mode == ir_var_shader_out)
       return true;
    return false;
+}
+
+static void
+validate_component_layout_for_type(struct _mesa_glsl_parse_state *state,
+                                   YYLTYPE *loc, const glsl_type *type,
+                                   unsigned qual_component)
+{
+   type = type->without_array();
+   unsigned components = type->component_slots();
+
+   if (type->is_matrix() || type->is_struct()) {
+       _mesa_glsl_error(loc, state, "component layout qualifier "
+                        "cannot be applied to a matrix, a structure, "
+                        "a block, or an array containing any of these.");
+   } else if (components > 4 && type->is_64bit()) {
+      _mesa_glsl_error(loc, state, "component layout qualifier "
+                       "cannot be applied to dvec%u.",
+                        components / 2);
+   } else if (qual_component != 0 && (qual_component + components - 1) > 3) {
+      _mesa_glsl_error(loc, state, "component overflow (%u > 3)",
+                       (qual_component + components - 1));
+   } else if (qual_component == 1 && type->is_64bit()) {
+      /* We don't bother checking for 3 as it should be caught by the
+       * overflow check above.
+       */
+      _mesa_glsl_error(loc, state, "doubles cannot begin at component 1 or 3");
+   }
 }
 
 /**
@@ -3712,32 +3750,10 @@ apply_layout_qualifier_to_variable(const struct ast_type_qualifier *qual,
          unsigned qual_component;
          if (process_qualifier_constant(state, loc, "component",
                                         qual->component, &qual_component)) {
-            const glsl_type *type = var->type->without_array();
-            unsigned components = type->component_slots();
-
-            if (type->is_matrix() || type->is_struct()) {
-               _mesa_glsl_error(loc, state, "component layout qualifier "
-                                "cannot be applied to a matrix, a structure, "
-                                "a block, or an array containing any of "
-                                "these.");
-            } else if (components > 4 && type->is_64bit()) {
-               _mesa_glsl_error(loc, state, "component layout qualifier "
-                                "cannot be applied to dvec%u.",
-                                components / 2);
-            } else if (qual_component != 0 &&
-                (qual_component + components - 1) > 3) {
-               _mesa_glsl_error(loc, state, "component overflow (%u > 3)",
-                                (qual_component + components - 1));
-            } else if (qual_component == 1 && type->is_64bit()) {
-               /* We don't bother checking for 3 as it should be caught by the
-                * overflow check above.
-                */
-               _mesa_glsl_error(loc, state, "doubles cannot begin at "
-                                "component 1 or 3");
-            } else {
-               var->data.explicit_component = true;
-               var->data.location_frac = qual_component;
-            }
+            validate_component_layout_for_type(state, loc, var->type,
+                                               qual_component);
+            var->data.explicit_component = true;
+            var->data.location_frac = qual_component;
          }
       }
    } else if (qual->flags.q.explicit_index) {
@@ -4183,7 +4199,7 @@ apply_type_qualifier_to_variable(const struct ast_type_qualifier *qual,
       case GLSL_TYPE_IMAGE:
          if (state->has_bindless())
             break;
-         /* fallthrough */
+         FALLTHROUGH;
       default:
          _mesa_glsl_error(loc, state, "illegal type for a varying variable");
          break;
@@ -4409,6 +4425,27 @@ get_variable_being_redeclared(ir_variable **var_ptr, YYLTYPE loc,
               earlier->data.how_declared == ir_var_declared_implicitly) {
       /* No need to do anything, just allow it. Qualifier is stored in state */
 
+   } else if (state->is_version(0, 300) &&
+              state->has_separate_shader_objects() &&
+              (strcmp(var->name, "gl_Position") == 0 ||
+              strcmp(var->name, "gl_PointSize") == 0)) {
+
+       /*  EXT_separate_shader_objects spec says:
+       *
+       *  "The following vertex shader outputs may be redeclared
+       *   at global scope to specify a built-in output interface,
+       *   with or without special qualifiers:
+       *
+       *    gl_Position
+       *    gl_PointSize
+       *
+       *    When compiling shaders using either of the above variables,
+       *    both such variables must be redeclared prior to use."
+       */
+      if (earlier->data.used) {
+         _mesa_glsl_error(&loc, state, "the first redeclaration of "
+                         "%s must appear before any use", var->name);
+      }
    } else if ((earlier->data.how_declared == ir_var_declared_implicitly &&
                state->allow_builtin_variable_redeclaration) ||
               allow_all_redeclarations) {
@@ -7536,6 +7573,18 @@ ast_process_struct_or_iface_block_members(exec_list *instructions,
             } else {
                fields[i].location = -1;
             }
+         }
+
+         if (qual->flags.q.explicit_component) {
+            unsigned qual_component;
+            if (process_qualifier_constant(state, &loc, "component",
+                                           qual->component, &qual_component)) {
+               validate_component_layout_for_type(state, &loc, fields[i].type,
+                                                  qual_component);
+               fields[i].component = qual_component;
+            }
+         } else {
+            fields[i].component = -1;
          }
 
          /* Offset can only be used with std430 and std140 layouts an initial

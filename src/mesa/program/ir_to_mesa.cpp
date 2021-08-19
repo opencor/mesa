@@ -1351,6 +1351,7 @@ ir_to_mesa_visitor::visit(ir_expression *ir)
       break;
 
    case ir_unop_ssbo_unsized_array_length:
+   case ir_unop_implicitly_sized_array_length:
    case ir_quadop_vector:
       /* This operation should have already been handled.
        */
@@ -2474,6 +2475,8 @@ _mesa_associate_uniform_storage(struct gl_context *ctx,
    struct gl_program_parameter_list *params = prog->Parameters;
    gl_shader_stage shader_type = prog->info.stage;
 
+   _mesa_disallow_parameter_storage_realloc(params);
+
    /* After adding each uniform to the parameter list, connect the storage for
     * the parameter with the tracking structure used by the API for the
     * uniform.
@@ -2507,7 +2510,7 @@ _mesa_associate_uniform_storage(struct gl_context *ctx,
          case GLSL_TYPE_UINT64:
             if (storage->type->vector_elements > 2)
                dmul *= 2;
-            /* fallthrough */
+            FALLTHROUGH;
          case GLSL_TYPE_UINT:
          case GLSL_TYPE_UINT16:
          case GLSL_TYPE_UINT8:
@@ -2518,7 +2521,7 @@ _mesa_associate_uniform_storage(struct gl_context *ctx,
          case GLSL_TYPE_INT64:
             if (storage->type->vector_elements > 2)
                dmul *= 2;
-            /* fallthrough */
+            FALLTHROUGH;
          case GLSL_TYPE_INT:
          case GLSL_TYPE_INT16:
          case GLSL_TYPE_INT8:
@@ -2529,7 +2532,7 @@ _mesa_associate_uniform_storage(struct gl_context *ctx,
          case GLSL_TYPE_DOUBLE:
             if (storage->type->vector_elements > 2)
                dmul *= 2;
-            /* fallthrough */
+            FALLTHROUGH;
          case GLSL_TYPE_FLOAT:
          case GLSL_TYPE_FLOAT16:
             format = uniform_native;
@@ -2612,6 +2615,24 @@ _mesa_associate_uniform_storage(struct gl_context *ctx,
 	      last_location = location;
       }
    }
+}
+
+void
+_mesa_ensure_and_associate_uniform_storage(struct gl_context *ctx,
+                              struct gl_shader_program *shader_program,
+                              struct gl_program *prog, unsigned required_space)
+{
+   /* Avoid reallocation of the program parameter list, because the uniform
+    * storage is only associated with the original parameter list.
+    */
+   _mesa_reserve_parameter_storage(prog->Parameters, required_space,
+                                   required_space);
+
+   /* This has to be done last.  Any operation the can cause
+    * prog->ParameterValues to get reallocated (e.g., anything that adds a
+    * program constant) has to happen before creating this linkage.
+    */
+   _mesa_associate_uniform_storage(ctx, shader_program, prog);
 }
 
 /*

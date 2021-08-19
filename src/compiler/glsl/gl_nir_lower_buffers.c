@@ -165,6 +165,24 @@ lower_buffer_interface_derefs_impl(nir_function_impl *impl,
    nir_builder b;
    nir_builder_init(&b, impl);
 
+   /* this must be a separate loop before the main pass in order to ensure that
+    * access info is fully propagated prior to the info being lost during rewrites
+    */
+   nir_foreach_block(block, impl) {
+      nir_foreach_instr(instr, block) {
+         if (instr->type != nir_instr_type_intrinsic)
+            continue;
+
+         nir_intrinsic_instr *intrin = nir_instr_as_intrinsic(instr);
+         if (intrin->intrinsic == nir_intrinsic_load_deref ||
+             intrin->intrinsic == nir_intrinsic_store_deref) {
+            nir_variable *var = nir_intrinsic_get_var(intrin, 0);
+            assert(var);
+            nir_intrinsic_set_access(intrin, nir_intrinsic_access(intrin) | var->data.access);
+         }
+      }
+   }
+
    nir_foreach_block(block, impl) {
       nir_foreach_instr_safe(instr, block) {
          switch (instr->type) {
@@ -220,7 +238,7 @@ lower_buffer_interface_derefs_impl(nir_function_impl *impl,
             cast->cast.align_offset = offset % NIR_ALIGN_MUL_MAX;
 
             nir_ssa_def_rewrite_uses(&deref->dest.ssa,
-                                     nir_src_for_ssa(&cast->dest.ssa));
+                                     &cast->dest.ssa);
             nir_deref_instr_remove_if_unused(deref);
             break;
          }
@@ -247,7 +265,7 @@ lower_buffer_interface_derefs_impl(nir_function_impl *impl,
                   intrin->dest.ssa.bit_size = 32;
                   nir_ssa_def *bval = nir_i2b(&b, &intrin->dest.ssa);
                   nir_ssa_def_rewrite_uses_after(&intrin->dest.ssa,
-                                                 nir_src_for_ssa(bval),
+                                                 bval,
                                                  bval->parent_instr);
                   progress = true;
                }

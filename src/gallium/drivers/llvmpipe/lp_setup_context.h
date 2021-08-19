@@ -75,6 +75,7 @@ struct lp_setup_context
 
    struct pipe_context *pipe;
    struct vertex_info *vertex_info;
+   uint view_index;
    uint prim;
    uint vertex_size;
    uint nr_vertices;
@@ -99,8 +100,10 @@ struct lp_setup_context
    boolean ccw_is_frontface;
    boolean scissor_test;
    boolean point_size_per_vertex;
+   boolean legacy_points;
    boolean rasterizer_discard;
    boolean multisample;
+   boolean rectangular_lines;
    unsigned cullmode;
    unsigned bottom_edge_rule;
    float pixel_offset;

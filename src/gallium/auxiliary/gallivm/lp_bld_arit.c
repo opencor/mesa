@@ -104,13 +104,13 @@ lp_build_min_simple(struct lp_build_context *bld,
 
    /* TODO: optimize the constant case */
 
-   if (type.floating && util_cpu_caps.has_sse) {
+   if (type.floating && util_get_cpu_caps()->has_sse) {
       if (type.width == 32) {
          if (type.length == 1) {
             intrinsic = "llvm.x86.sse.min.ss";
             intr_size = 128;
          }
-         else if (type.length <= 4 || !util_cpu_caps.has_avx) {
+         else if (type.length <= 4 || !util_get_cpu_caps()->has_avx) {
             intrinsic = "llvm.x86.sse.min.ps";
             intr_size = 128;
          }
@@ -119,12 +119,12 @@ lp_build_min_simple(struct lp_build_context *bld,
             intr_size = 256;
          }
       }
-      if (type.width == 64 && util_cpu_caps.has_sse2) {
+      if (type.width == 64 && util_get_cpu_caps()->has_sse2) {
          if (type.length == 1) {
             intrinsic = "llvm.x86.sse2.min.sd";
             intr_size = 128;
          }
-         else if (type.length == 2 || !util_cpu_caps.has_avx) {
+         else if (type.length == 2 || !util_get_cpu_caps()->has_avx) {
             intrinsic = "llvm.x86.sse2.min.pd";
             intr_size = 128;
          }
@@ -134,9 +134,8 @@ lp_build_min_simple(struct lp_build_context *bld,
          }
       }
    }
-   else if (type.floating && util_cpu_caps.has_altivec) {
-      if (nan_behavior == GALLIVM_NAN_RETURN_NAN ||
-          nan_behavior == GALLIVM_NAN_RETURN_NAN_FIRST_NONNAN) {
+   else if (type.floating && util_get_cpu_caps()->has_altivec) {
+      if (nan_behavior == GALLIVM_NAN_RETURN_NAN_FIRST_NONNAN) {
          debug_printf("%s: altivec doesn't support nan return nan behavior\n",
                       __FUNCTION__);
       }
@@ -144,7 +143,7 @@ lp_build_min_simple(struct lp_build_context *bld,
          intrinsic = "llvm.ppc.altivec.vminfp";
          intr_size = 128;
       }
-   } else if (util_cpu_caps.has_altivec) {
+   } else if (util_get_cpu_caps()->has_altivec) {
       intr_size = 128;
       if (type.width == 8) {
          if (!type.sign) {
@@ -174,22 +173,14 @@ lp_build_min_simple(struct lp_build_context *bld,
        * The sse intrinsics return the second operator in case of nan by
        * default so we need to special code to handle those.
        */
-      if (util_cpu_caps.has_sse && type.floating &&
-          nan_behavior != GALLIVM_NAN_BEHAVIOR_UNDEFINED &&
-          nan_behavior != GALLIVM_NAN_RETURN_OTHER_SECOND_NONNAN &&
-          nan_behavior != GALLIVM_NAN_RETURN_NAN_FIRST_NONNAN) {
+      if (util_get_cpu_caps()->has_sse && type.floating &&
+          nan_behavior == GALLIVM_NAN_RETURN_OTHER) {
          LLVMValueRef isnan, min;
          min = lp_build_intrinsic_binary_anylength(bld->gallivm, intrinsic,
                                                    type,
                                                    intr_size, a, b);
-         if (nan_behavior == GALLIVM_NAN_RETURN_OTHER) {
-            isnan = lp_build_isnan(bld, b);
-            return lp_build_select(bld, isnan, a, min);
-         } else {
-            assert(nan_behavior == GALLIVM_NAN_RETURN_NAN);
-            isnan = lp_build_isnan(bld, a);
-            return lp_build_select(bld, isnan, a, min);
-         }
+         isnan = lp_build_isnan(bld, b);
+         return lp_build_select(bld, isnan, a, min);
       } else {
          return lp_build_intrinsic_binary_anylength(bld->gallivm, intrinsic,
                                                     type,
@@ -199,13 +190,6 @@ lp_build_min_simple(struct lp_build_context *bld,
 
    if (type.floating) {
       switch (nan_behavior) {
-      case GALLIVM_NAN_RETURN_NAN: {
-         LLVMValueRef isnan = lp_build_isnan(bld, b);
-         cond = lp_build_cmp(bld, PIPE_FUNC_LESS, a, b);
-         cond = LLVMBuildXor(bld->gallivm->builder, cond, isnan, "");
-         return lp_build_select(bld, cond, a, b);
-      }
-         break;
       case GALLIVM_NAN_RETURN_OTHER: {
          LLVMValueRef isnan = lp_build_isnan(bld, a);
          cond = lp_build_cmp(bld, PIPE_FUNC_LESS, a, b);
@@ -274,13 +258,13 @@ lp_build_max_simple(struct lp_build_context *bld,
 
    /* TODO: optimize the constant case */
 
-   if (type.floating && util_cpu_caps.has_sse) {
+   if (type.floating && util_get_cpu_caps()->has_sse) {
       if (type.width == 32) {
          if (type.length == 1) {
             intrinsic = "llvm.x86.sse.max.ss";
             intr_size = 128;
          }
-         else if (type.length <= 4 || !util_cpu_caps.has_avx) {
+         else if (type.length <= 4 || !util_get_cpu_caps()->has_avx) {
             intrinsic = "llvm.x86.sse.max.ps";
             intr_size = 128;
          }
@@ -289,12 +273,12 @@ lp_build_max_simple(struct lp_build_context *bld,
             intr_size = 256;
          }
       }
-      if (type.width == 64 && util_cpu_caps.has_sse2) {
+      if (type.width == 64 && util_get_cpu_caps()->has_sse2) {
          if (type.length == 1) {
             intrinsic = "llvm.x86.sse2.max.sd";
             intr_size = 128;
          }
-         else if (type.length == 2 || !util_cpu_caps.has_avx) {
+         else if (type.length == 2 || !util_get_cpu_caps()->has_avx) {
             intrinsic = "llvm.x86.sse2.max.pd";
             intr_size = 128;
          }
@@ -304,9 +288,8 @@ lp_build_max_simple(struct lp_build_context *bld,
          }
       }
    }
-   else if (type.floating && util_cpu_caps.has_altivec) {
-      if (nan_behavior == GALLIVM_NAN_RETURN_NAN ||
-          nan_behavior == GALLIVM_NAN_RETURN_NAN_FIRST_NONNAN) {
+   else if (type.floating && util_get_cpu_caps()->has_altivec) {
+      if (nan_behavior == GALLIVM_NAN_RETURN_NAN_FIRST_NONNAN) {
          debug_printf("%s: altivec doesn't support nan return nan behavior\n",
                       __FUNCTION__);
       }
@@ -314,7 +297,7 @@ lp_build_max_simple(struct lp_build_context *bld,
          intrinsic = "llvm.ppc.altivec.vmaxfp";
          intr_size = 128;
       }
-   } else if (util_cpu_caps.has_altivec) {
+   } else if (util_get_cpu_caps()->has_altivec) {
      intr_size = 128;
      if (type.width == 8) {
        if (!type.sign) {
@@ -338,22 +321,14 @@ lp_build_max_simple(struct lp_build_context *bld,
    }
 
    if (intrinsic) {
-      if (util_cpu_caps.has_sse && type.floating &&
-          nan_behavior != GALLIVM_NAN_BEHAVIOR_UNDEFINED &&
-          nan_behavior != GALLIVM_NAN_RETURN_OTHER_SECOND_NONNAN &&
-          nan_behavior != GALLIVM_NAN_RETURN_NAN_FIRST_NONNAN) {
+      if (util_get_cpu_caps()->has_sse && type.floating &&
+          nan_behavior == GALLIVM_NAN_RETURN_OTHER) {
          LLVMValueRef isnan, max;
          max = lp_build_intrinsic_binary_anylength(bld->gallivm, intrinsic,
                                                    type,
                                                    intr_size, a, b);
-         if (nan_behavior == GALLIVM_NAN_RETURN_OTHER) {
-            isnan = lp_build_isnan(bld, b);
-            return lp_build_select(bld, isnan, a, max);
-         } else {
-            assert(nan_behavior == GALLIVM_NAN_RETURN_NAN);
-            isnan = lp_build_isnan(bld, a);
-            return lp_build_select(bld, isnan, a, max);
-         }
+         isnan = lp_build_isnan(bld, b);
+         return lp_build_select(bld, isnan, a, max);
       } else {
          return lp_build_intrinsic_binary_anylength(bld->gallivm, intrinsic,
                                                     type,
@@ -363,13 +338,6 @@ lp_build_max_simple(struct lp_build_context *bld,
 
    if (type.floating) {
       switch (nan_behavior) {
-      case GALLIVM_NAN_RETURN_NAN: {
-         LLVMValueRef isnan = lp_build_isnan(bld, b);
-         cond = lp_build_cmp(bld, PIPE_FUNC_GREATER, a, b);
-         cond = LLVMBuildXor(bld->gallivm->builder, cond, isnan, "");
-         return lp_build_select(bld, cond, a, b);
-      }
-         break;
       case GALLIVM_NAN_RETURN_OTHER: {
          LLVMValueRef isnan = lp_build_isnan(bld, a);
          cond = lp_build_cmp(bld, PIPE_FUNC_GREATER, a, b);
@@ -472,12 +440,12 @@ lp_build_add(struct lp_build_context *bld,
             return lp_build_intrinsic_binary(builder, intrin, bld->vec_type, a, b);
          }
          if (type.width * type.length == 128) {
-            if (util_cpu_caps.has_sse2) {
+            if (util_get_cpu_caps()->has_sse2) {
                if (type.width == 8)
                  intrinsic = type.sign ? "llvm.x86.sse2.padds.b" : "llvm.x86.sse2.paddus.b";
                if (type.width == 16)
                  intrinsic = type.sign ? "llvm.x86.sse2.padds.w" : "llvm.x86.sse2.paddus.w";
-            } else if (util_cpu_caps.has_altivec) {
+            } else if (util_get_cpu_caps()->has_altivec) {
                if (type.width == 8)
                   intrinsic = type.sign ? "llvm.ppc.altivec.vaddsbs" : "llvm.ppc.altivec.vaddubs";
                if (type.width == 16)
@@ -485,7 +453,7 @@ lp_build_add(struct lp_build_context *bld,
             }
          }
          if (type.width * type.length == 256) {
-            if (util_cpu_caps.has_avx2) {
+            if (util_get_cpu_caps()->has_avx2) {
                if (type.width == 8)
                   intrinsic = type.sign ? "llvm.x86.avx2.padds.b" : "llvm.x86.avx2.paddus.b";
                if (type.width == 16)
@@ -524,7 +492,7 @@ lp_build_add(struct lp_build_context *bld,
 
    /* clamp to ceiling of 1.0 */
    if(bld->type.norm && (bld->type.floating || bld->type.fixed))
-      res = lp_build_min_simple(bld, res, bld->one, GALLIVM_NAN_BEHAVIOR_UNDEFINED);
+      res = lp_build_min_simple(bld, res, bld->one, GALLIVM_NAN_RETURN_OTHER_SECOND_NONNAN);
 
    if (type.norm && !type.floating && !type.fixed) {
       if (!type.sign) {
@@ -713,11 +681,11 @@ lp_build_hadd_partial4(struct lp_build_context *bld,
    tmp[2] = num_vecs > 2 ? vectors[2] : vectors[0];
    tmp[3] = num_vecs > 3 ? vectors[3] : vectors[0];
 
-   if (util_cpu_caps.has_sse3 && bld->type.width == 32 &&
+   if (util_get_cpu_caps()->has_sse3 && bld->type.width == 32 &&
        bld->type.length == 4) {
       intrinsic = "llvm.x86.sse3.hadd.ps";
    }
-   else if (util_cpu_caps.has_avx && bld->type.width == 32 &&
+   else if (util_get_cpu_caps()->has_avx && bld->type.width == 32 &&
             bld->type.length == 8) {
       intrinsic = "llvm.x86.avx.hadd.ps.256";
    }
@@ -796,12 +764,12 @@ lp_build_sub(struct lp_build_context *bld,
             return lp_build_intrinsic_binary(builder, intrin, bld->vec_type, a, b);
          }
          if (type.width * type.length == 128) {
-            if (util_cpu_caps.has_sse2) {
+            if (util_get_cpu_caps()->has_sse2) {
                if (type.width == 8)
                   intrinsic = type.sign ? "llvm.x86.sse2.psubs.b" : "llvm.x86.sse2.psubus.b";
                if (type.width == 16)
                   intrinsic = type.sign ? "llvm.x86.sse2.psubs.w" : "llvm.x86.sse2.psubus.w";
-            } else if (util_cpu_caps.has_altivec) {
+            } else if (util_get_cpu_caps()->has_altivec) {
                if (type.width == 8)
                   intrinsic = type.sign ? "llvm.ppc.altivec.vsubsbs" : "llvm.ppc.altivec.vsububs";
                if (type.width == 16)
@@ -809,7 +777,7 @@ lp_build_sub(struct lp_build_context *bld,
             }
          }
          if (type.width * type.length == 256) {
-            if (util_cpu_caps.has_avx2) {
+            if (util_get_cpu_caps()->has_avx2) {
                if (type.width == 8)
                   intrinsic = type.sign ? "llvm.x86.avx2.psubs.b" : "llvm.x86.avx2.psubus.b";
                if (type.width == 16)
@@ -859,7 +827,7 @@ lp_build_sub(struct lp_build_context *bld,
          res = LLVMBuildSub(builder, a, b, "");
 
    if(bld->type.norm && (bld->type.floating || bld->type.fixed))
-      res = lp_build_max_simple(bld, res, bld->zero, GALLIVM_NAN_BEHAVIOR_UNDEFINED);
+      res = lp_build_max_simple(bld, res, bld->zero, GALLIVM_NAN_RETURN_OTHER_SECOND_NONNAN);
 
    return res;
 }
@@ -1078,8 +1046,8 @@ lp_build_mul_32_lohi_cpu(struct lp_build_context *bld,
     */
    if (LLVM_VERSION_MAJOR < 7 &&
        (bld->type.length == 4 || bld->type.length == 8) &&
-       ((util_cpu_caps.has_sse2 && (bld->type.sign == 0)) ||
-        util_cpu_caps.has_sse4_1)) {
+       ((util_get_cpu_caps()->has_sse2 && (bld->type.sign == 0)) ||
+        util_get_cpu_caps()->has_sse4_1)) {
       const char *intrinsic = NULL;
       LLVMValueRef aeven, aodd, beven, bodd, muleven, mulodd;
       LLVMValueRef shuf[LP_MAX_VECTOR_WIDTH / 32], shuf_vec;
@@ -1096,7 +1064,7 @@ lp_build_mul_32_lohi_cpu(struct lp_build_context *bld,
       aodd = LLVMBuildShuffleVector(builder, aeven, bld->undef, shuf_vec, "");
       bodd = LLVMBuildShuffleVector(builder, beven, bld->undef, shuf_vec, "");
 
-      if (util_cpu_caps.has_avx2 && bld->type.length == 8) {
+      if (util_get_cpu_caps()->has_avx2 && bld->type.length == 8) {
          if (bld->type.sign) {
             intrinsic = "llvm.x86.avx2.pmul.dq";
          } else {
@@ -1331,8 +1299,8 @@ lp_build_div(struct lp_build_context *bld,
 
    /* fast rcp is disabled (just uses div), so makes no sense to try that */
    if(FALSE &&
-      ((util_cpu_caps.has_sse && type.width == 32 && type.length == 4) ||
-       (util_cpu_caps.has_avx && type.width == 32 && type.length == 8)) &&
+      ((util_get_cpu_caps()->has_sse && type.width == 32 && type.length == 4) ||
+       (util_get_cpu_caps()->has_avx && type.width == 32 && type.length == 8)) &&
       type.floating)
       return lp_build_mul(bld, a, lp_build_rcp(bld, b));
 
@@ -1580,7 +1548,6 @@ lp_build_min(struct lp_build_context *bld,
    return lp_build_min_simple(bld, a, b, GALLIVM_NAN_BEHAVIOR_UNDEFINED);
 }
 
-
 /**
  * Generate min(a, b)
  * NaN's are handled according to the behavior specified by the
@@ -1745,7 +1712,7 @@ lp_build_abs(struct lp_build_context *bld,
       return lp_build_intrinsic_unary(builder, intrinsic, vec_type, a);
    }
 
-   if(type.width*type.length == 128 && util_cpu_caps.has_ssse3 && LLVM_VERSION_MAJOR < 6) {
+   if(type.width*type.length == 128 && util_get_cpu_caps()->has_ssse3 && LLVM_VERSION_MAJOR < 6) {
       switch(type.width) {
       case 8:
          return lp_build_intrinsic_unary(builder, "llvm.x86.ssse3.pabs.b.128", vec_type, a);
@@ -1755,7 +1722,7 @@ lp_build_abs(struct lp_build_context *bld,
          return lp_build_intrinsic_unary(builder, "llvm.x86.ssse3.pabs.d.128", vec_type, a);
       }
    }
-   else if (type.width*type.length == 256 && util_cpu_caps.has_avx2 && LLVM_VERSION_MAJOR < 6) {
+   else if (type.width*type.length == 256 && util_get_cpu_caps()->has_avx2 && LLVM_VERSION_MAJOR < 6) {
       switch(type.width) {
       case 8:
          return lp_build_intrinsic_unary(builder, "llvm.x86.avx2.pabs.b", vec_type, a);
@@ -1897,15 +1864,15 @@ lp_build_int_to_float(struct lp_build_context *bld,
 static boolean
 arch_rounding_available(const struct lp_type type)
 {
-   if ((util_cpu_caps.has_sse4_1 &&
+   if ((util_get_cpu_caps()->has_sse4_1 &&
        (type.length == 1 || type.width*type.length == 128)) ||
-       (util_cpu_caps.has_avx && type.width*type.length == 256) ||
-       (util_cpu_caps.has_avx512f && type.width*type.length == 512))
+       (util_get_cpu_caps()->has_avx && type.width*type.length == 256) ||
+       (util_get_cpu_caps()->has_avx512f && type.width*type.length == 512))
       return TRUE;
-   else if ((util_cpu_caps.has_altivec &&
+   else if ((util_get_cpu_caps()->has_altivec &&
             (type.width == 32 && type.length == 4)))
       return TRUE;
-   else if (util_cpu_caps.has_neon)
+   else if (util_get_cpu_caps()->has_neon)
       return TRUE;
 
    return FALSE;
@@ -1935,7 +1902,7 @@ lp_build_iround_nearest_sse2(struct lp_build_context *bld,
    assert(type.width == 32);
 
    assert(lp_check_value(type, a));
-   assert(util_cpu_caps.has_sse2);
+   assert(util_get_cpu_caps()->has_sse2);
 
    /* This is relying on MXCSR rounding mode, which should always be nearest. */
    if (type.length == 1) {
@@ -1961,7 +1928,7 @@ lp_build_iround_nearest_sse2(struct lp_build_context *bld,
       }
       else {
          assert(type.width*type.length == 256);
-         assert(util_cpu_caps.has_avx);
+         assert(util_get_cpu_caps()->has_avx);
 
          intrinsic = "llvm.x86.avx.cvt.ps2dq.256";
       }
@@ -1987,7 +1954,7 @@ lp_build_round_altivec(struct lp_build_context *bld,
    assert(type.floating);
 
    assert(lp_check_value(type, a));
-   assert(util_cpu_caps.has_altivec);
+   assert(util_get_cpu_caps()->has_altivec);
 
    (void)type;
 
@@ -2014,7 +1981,7 @@ lp_build_round_arch(struct lp_build_context *bld,
                     LLVMValueRef a,
                     enum lp_build_round_mode mode)
 {
-   if (util_cpu_caps.has_sse4_1 || util_cpu_caps.has_neon) {
+   if (util_get_cpu_caps()->has_sse4_1 || util_get_cpu_caps()->has_neon) {
       LLVMBuilderRef builder = bld->gallivm->builder;
       const struct lp_type type = bld->type;
       const char *intrinsic_root;
@@ -2037,12 +2004,14 @@ lp_build_round_arch(struct lp_build_context *bld,
       case LP_BUILD_ROUND_TRUNCATE:
          intrinsic_root = "llvm.trunc";
          break;
+      default:
+         unreachable("unhandled lp_build_round_mode");
       }
 
       lp_format_intrinsic(intrinsic, sizeof intrinsic, intrinsic_root, bld->vec_type);
       return lp_build_intrinsic_unary(builder, intrinsic, bld->vec_type, a);
    }
-   else /* (util_cpu_caps.has_altivec) */
+   else /* (util_get_cpu_caps()->has_altivec) */
      return lp_build_round_altivec(bld, a, mode);
 }
 
@@ -2377,9 +2346,9 @@ lp_build_iround(struct lp_build_context *bld,
 
    assert(lp_check_value(type, a));
 
-   if ((util_cpu_caps.has_sse2 &&
+   if ((util_get_cpu_caps()->has_sse2 &&
        ((type.width == 32) && (type.length == 1 || type.length == 4))) ||
-       (util_cpu_caps.has_avx && type.width == 32 && type.length == 8)) {
+       (util_get_cpu_caps()->has_avx && type.width == 32 && type.length == 8)) {
       return lp_build_iround_nearest_sse2(bld, a);
    }
    if (arch_rounding_available(type)) {
@@ -2664,8 +2633,8 @@ lp_build_rcp(struct lp_build_context *bld,
     * particular uses that require less workarounds.
     */
 
-   if (FALSE && ((util_cpu_caps.has_sse && type.width == 32 && type.length == 4) ||
-         (util_cpu_caps.has_avx && type.width == 32 && type.length == 8))){
+   if (FALSE && ((util_get_cpu_caps()->has_sse && type.width == 32 && type.length == 4) ||
+         (util_get_cpu_caps()->has_avx && type.width == 32 && type.length == 8))){
       const unsigned num_iterations = 0;
       LLVMValueRef res;
       unsigned i;
@@ -2784,8 +2753,8 @@ lp_build_fast_rsqrt_available(struct lp_type type)
 {
    assert(type.floating);
 
-   if ((util_cpu_caps.has_sse && type.width == 32 && type.length == 4) ||
-       (util_cpu_caps.has_avx && type.width == 32 && type.length == 8)) {
+   if ((util_get_cpu_caps()->has_sse && type.width == 32 && type.length == 4) ||
+       (util_get_cpu_caps()->has_avx && type.width == 32 && type.length == 8)) {
       return true;
    }
    return false;
@@ -3694,7 +3663,7 @@ lp_build_is_inf_or_nan(struct gallivm_state *gallivm,
 LLVMValueRef
 lp_build_fpstate_get(struct gallivm_state *gallivm)
 {
-   if (util_cpu_caps.has_sse) {
+   if (util_get_cpu_caps()->has_sse) {
       LLVMBuilderRef builder = gallivm->builder;
       LLVMValueRef mxcsr_ptr = lp_build_alloca(
          gallivm,
@@ -3715,7 +3684,7 @@ void
 lp_build_fpstate_set_denorms_zero(struct gallivm_state *gallivm,
                                   boolean zero)
 {
-   if (util_cpu_caps.has_sse) {
+   if (util_get_cpu_caps()->has_sse) {
       /* turn on DAZ (64) | FTZ (32768) = 32832 if available */
       int daz_ftz = _MM_FLUSH_ZERO_MASK;
 
@@ -3724,7 +3693,7 @@ lp_build_fpstate_set_denorms_zero(struct gallivm_state *gallivm,
       LLVMValueRef mxcsr =
          LLVMBuildLoad(builder, mxcsr_ptr, "mxcsr");
 
-      if (util_cpu_caps.has_daz) {
+      if (util_get_cpu_caps()->has_daz) {
          /* Enable denormals are zero mode */
          daz_ftz |= _MM_DENORMALS_ZERO_MASK;
       }
@@ -3745,7 +3714,7 @@ void
 lp_build_fpstate_set(struct gallivm_state *gallivm,
                      LLVMValueRef mxcsr_ptr)
 {
-   if (util_cpu_caps.has_sse) {
+   if (util_get_cpu_caps()->has_sse) {
       LLVMBuilderRef builder = gallivm->builder;
       mxcsr_ptr = LLVMBuildPointerCast(builder, mxcsr_ptr,
                      LLVMPointerType(LLVMInt8TypeInContext(gallivm->context), 0), "");

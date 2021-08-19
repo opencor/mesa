@@ -547,7 +547,7 @@ ptn_tex(struct ptn_compile *c, nir_alu_dest dest, nir_ssa_def **src,
 
    instr = nir_tex_instr_create(b->shader, num_srcs);
    instr->op = op;
-   instr->dest_type = nir_type_float;
+   instr->dest_type = nir_type_float32;
    instr->is_shadow = prog_inst->TexShadow;
 
    bool is_array;
@@ -1024,6 +1024,7 @@ prog_to_nir(const struct gl_program *prog,
    s->info.clip_distance_array_size = 0;
    s->info.cull_distance_array_size = 0;
    s->info.separate_shader = false;
+   s->info.io_lowered = false;
 
 fail:
    if (c->error) {

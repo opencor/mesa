@@ -252,7 +252,7 @@ static void set_vertices( void )
                                                  vertices);
    }
 
-   ctx->set_vertex_buffers(ctx, 0, 1, &vbuf);
+   ctx->set_vertex_buffers(ctx, 0, 1, 0, false, &vbuf);
 }
 
 static void set_vertex_shader( void )
@@ -421,7 +421,7 @@ static void init_tex( void )
    {
       struct pipe_transfer *t;
       uint32_t *ptr;
-      ptr = pipe_transfer_map(ctx, samptex,
+      ptr = pipe_texture_map(ctx, samptex,
                               0, 0, /* level, layer */
                               PIPE_MAP_READ,
                               0, 0, SIZE, SIZE, &t); /* x, y, width, height */
@@ -431,7 +431,7 @@ static void init_tex( void )
          exit(9);
       }
 
-      ctx->transfer_unmap(ctx, t);
+      ctx->texture_unmap(ctx, t);
    }
 
    memset(&sv_template, 0, sizeof sv_template);
@@ -445,7 +445,7 @@ static void init_tex( void )
    if (sv == NULL)
       exit(5);
 
-   ctx->set_sampler_views(ctx, PIPE_SHADER_FRAGMENT, 0, 1, &sv);
+   ctx->set_sampler_views(ctx, PIPE_SHADER_FRAGMENT, 0, 1, 0, &sv);
    
 
    memset(&sampler_desc, 0, sizeof sampler_desc);

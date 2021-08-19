@@ -1,22 +1,55 @@
+# Copyright © 2020 Hoe Hao Cheng
+#
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice (including the next
+# paragraph) shall be included in all copies or substantial portions of the
+# Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+# IN THE SOFTWARE.
+# 
+# Authors:
+#    Hoe Hao Cheng <haochengho12907@gmail.com>
+#
+
 from mako.template import Template
 from os import path
-from zink_extensions import Extension,Layer
+from xml.etree import ElementTree
+from zink_extensions import Extension,Layer,ExtensionRegistry,Version
 import sys
 
+# constructor: Extension(name, conditions=[], nonstandard=False)
+# The attributes:
+#  - conditions: If the extension is provided by the Vulkan implementation, then
+#                these are the extra conditions needed to enable the extension.
+#  - nonstandard: Disables validation (cross-checking with vk.xml) if True.
 EXTENSIONS = [
     Extension("VK_EXT_debug_utils"),
-    Extension("VK_KHR_maintenance2"),
     Extension("VK_KHR_get_physical_device_properties2"),
-    Extension("VK_KHR_external_memory_capabilities"),
-    Extension("VK_MVK_moltenvk"),
+    Extension("VK_MVK_moltenvk",
+        nonstandard=True),
+    Extension("VK_KHR_surface"),
 ]
 
+# constructor: Layer(name, conditions=[])
+# - conditions: See documentation of EXTENSIONS.
 LAYERS = [
     # if we have debug_util, allow a validation layer to be added.
     Layer("VK_LAYER_KHRONOS_validation",
-      conditions=["have_EXT_debug_utils"]),
+      conditions=["zink_debug & ZINK_DEBUG_VALIDATION"]),
     Layer("VK_LAYER_LUNARG_standard_validation",
-      conditions=["have_EXT_debug_utils", "!have_layer_KHRONOS_validation"]),
+      conditions=["zink_debug & ZINK_DEBUG_VALIDATION", "!have_layer_KHRONOS_validation"]),
 ]
 
 REPLACEMENTS = {
@@ -33,13 +66,14 @@ header_code = """
 
 #if defined(__APPLE__)
 // Source of MVK_VERSION
-// Source of VK_EXTX_PORTABILITY_SUBSET_EXTENSION_NAME
 #include "MoltenVK/vk_mvk_moltenvk.h"
 #endif
 
 struct zink_screen;
 
 struct zink_instance_info {
+   uint32_t loader_version;
+
 %for ext in extensions:
    bool have_${ext.name_with_vendor()};
 %endfor
@@ -50,7 +84,24 @@ struct zink_instance_info {
 };
 
 VkInstance
-zink_create_instance(struct zink_screen *screen);
+zink_create_instance(struct zink_instance_info *instance_info);
+
+void
+zink_verify_instance_extensions(struct zink_screen *screen);
+
+/* stub functions that get inserted into the dispatch table if they are not
+ * properly loaded.
+ */
+%for ext in extensions:
+%if registry.in_registry(ext.name):
+%for cmd in registry.get_registry_entry(ext.name).instance_commands:
+void zink_stub_${cmd.lstrip("vk")}(void);
+%endfor
+%for cmd in registry.get_registry_entry(ext.name).pdevice_commands:
+void zink_stub_${cmd.lstrip("vk")}(void);
+%endfor
+%endif
+%endfor
 
 #endif
 """
@@ -60,13 +111,13 @@ impl_code = """
 #include "zink_screen.h"
 
 VkInstance
-zink_create_instance(struct zink_screen *screen)
+zink_create_instance(struct zink_instance_info *instance_info)
 {
    /* reserve one slot for MoltenVK */
-   const char *layers[${len(layers) + 1}] = { 0 };
+   const char *layers[${len(layers) + 1}] = {0};
    uint32_t num_layers = 0;
    
-   const char *extensions[${len(extensions) + 1}] = { 0 };
+   const char *extensions[${len(extensions) + 1}] = {0};
    uint32_t num_extensions = 0;
 
 %for ext in extensions:
@@ -88,21 +139,15 @@ zink_create_instance(struct zink_screen *screen)
        if (extension_props) {
            if (vkEnumerateInstanceExtensionProperties(NULL, &extension_count, extension_props) == VK_SUCCESS) {
               for (uint32_t i = 0; i < extension_count; i++) {
-%for ext in extensions:
-                 if (!strcmp(extension_props[i].extensionName, ${ext.extension_name_literal()})) {
+        %for ext in extensions:
+                if (!strcmp(extension_props[i].extensionName, ${ext.extension_name_literal()})) {
                     have_${ext.name_with_vendor()} = true;
-                    extensions[num_extensions++] = ${ext.extension_name_literal()};
-                 }
-%endfor
+                }
+        %endfor
               }
            }
        free(extension_props);
        }
-   }
-
-   // Clear have_EXT_debug_utils if we do not want debug info
-   if (!(zink_debug & ZINK_DEBUG_VALIDATION)) {
-      have_EXT_debug_utils = false;
    }
 
     // Build up the layers from the reported ones
@@ -131,7 +176,17 @@ zink_create_instance(struct zink_screen *screen)
     }
 
 %for ext in extensions:
-   screen->instance_info.have_${ext.name_with_vendor()} = have_${ext.name_with_vendor()};
+<%
+    conditions = ""
+    if ext.enable_conds:
+        for cond in ext.enable_conds:
+            conditions += "&& (" + cond + ") "
+    conditions = conditions.strip()
+%>\
+   if (have_${ext.name_with_vendor()} ${conditions}) {
+      instance_info->have_${ext.name_with_vendor()} = have_${ext.name_with_vendor()};
+      extensions[num_extensions++] = ${ext.extension_name_literal()};
+   }
 %endfor
 
 %for layer in layers:
@@ -144,11 +199,11 @@ zink_create_instance(struct zink_screen *screen)
 %>\
    if (have_layer_${layer.pure_name()} ${conditions}) {
       layers[num_layers++] = ${layer.extension_name_literal()};
-      screen->instance_info.have_layer_${layer.pure_name()} = true;
+      instance_info->have_layer_${layer.pure_name()} = true;
    }
 %endfor
 
-   VkApplicationInfo ai = {};
+   VkApplicationInfo ai = {0};
    ai.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 
    char proc_name[128];
@@ -158,9 +213,9 @@ zink_create_instance(struct zink_screen *screen)
       ai.pApplicationName = "unknown";
 
    ai.pEngineName = "mesa zink";
-   ai.apiVersion = screen->loader_version;
+   ai.apiVersion = instance_info->loader_version;
 
-   VkInstanceCreateInfo ici = {};
+   VkInstanceCreateInfo ici = {0};
    ici.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
    ici.pApplicationInfo = &ai;
    ici.ppEnabledExtensionNames = extensions;
@@ -175,6 +230,60 @@ zink_create_instance(struct zink_screen *screen)
 
    return instance;
 }
+
+void
+zink_verify_instance_extensions(struct zink_screen *screen)
+{
+%for ext in extensions:
+%if registry.in_registry(ext.name):
+   if (screen->instance_info.have_${ext.name_with_vendor()}) {
+%for cmd in registry.get_registry_entry(ext.name).instance_commands:
+      if (!screen->vk.${cmd.lstrip("vk")}) {
+#ifndef NDEBUG
+         screen->vk.${cmd.lstrip("vk")} = (PFN_${cmd})zink_stub_${cmd.lstrip("vk")};
+#else
+         screen->vk.${cmd.lstrip("vk")} = (PFN_${cmd})zink_stub_function_not_loaded;
+#endif
+      }
+%endfor
+%for cmd in registry.get_registry_entry(ext.name).pdevice_commands:
+      if (!screen->vk.${cmd.lstrip("vk")}) {
+#ifndef NDEBUG
+         screen->vk.${cmd.lstrip("vk")} = (PFN_${cmd})zink_stub_${cmd.lstrip("vk")};
+#else
+         screen->vk.${cmd.lstrip("vk")} = (PFN_${cmd})zink_stub_function_not_loaded;
+#endif
+      }
+%endfor
+   }
+%endif
+%endfor
+}
+
+#ifndef NDEBUG
+/* generated stub functions */
+## see zink_device_info.py for why this is needed
+<% generated_funcs = set() %>
+
+%for ext in extensions:
+%if registry.in_registry(ext.name):
+%for cmd in registry.get_registry_entry(ext.name).instance_commands + registry.get_registry_entry(ext.name).pdevice_commands:
+%if cmd in generated_funcs:
+   <% continue %>
+%else:
+   <% generated_funcs.add(cmd) %>
+%endif
+void
+zink_stub_${cmd.lstrip("vk")}()
+{
+   mesa_loge("ZINK: ${cmd} is not loaded properly!");
+   abort();
+}
+%endfor
+%endif
+%endfor
+
+#endif
 """
 
 
@@ -189,23 +298,53 @@ if __name__ == "__main__":
     try:
         header_path = sys.argv[1]
         impl_path = sys.argv[2]
+        vkxml_path = sys.argv[3]
 
         header_path = path.abspath(header_path)
         impl_path = path.abspath(impl_path)
+        vkxml_path = path.abspath(vkxml_path)
     except:
-        print("usage: %s <path to .h> <path to .c>" % sys.argv[0])
+        print("usage: %s <path to .h> <path to .c> <path to vk.xml>" % sys.argv[0])
         exit(1)
+
+    registry = ExtensionRegistry(vkxml_path)
 
     extensions = EXTENSIONS
     layers = LAYERS
     replacement = REPLACEMENTS
 
+    # Perform extension validation and set core_since for the extension if available
+    error_count = 0
+    for ext in extensions:
+        if not registry.in_registry(ext.name):
+            # disable validation for nonstandard extensions
+            if ext.is_nonstandard:
+                continue
+
+            error_count += 1
+            print("The extension {} is not registered in vk.xml - a typo?".format(ext.name))
+            continue
+        
+        entry = registry.get_registry_entry(ext.name)
+
+        if entry.ext_type != "instance":
+            error_count += 1
+            print("The extension {} is {} extension - expected an instance extension.".format(ext.name, entry.ext_type))
+            continue
+
+        if entry.promoted_in:
+            ext.core_since = Version((*entry.promoted_in, 0))
+
+    if error_count > 0:
+        print("zink_instance.py: Found {} error(s) in total. Quitting.".format(error_count))
+        exit(1)
+
     with open(header_path, "w") as header_file:
-        header = Template(header_code).render(extensions=extensions, layers=layers).strip()
+        header = Template(header_code).render(extensions=extensions, layers=layers, registry=registry).strip()
         header = replace_code(header, replacement)
         print(header, file=header_file)
 
     with open(impl_path, "w") as impl_file:
-        impl = Template(impl_code).render(extensions=extensions, layers=layers).strip()
+        impl = Template(impl_code).render(extensions=extensions, layers=layers, registry=registry).strip()
         impl = replace_code(impl, replacement)
         print(impl, file=impl_file)

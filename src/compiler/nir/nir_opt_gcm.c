@@ -509,14 +509,14 @@ gcm_replace_def_with_undef(nir_ssa_def *def, void *void_state)
 {
    struct gcm_state *state = void_state;
 
-   if (list_is_empty(&def->uses) && list_is_empty(&def->if_uses))
+   if (nir_ssa_def_is_unused(def))
       return true;
 
    nir_ssa_undef_instr *undef =
       nir_ssa_undef_instr_create(state->impl->function->shader,
                                  def->num_components, def->bit_size);
    nir_instr_insert(nir_before_cf_list(&state->impl->body), &undef->instr);
-   nir_ssa_def_rewrite_uses(def, nir_src_for_ssa(&undef->def));
+   nir_ssa_def_rewrite_uses(def, &undef->def);
 
    return true;
 }
@@ -604,6 +604,11 @@ opt_gcm_impl(nir_function_impl *impl, bool value_number)
    nir_metadata_require(impl, nir_metadata_block_index |
                               nir_metadata_dominance);
 
+   /* A previous pass may have left pass_flags dirty, so clear it all out. */
+   nir_foreach_block(block, impl)
+      nir_foreach_instr(instr, block)
+         instr->pass_flags = 0;
+
    struct gcm_state state;
 
    state.impl = impl;
@@ -622,10 +627,8 @@ opt_gcm_impl(nir_function_impl *impl, bool value_number)
    if (value_number) {
       struct set *gvn_set = nir_instr_set_create(NULL);
       foreach_list_typed_safe(nir_instr, instr, node, &state.instrs) {
-         if (nir_instr_set_add_or_rewrite(gvn_set, instr)) {
-            nir_instr_remove(instr);
+         if (nir_instr_set_add_or_rewrite(gvn_set, instr, NULL))
             state.progress = true;
-         }
       }
       nir_instr_set_destroy(gvn_set);
    }

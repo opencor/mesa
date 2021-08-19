@@ -3,7 +3,18 @@ Release Notes
 
 The release notes summarize what's new or changed in each Mesa release.
 
+-  :doc:`21.1.4 release notes <relnotes/21.1.4>`
+-  :doc:`21.1.3 release notes <relnotes/21.1.3>`
+-  :doc:`21.1.2 release notes <relnotes/21.1.2>`
+-  :doc:`21.1.1 release notes <relnotes/21.1.1>`
+-  :doc:`21.1.0 release notes <relnotes/21.1.0>`
+-  :doc:`21.0.3 release notes <relnotes/21.0.3>`
+-  :doc:`21.0.2 release notes <relnotes/21.0.2>`
+-  :doc:`21.0.1 release notes <relnotes/21.0.1>`
+-  :doc:`20.3.5 release notes <relnotes/20.3.5>`
 -  :doc:`21.0.0 release notes <relnotes/21.0.0>`
+-  :doc:`20.3.4 release notes <relnotes/20.3.4>`
+-  :doc:`20.3.3 release notes <relnotes/20.3.3>`
 -  :doc:`20.3.2 release notes <relnotes/20.3.2>`
 -  :doc:`20.2.6 release notes <relnotes/20.2.6>`
 -  :doc:`20.3.1 release notes <relnotes/20.3.1>`
@@ -294,8 +305,8 @@ The release notes summarize what's new or changed in each Mesa release.
 -  :doc:`6.4.1 release notes <relnotes/6.4.1>`
 -  :doc:`6.4 release notes <relnotes/6.4>`
 
-Versions of Mesa prior to 6.4 are summarized in the :doc:`versions
-file <versions>` and the following release notes.
+Versions of Mesa prior to 6.4 are summarized in the following
+release notes, or in the `old docs`_.
 
 -  `6.3.2 release notes <relnotes/6.3.2>`__
 -  `6.3.1 release notes <relnotes/6.3.1>`__
@@ -327,7 +338,18 @@ file <versions>` and the following release notes.
    :maxdepth: 1
    :hidden:
 
+   relnotes/21.1.4
+   relnotes/21.1.3
+   relnotes/21.1.2
+   relnotes/21.1.1
+   relnotes/21.1.0
+   relnotes/21.0.3
+   relnotes/21.0.2
+   relnotes/21.0.1
+   relnotes/20.3.5
    relnotes/21.0.0
+   relnotes/20.3.4
+   relnotes/20.3.3
    relnotes/20.3.2
    relnotes/20.2.6
    relnotes/20.3.1
@@ -617,4 +639,5 @@ file <versions>` and the following release notes.
    relnotes/6.4.2
    relnotes/6.4.1
    relnotes/6.4
-   Older Versions <versions>
+
+.. _old docs: https://gitlab.freedesktop.org/mesa/mesa/-/blob/mesa-21.0.0/docs/versions.rst

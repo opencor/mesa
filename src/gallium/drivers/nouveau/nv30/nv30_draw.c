@@ -377,7 +377,8 @@ nv30_render_validate(struct nv30_context *nv30)
 
 void
 nv30_render_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
-                const struct pipe_draw_start_count *draw_one)
+                unsigned drawid_offset,
+                const struct pipe_draw_start_count_bias *draw_one)
 {
    struct nv30_context *nv30 = nv30_context(pipe);
    struct draw_context *draw = nv30->draw;
@@ -394,7 +395,7 @@ nv30_render_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
    if (nv30->draw_dirty & NV30_NEW_CLIP)
       draw_set_clip_state(draw, &nv30->clip);
    if (nv30->draw_dirty & NV30_NEW_ARRAYS) {
-      draw_set_vertex_buffers(draw, 0, nv30->num_vtxbufs, nv30->vtxbuf);
+      draw_set_vertex_buffers(draw, 0, nv30->num_vtxbufs, 0, nv30->vtxbuf);
       draw_set_vertex_elements(draw, nv30->vertex->num_elements, nv30->vertex->pipe);
    }
    if (nv30->draw_dirty & NV30_NEW_FRAGPROG) {
@@ -444,7 +445,7 @@ nv30_render_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
       draw_set_indexes(draw, NULL, 0, 0);
    }
 
-   draw_vbo(draw, info, NULL, draw_one, 1);
+   draw_vbo(draw, info, drawid_offset, NULL, draw_one, 1);
    draw_flush(draw);
 
    if (info->index_size && transferi)

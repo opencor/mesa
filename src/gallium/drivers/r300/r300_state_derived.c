@@ -683,7 +683,7 @@ static uint32_t r300_get_border_color(enum pipe_format format,
             border_swizzled[0] = border_swizzled[0] < 0 ?
                                  border_swizzled[0]*0.5+1 :
                                  border_swizzled[0]*0.5;
-            /* fallthrough. */
+            FALLTHROUGH;
 
         case PIPE_FORMAT_RGTC1_UNORM:
         case PIPE_FORMAT_LATC1_UNORM:
@@ -828,7 +828,7 @@ static void r300_merge_textures_and_samplers(struct r300_context* r300)
             base_level = view->base.u.tex.first_level;
             min_level = sampler->min_lod;
             level_count = MIN3(sampler->max_lod,
-                               tex->b.b.last_level - base_level,
+                               tex->b.last_level - base_level,
                                view->base.u.tex.last_level - base_level);
 
             if (base_level + min_level) {
@@ -891,14 +891,14 @@ static void r300_merge_textures_and_samplers(struct r300_context* r300)
             }
 
             /* to emulate 1D textures through 2D ones correctly */
-            if (tex->b.b.target == PIPE_TEXTURE_1D) {
+            if (tex->b.target == PIPE_TEXTURE_1D) {
                 texstate->filter0 &= ~R300_TX_WRAP_T_MASK;
                 texstate->filter0 |= R300_TX_WRAP_T(R300_TX_CLAMP_TO_EDGE);
             }
 
             /* The hardware doesn't like CLAMP and CLAMP_TO_BORDER
              * for the 3rd coordinate if the texture isn't 3D. */
-            if (tex->b.b.target != PIPE_TEXTURE_3D) {
+            if (tex->b.target != PIPE_TEXTURE_3D) {
                 texstate->filter0 &= ~R300_TX_WRAP_R_MASK;
             }
 

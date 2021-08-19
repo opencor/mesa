@@ -210,6 +210,12 @@ enum pipe_tex_compare {
    PIPE_TEX_COMPARE_R_TO_TEXTURE,
 };
 
+enum pipe_tex_reduction_mode {
+   PIPE_TEX_REDUCTION_WEIGHTED_AVERAGE,
+   PIPE_TEX_REDUCTION_MIN,
+   PIPE_TEX_REDUCTION_MAX,
+};
+
 /**
  * Clear buffer bits
  */
@@ -240,13 +246,13 @@ enum pipe_map_flags
     * Resource contents read back (or accessed directly) at transfer
     * create time.
     */
-   PIPE_MAP_READ = (1 << 0),
+   PIPE_MAP_READ = 1 << 0,
    
    /**
-    * Resource contents will be written back at transfer_unmap
+    * Resource contents will be written back at buffer/texture_unmap
     * time (or modified as a result of being accessed directly).
     */
-   PIPE_MAP_WRITE = (1 << 1),
+   PIPE_MAP_WRITE = 1 << 1,
 
    /**
     * Read/modify/write
@@ -264,7 +270,7 @@ enum pipe_map_flags
     *
     * This flag supresses implicit "DISCARD" for buffer_subdata.
     */
-   PIPE_MAP_DIRECTLY = (1 << 2),
+   PIPE_MAP_DIRECTLY = 1 << 2,
 
    /**
     * Discards the memory within the mapped region.
@@ -274,7 +280,7 @@ enum pipe_map_flags
     * See also:
     * - OpenGL's ARB_map_buffer_range extension, MAP_INVALIDATE_RANGE_BIT flag.
     */
-   PIPE_MAP_DISCARD_RANGE = (1 << 8),
+   PIPE_MAP_DISCARD_RANGE = 1 << 3,
 
    /**
     * Fail if the resource cannot be mapped immediately.
@@ -284,7 +290,7 @@ enum pipe_map_flags
     * - Mesa's MESA_MAP_NOWAIT_BIT flag.
     * - WDDM's D3DDDICB_LOCKFLAGS.DonotWait flag.
     */
-   PIPE_MAP_DONTBLOCK = (1 << 9),
+   PIPE_MAP_DONTBLOCK = 1 << 4,
 
    /**
     * Do not attempt to synchronize pending operations on the resource when mapping.
@@ -296,7 +302,7 @@ enum pipe_map_flags
     * - Direct3D's D3DLOCK_NOOVERWRITE flag.
     * - WDDM's D3DDDICB_LOCKFLAGS.IgnoreSync flag.
     */
-   PIPE_MAP_UNSYNCHRONIZED = (1 << 10),
+   PIPE_MAP_UNSYNCHRONIZED = 1 << 5,
 
    /**
     * Written ranges will be notified later with
@@ -308,7 +314,7 @@ enum pipe_map_flags
     * - pipe_context::transfer_flush_region
     * - OpenGL's ARB_map_buffer_range extension, MAP_FLUSH_EXPLICIT_BIT flag.
     */
-   PIPE_MAP_FLUSH_EXPLICIT = (1 << 11),
+   PIPE_MAP_FLUSH_EXPLICIT = 1 << 6,
 
    /**
     * Discards all memory backing the resource.
@@ -323,7 +329,7 @@ enum pipe_map_flags
     * - D3D10 DDI's D3D10_DDI_MAP_WRITE_DISCARD flag
     * - D3D10's D3D10_MAP_WRITE_DISCARD flag.
     */
-   PIPE_MAP_DISCARD_WHOLE_RESOURCE = (1 << 12),
+   PIPE_MAP_DISCARD_WHOLE_RESOURCE = 1 << 7,
 
    /**
     * Allows the resource to be used for rendering while mapped.
@@ -334,7 +340,7 @@ enum pipe_map_flags
     * If COHERENT is not set, memory_barrier(PIPE_BARRIER_MAPPED_BUFFER)
     * must be called to ensure the device can see what the CPU has written.
     */
-   PIPE_MAP_PERSISTENT = (1 << 13),
+   PIPE_MAP_PERSISTENT = 1 << 8,
 
    /**
     * If PERSISTENT is set, this ensures any writes done by the device are
@@ -343,35 +349,35 @@ enum pipe_map_flags
     * PIPE_RESOURCE_FLAG_MAP_COHERENT must be set when creating
     * the resource.
     */
-   PIPE_MAP_COHERENT = (1 << 14),
+   PIPE_MAP_COHERENT = 1 << 9,
 
    /**
     * Map a resource in a thread-safe manner, because the calling thread can
     * be any thread. It can only be used if both WRITE and UNSYNCHRONIZED are
     * set.
     */
-   PIPE_MAP_THREAD_SAFE = 1 << 15,
+   PIPE_MAP_THREAD_SAFE = 1 << 10,
 
    /**
     * Map only the depth aspect of a resource
     */
-   PIPE_MAP_DEPTH_ONLY = 1 << 16,
+   PIPE_MAP_DEPTH_ONLY = 1 << 11,
 
    /**
     * Map only the stencil aspect of a resource
     */
-   PIPE_MAP_STENCIL_ONLY = 1 << 17,
+   PIPE_MAP_STENCIL_ONLY = 1 << 12,
 
    /**
     * Mapping will be used only once (never remapped).
     */
-   PIPE_MAP_ONCE = 1 << 18,
+   PIPE_MAP_ONCE = 1 << 13,
 
    /**
     * This and higher bits are reserved for private use by drivers. Drivers
     * should use this as (PIPE_MAP_DRV_PRV << i).
     */
-   PIPE_MAP_DRV_PRV = (1 << 24)
+   PIPE_MAP_DRV_PRV = 1 << 14,
 };
 
 /**
@@ -507,6 +513,7 @@ enum pipe_flush_flags
 #define PIPE_BIND_SHARED      (1 << 20) /* get_texture_handle ??? */
 #define PIPE_BIND_LINEAR      (1 << 21)
 #define PIPE_BIND_PROTECTED   (1 << 22) /* Resource will be protected/encrypted */
+#define PIPE_BIND_SAMPLER_REDUCTION_MINMAX (1 << 23) /* PIPE_CAP_SAMPLER_REDUCTION_MINMAX */
 
 
 /**
@@ -862,7 +869,6 @@ enum pipe_cap
    PIPE_CAP_FRAMEBUFFER_NO_ATTACHMENT,
    PIPE_CAP_ROBUST_BUFFER_ACCESS_BEHAVIOR,
    PIPE_CAP_CULL_DISTANCE,
-   PIPE_CAP_PRIMITIVE_RESTART_FOR_PATCHES,
    PIPE_CAP_TGSI_VOTE,
    PIPE_CAP_MAX_WINDOW_RECTANGLES,
    PIPE_CAP_POLYGON_OFFSET_UNITS_UNSCALED,
@@ -977,7 +983,17 @@ enum pipe_cap
    PIPE_CAP_SHADER_ATOMIC_INT64,
    PIPE_CAP_DEVICE_PROTECTED_CONTENT,
    PIPE_CAP_PREFER_REAL_BUFFER_IN_CONSTBUF0,
+   PIPE_CAP_GL_CLAMP,
+   PIPE_CAP_TEXRECT,
+   PIPE_CAP_SAMPLER_REDUCTION_MINMAX,
+   PIPE_CAP_SAMPLER_REDUCTION_MINMAX_ARB,
    PIPE_CAP_ALLOW_DYNAMIC_VAO_FASTPATH,
+   PIPE_CAP_EMULATE_NONFIXED_PRIMITIVE_RESTART,
+   PIPE_CAP_SUPPORTED_PRIM_MODES,
+   PIPE_CAP_SUPPORTED_PRIM_MODES_WITH_RESTART,
+
+   PIPE_CAP_LAST,
+   /* XXX do not add caps after PIPE_CAP_LAST! */
 };
 
 /**
@@ -1046,6 +1062,7 @@ enum pipe_shader_cap
    PIPE_SHADER_CAP_INT64_ATOMICS,
    PIPE_SHADER_CAP_FP16,
    PIPE_SHADER_CAP_FP16_DERIVATIVES,
+   PIPE_SHADER_CAP_FP16_CONST_BUFFERS,
    PIPE_SHADER_CAP_INT16,
    PIPE_SHADER_CAP_GLSL_16BIT_CONSTS,
    PIPE_SHADER_CAP_MAX_TEXTURE_SAMPLERS,

@@ -1543,7 +1543,7 @@ nir_visitor::visit(ir_call *ir)
       }
       case nir_intrinsic_vote_ieq:
          instr->num_components = 1;
-         /* fall-through */
+         FALLTHROUGH;
       case nir_intrinsic_vote_any:
       case nir_intrinsic_vote_all: {
          nir_ssa_dest_init(&instr->instr, &instr->dest, 1, 1, NULL);
@@ -2425,29 +2425,7 @@ nir_visitor::visit(ir_texture *ir)
    instr->is_shadow = ir->sampler->type->sampler_shadow;
    if (instr->is_shadow)
       instr->is_new_style_shadow = (ir->type->vector_elements == 1);
-   switch (ir->type->base_type) {
-   case GLSL_TYPE_FLOAT:
-      instr->dest_type = nir_type_float;
-      break;
-   case GLSL_TYPE_FLOAT16:
-      instr->dest_type = nir_type_float16;
-      break;
-   case GLSL_TYPE_INT16:
-      instr->dest_type = nir_type_int16;
-      break;
-   case GLSL_TYPE_UINT16:
-      instr->dest_type = nir_type_uint16;
-      break;
-   case GLSL_TYPE_INT:
-      instr->dest_type = nir_type_int;
-      break;
-   case GLSL_TYPE_BOOL:
-   case GLSL_TYPE_UINT:
-      instr->dest_type = nir_type_uint;
-      break;
-   default:
-      unreachable("not reached");
-   }
+   instr->dest_type = nir_get_nir_type_for_glsl_type(ir->type);
 
    nir_deref_instr *sampler_deref = evaluate_deref(ir->sampler);
 

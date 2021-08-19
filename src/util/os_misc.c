@@ -129,7 +129,6 @@ os_log_message(const char *message)
 #  include "simple_mtx.h"
 
 static struct hash_table *options_tbl;
-static simple_mtx_t options_tbl_lock = _SIMPLE_MTX_INITIALIZER_NP;
 
 static void
 options_tbl_fini(void)
@@ -290,7 +289,7 @@ os_get_available_system_memory(uint64_t *size)
    }
 
    uint64_t kb_mem_available;
-   if (sscanf(str, "MemAvailable: %" PRIx64, &kb_mem_available) == 1) {
+   if (sscanf(str, "MemAvailable: %" PRIu64, &kb_mem_available) == 1) {
       free(meminfo);
       *size = kb_mem_available << 10;
       return true;

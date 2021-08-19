@@ -142,9 +142,9 @@ static void get_rc_constant_state(
         case RC_STATE_R300_TEXSCALE_FACTOR:
             tex = r300_resource(texstate->sampler_views[constant->u.State[1]]->base.texture);
             /* Add a small number to the texture size to work around rounding errors in hw. */
-            vec[0] = tex->b.b.width0  / (tex->tex.width0  + 0.001f);
-            vec[1] = tex->b.b.height0 / (tex->tex.height0 + 0.001f);
-            vec[2] = tex->b.b.depth0  / (tex->tex.depth0  + 0.001f);
+            vec[0] = tex->b.width0  / (tex->tex.width0  + 0.001f);
+            vec[1] = tex->b.height0 / (tex->tex.height0 + 0.001f);
+            vec[2] = tex->b.depth0  / (tex->tex.depth0  + 0.001f);
             vec[3] = 1;
             break;
 
@@ -686,13 +686,13 @@ static void r300_emit_query_end_frag_pipes(struct r300_context *r300,
             OUT_CS_REG(R300_SU_REG_DEST, 1 << 3);
             OUT_CS_REG(R300_ZB_ZPASS_ADDR, (query->num_results + 3) * 4);
             OUT_CS_RELOC(r300->query_current);
-            /* fallthrough */
+            FALLTHROUGH;
         case 3:
             /* pipe 2 only */
             OUT_CS_REG(R300_SU_REG_DEST, 1 << 2);
             OUT_CS_REG(R300_ZB_ZPASS_ADDR, (query->num_results + 2) * 4);
             OUT_CS_RELOC(r300->query_current);
-            /* fallthrough */
+            FALLTHROUGH;
         case 2:
             /* pipe 1 only */
             /* As mentioned above, accommodate RV380 and older. */
@@ -700,7 +700,7 @@ static void r300_emit_query_end_frag_pipes(struct r300_context *r300,
                     1 << (caps->high_second_pipe ? 3 : 1));
             OUT_CS_REG(R300_ZB_ZPASS_ADDR, (query->num_results + 1) * 4);
             OUT_CS_RELOC(r300->query_current);
-            /* fallthrough */
+            FALLTHROUGH;
         case 1:
             /* pipe 0 only */
             OUT_CS_REG(R300_SU_REG_DEST, 1 << 0);
@@ -1325,7 +1325,7 @@ validate:
             r300->rws->cs_add_buffer(&r300->cs, tex->buf,
                                     RADEON_USAGE_READWRITE | RADEON_USAGE_SYNCHRONIZED,
                                     r300_surface(fb->cbufs[i])->domain,
-                                    tex->b.b.nr_samples > 1 ?
+                                    tex->b.nr_samples > 1 ?
                                     RADEON_PRIO_COLOR_BUFFER_MSAA :
                                     RADEON_PRIO_COLOR_BUFFER);
         }
@@ -1336,7 +1336,7 @@ validate:
             r300->rws->cs_add_buffer(&r300->cs, tex->buf,
                                     RADEON_USAGE_READWRITE | RADEON_USAGE_SYNCHRONIZED,
                                     r300_surface(fb->zsbuf)->domain,
-                                    tex->b.b.nr_samples > 1 ?
+                                    tex->b.nr_samples > 1 ?
                                     RADEON_PRIO_DEPTH_BUFFER_MSAA :
                                     RADEON_PRIO_DEPTH_BUFFER);
         }

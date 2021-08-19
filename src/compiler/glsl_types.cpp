@@ -26,6 +26,7 @@
 #include "compiler/glsl/glsl_parser_extras.h"
 #include "glsl_types.h"
 #include "util/hash_table.h"
+#include "util/u_cpu_detect.h"
 #include "util/u_string.h"
 
 
@@ -518,6 +519,11 @@ hash_free_type_function(struct hash_entry *entry)
 void
 glsl_type_singleton_init_or_ref()
 {
+   /* This is required for _mesa_half_to_float() which is
+    * required for constant-folding 16-bit float ops.
+    */
+   util_cpu_detect();
+
    mtx_lock(&glsl_type::hash_mutex);
    glsl_type_users++;
    mtx_unlock(&glsl_type::hash_mutex);
@@ -1238,6 +1244,9 @@ glsl_type::record_compare(const glsl_type *b, bool match_name,
       if (match_locations && this->fields.structure[i].location
           != b->fields.structure[i].location)
          return false;
+      if (this->fields.structure[i].component
+          != b->fields.structure[i].component)
+         return false;
       if (this->fields.structure[i].offset
           != b->fields.structure[i].offset)
          return false;
@@ -1623,6 +1632,72 @@ glsl_type::component_slots() const
    case GLSL_TYPE_SAMPLER:
    case GLSL_TYPE_IMAGE:
       return 2;
+
+   case GLSL_TYPE_SUBROUTINE:
+      return 1;
+
+   case GLSL_TYPE_FUNCTION:
+   case GLSL_TYPE_ATOMIC_UINT:
+   case GLSL_TYPE_VOID:
+   case GLSL_TYPE_ERROR:
+      break;
+   }
+
+   return 0;
+}
+
+unsigned
+glsl_type::component_slots_aligned(unsigned offset) const
+{
+   /* Align 64bit type only if it crosses attribute slot boundary. */
+   switch (this->base_type) {
+   case GLSL_TYPE_UINT:
+   case GLSL_TYPE_INT:
+   case GLSL_TYPE_UINT8:
+   case GLSL_TYPE_INT8:
+   case GLSL_TYPE_UINT16:
+   case GLSL_TYPE_INT16:
+   case GLSL_TYPE_FLOAT:
+   case GLSL_TYPE_FLOAT16:
+   case GLSL_TYPE_BOOL:
+      return this->components();
+
+   case GLSL_TYPE_DOUBLE:
+   case GLSL_TYPE_UINT64:
+   case GLSL_TYPE_INT64: {
+      unsigned size = 2 * this->components();
+      if (offset % 2 == 1 && (offset % 4 + size) > 4) {
+         size++;
+      }
+
+      return size;
+   }
+
+   case GLSL_TYPE_STRUCT:
+   case GLSL_TYPE_INTERFACE: {
+      unsigned size = 0;
+
+      for (unsigned i = 0; i < this->length; i++) {
+         const glsl_type *member = this->fields.structure[i].type;
+         size += member->component_slots_aligned(size + offset);
+      }
+
+      return size;
+   }
+
+   case GLSL_TYPE_ARRAY: {
+      unsigned size = 0;
+
+      for (unsigned i = 0; i < this->length; i++) {
+         size += this->fields.array->component_slots_aligned(size + offset);
+      }
+
+      return size;
+   }
+
+   case GLSL_TYPE_SAMPLER:
+   case GLSL_TYPE_IMAGE:
+      return 2 + ((offset % 4) == 3 ? 1 : 0);
 
    case GLSL_TYPE_SUBROUTINE:
       return 1;
@@ -2776,7 +2851,7 @@ glsl_type::count_dword_slots(bool is_bindless) const
    case GLSL_TYPE_SAMPLER:
       if (!is_bindless)
          return 0;
-      /* FALLTHROUGH */
+      FALLTHROUGH;
    case GLSL_TYPE_DOUBLE:
    case GLSL_TYPE_UINT64:
    case GLSL_TYPE_INT64:
@@ -2877,6 +2952,7 @@ encode_glsl_struct_field(blob *blob, const glsl_struct_field *struct_field)
    encode_type_to_blob(blob, struct_field->type);
    blob_write_string(blob, struct_field->name);
    blob_write_uint32(blob, struct_field->location);
+   blob_write_uint32(blob, struct_field->component);
    blob_write_uint32(blob, struct_field->offset);
    blob_write_uint32(blob, struct_field->xfb_buffer);
    blob_write_uint32(blob, struct_field->xfb_stride);
@@ -2890,6 +2966,7 @@ decode_glsl_struct_field_from_blob(blob_reader *blob, glsl_struct_field *struct_
    struct_field->type = decode_type_from_blob(blob);
    struct_field->name = blob_read_string(blob);
    struct_field->location = blob_read_uint32(blob);
+   struct_field->component = blob_read_uint32(blob);
    struct_field->offset = blob_read_uint32(blob);
    struct_field->xfb_buffer = blob_read_uint32(blob);
    struct_field->xfb_stride = blob_read_uint32(blob);

@@ -495,13 +495,13 @@ handle_special(struct vtn_builder *b, uint32_t opcode,
    case OpenCLstd_UMad_hi:
       return nir_umad_hi(nb, srcs[0], srcs[1], srcs[2]);
    case OpenCLstd_SMul24:
-      return nir_imul24(nb, srcs[0], srcs[1]);
+      return nir_imul24_relaxed(nb, srcs[0], srcs[1]);
    case OpenCLstd_UMul24:
-      return nir_umul24(nb, srcs[0], srcs[1]);
+      return nir_umul24_relaxed(nb, srcs[0], srcs[1]);
    case OpenCLstd_SMad24:
-      return nir_imad24(nb, srcs[0], srcs[1], srcs[2]);
+      return nir_iadd(nb, nir_imul24_relaxed(nb, srcs[0], srcs[1]), srcs[2]);
    case OpenCLstd_UMad24:
-      return nir_umad24(nb, srcs[0], srcs[1], srcs[2]);
+      return nir_umad24_relaxed(nb, srcs[0], srcs[1], srcs[2]);
    case OpenCLstd_FClamp:
       return nir_fclamp(nb, srcs[0], srcs[1], srcs[2]);
    case OpenCLstd_SClamp:
@@ -811,7 +811,8 @@ handle_printf(struct vtn_builder *b, uint32_t opcode,
       glsl_struct_type(fields, num_srcs - 1, "printf", true);
 
    /* Step 3, create a variable of that type and populate its fields */
-   nir_variable *var = nir_local_variable_create(b->func->impl, struct_type, NULL);
+   nir_variable *var = nir_local_variable_create(b->func->nir_func->impl,
+                                                 struct_type, NULL);
    nir_deref_instr *deref_var = nir_build_deref_var(&b->nb, var);
    size_t fmt_pos = 0;
    for (unsigned i = 1; i < num_srcs; ++i) {

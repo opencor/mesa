@@ -221,6 +221,30 @@ void st_init_limits(struct pipe_screen *screen,
       pc->MaxUniformComponents =
          screen->get_shader_param(screen, sh,
                                   PIPE_SHADER_CAP_MAX_CONST_BUFFER_SIZE) / 4;
+
+      /* reserve space in the default-uniform for lowered state */
+      if (sh == PIPE_SHADER_VERTEX ||
+          sh == PIPE_SHADER_TESS_EVAL ||
+          sh == PIPE_SHADER_GEOMETRY) {
+
+         if (!screen->get_param(screen, PIPE_CAP_CLIP_PLANES))
+            pc->MaxUniformComponents -= 4 * MAX_CLIP_PLANES;
+
+         if (!screen->get_param(screen, PIPE_CAP_POINT_SIZE_FIXED))
+            pc->MaxUniformComponents -= 4;
+
+         if (screen->get_param(screen, PIPE_CAP_DEPTH_CLIP_DISABLE) == 2)
+            pc->MaxUniformComponents -= 4;
+
+      } else if (sh == PIPE_SHADER_FRAGMENT) {
+         if (screen->get_param(screen, PIPE_CAP_DEPTH_CLIP_DISABLE) == 2)
+            pc->MaxUniformComponents -= 4;
+
+         if (!screen->get_param(screen, PIPE_CAP_ALPHA_TEST))
+            pc->MaxUniformComponents -= 4;
+      }
+
+
       pc->MaxUniformComponents = MIN2(pc->MaxUniformComponents,
                                       MAX_UNIFORMS * 4);
 
@@ -355,14 +379,18 @@ void st_init_limits(struct pipe_screen *screen,
             options->LowerBuiltinVariablesXfb |= VARYING_BIT_PSIZ;
       }
 
-      options->LowerPrecisionFloat16 =
-         screen->get_shader_param(screen, sh, PIPE_SHADER_CAP_FP16);
-      options->LowerPrecisionDerivatives =
-         screen->get_shader_param(screen, sh, PIPE_SHADER_CAP_FP16_DERIVATIVES);
-      options->LowerPrecisionInt16 =
-         screen->get_shader_param(screen, sh, PIPE_SHADER_CAP_INT16);
-      options->LowerPrecisionConstants =
-         screen->get_shader_param(screen, sh, PIPE_SHADER_CAP_GLSL_16BIT_CONSTS);
+      if (prefer_nir) {
+         options->LowerPrecisionFloat16 =
+            screen->get_shader_param(screen, sh, PIPE_SHADER_CAP_FP16);
+         options->LowerPrecisionDerivatives =
+            screen->get_shader_param(screen, sh, PIPE_SHADER_CAP_FP16_DERIVATIVES);
+         options->LowerPrecisionInt16 =
+            screen->get_shader_param(screen, sh, PIPE_SHADER_CAP_INT16);
+         options->LowerPrecisionConstants =
+            screen->get_shader_param(screen, sh, PIPE_SHADER_CAP_GLSL_16BIT_CONSTS);
+         options->LowerPrecisionFloat16Uniforms =
+            screen->get_shader_param(screen, sh, PIPE_SHADER_CAP_FP16_CONST_BUFFERS);
+      }
    }
 
    c->MaxUserAssignableUniformLocations =
@@ -382,8 +410,7 @@ void st_init_limits(struct pipe_screen *screen,
       !screen->get_param(screen, PIPE_CAP_NIR_COMPACT_ARRAYS);
    c->LowerCsDerivedVariables =
       !screen->get_param(screen, PIPE_CAP_CS_DERIVED_SYSTEM_VALUES_SUPPORTED);
-   c->PrimitiveRestartForPatches =
-      screen->get_param(screen, PIPE_CAP_PRIMITIVE_RESTART_FOR_PATCHES);
+   c->PrimitiveRestartForPatches = false;
 
    c->MaxCombinedTextureImageUnits =
          _min(c->Program[MESA_SHADER_VERTEX].MaxTextureImageUnits +
@@ -486,21 +513,24 @@ void st_init_limits(struct pipe_screen *screen,
       c->NumProgramBinaryFormats = 1;
 
    c->MaxAtomicBufferBindings =
-      c->Program[MESA_SHADER_FRAGMENT].MaxAtomicBuffers;
-   c->MaxAtomicBufferSize =
-      c->Program[MESA_SHADER_FRAGMENT].MaxAtomicCounters * ATOMIC_COUNTER_SIZE;
+      MAX2(c->Program[MESA_SHADER_FRAGMENT].MaxAtomicBuffers,
+           c->Program[MESA_SHADER_COMPUTE].MaxAtomicBuffers);
+   c->MaxAtomicBufferSize = ATOMIC_COUNTER_SIZE *
+      MAX2(c->Program[MESA_SHADER_FRAGMENT].MaxAtomicCounters,
+           c->Program[MESA_SHADER_COMPUTE].MaxAtomicCounters);
 
    c->MaxCombinedAtomicBuffers =
       MIN2(screen->get_param(screen,
                              PIPE_CAP_MAX_COMBINED_HW_ATOMIC_COUNTER_BUFFERS),
            MAX_COMBINED_ATOMIC_BUFFERS);
    if (!c->MaxCombinedAtomicBuffers) {
-      c->MaxCombinedAtomicBuffers =
+      c->MaxCombinedAtomicBuffers = MAX2(
          c->Program[MESA_SHADER_VERTEX].MaxAtomicBuffers +
          c->Program[MESA_SHADER_TESS_CTRL].MaxAtomicBuffers +
          c->Program[MESA_SHADER_TESS_EVAL].MaxAtomicBuffers +
          c->Program[MESA_SHADER_GEOMETRY].MaxAtomicBuffers +
-         c->Program[MESA_SHADER_FRAGMENT].MaxAtomicBuffers;
+         c->Program[MESA_SHADER_FRAGMENT].MaxAtomicBuffers,
+         c->Program[MESA_SHADER_COMPUTE].MaxAtomicBuffers);
       assert(c->MaxCombinedAtomicBuffers <= MAX_COMBINED_ATOMIC_BUFFERS);
    }
 
@@ -509,7 +539,7 @@ void st_init_limits(struct pipe_screen *screen,
    if (!c->MaxCombinedAtomicCounters)
       c->MaxCombinedAtomicCounters = MAX_ATOMIC_COUNTERS;
 
-   if (c->MaxCombinedAtomicBuffers > 0) {
+   if (c->Program[MESA_SHADER_FRAGMENT].MaxAtomicBuffers) {
       extensions->ARB_shader_atomic_counters = GL_TRUE;
       extensions->ARB_shader_atomic_counter_ops = GL_TRUE;
    }
@@ -522,12 +552,13 @@ void st_init_limits(struct pipe_screen *screen,
          MIN2(screen->get_param(screen, PIPE_CAP_MAX_COMBINED_SHADER_BUFFERS),
               MAX_COMBINED_SHADER_STORAGE_BUFFERS);
       if (!c->MaxCombinedShaderStorageBlocks) {
-         c->MaxCombinedShaderStorageBlocks =
+         c->MaxCombinedShaderStorageBlocks = MAX2(
             c->Program[MESA_SHADER_VERTEX].MaxShaderStorageBlocks +
             c->Program[MESA_SHADER_TESS_CTRL].MaxShaderStorageBlocks +
             c->Program[MESA_SHADER_TESS_EVAL].MaxShaderStorageBlocks +
             c->Program[MESA_SHADER_GEOMETRY].MaxShaderStorageBlocks +
-            c->Program[MESA_SHADER_FRAGMENT].MaxShaderStorageBlocks;
+            c->Program[MESA_SHADER_FRAGMENT].MaxShaderStorageBlocks,
+            c->Program[MESA_SHADER_COMPUTE].MaxShaderStorageBlocks);
          assert(c->MaxCombinedShaderStorageBlocks < MAX_COMBINED_SHADER_STORAGE_BUFFERS);
       }
       c->MaxShaderStorageBufferBindings = c->MaxCombinedShaderStorageBlocks;
@@ -536,7 +567,8 @@ void st_init_limits(struct pipe_screen *screen,
          c->MaxCombinedShaderStorageBlocks;
       c->MaxShaderStorageBlockSize =
          screen->get_param(screen, PIPE_CAP_MAX_SHADER_BUFFER_SIZE);
-      extensions->ARB_shader_storage_buffer_object = GL_TRUE;
+      if (c->Program[MESA_SHADER_FRAGMENT].MaxShaderStorageBlocks)
+         extensions->ARB_shader_storage_buffer_object = GL_TRUE;
    }
 
    c->MaxCombinedImageUniforms =
@@ -548,7 +580,7 @@ void st_init_limits(struct pipe_screen *screen,
          c->Program[MESA_SHADER_COMPUTE].MaxImageUniforms;
    c->MaxCombinedShaderOutputResources += c->MaxCombinedImageUniforms;
    c->MaxImageUnits = MAX_IMAGE_UNITS;
-   if (c->MaxCombinedImageUniforms) {
+   if (c->Program[MESA_SHADER_FRAGMENT].MaxImageUniforms) {
       extensions->ARB_shader_image_load_store = GL_TRUE;
       extensions->ARB_shader_image_size = GL_TRUE;
    }
@@ -781,6 +813,7 @@ void st_init_extensions(struct pipe_screen *screen,
       { o(ARB_spirv_extensions),             PIPE_CAP_GL_SPIRV                         },
       { o(ARB_texture_buffer_object),        PIPE_CAP_TEXTURE_BUFFER_OBJECTS           },
       { o(ARB_texture_cube_map_array),       PIPE_CAP_CUBE_MAP_ARRAY                   },
+      { o(ARB_texture_filter_minmax),        PIPE_CAP_SAMPLER_REDUCTION_MINMAX_ARB     },
       { o(ARB_texture_gather),               PIPE_CAP_MAX_TEXTURE_GATHER_COMPONENTS    },
       { o(ARB_texture_mirror_clamp_to_edge), PIPE_CAP_TEXTURE_MIRROR_CLAMP_TO_EDGE     },
       { o(ARB_texture_multisample),          PIPE_CAP_TEXTURE_MULTISAMPLE              },
@@ -806,6 +839,7 @@ void st_init_extensions(struct pipe_screen *screen,
       { o(EXT_shader_samples_identical),     PIPE_CAP_SHADER_SAMPLES_IDENTICAL         },
       { o(EXT_texture_array),                PIPE_CAP_MAX_TEXTURE_ARRAY_LAYERS         },
       { o(EXT_texture_filter_anisotropic),   PIPE_CAP_ANISOTROPIC_FILTER               },
+      { o(EXT_texture_filter_minmax),        PIPE_CAP_SAMPLER_REDUCTION_MINMAX         },
       { o(EXT_texture_mirror_clamp),         PIPE_CAP_TEXTURE_MIRROR_CLAMP             },
       { o(EXT_texture_shadow_lod),           PIPE_CAP_TEXTURE_SHADOW_LOD               },
       { o(EXT_texture_swizzle),              PIPE_CAP_TEXTURE_SWIZZLE                  },
@@ -1108,6 +1142,10 @@ void st_init_extensions(struct pipe_screen *screen,
       }
    }
 
+   /* EXT implies ARB here */
+   if (extensions->EXT_texture_filter_minmax)
+      extensions->ARB_texture_filter_minmax = GL_TRUE;
+
    /* Expose the extensions which directly correspond to gallium formats. */
    init_format_extensions(screen, extensions, rendertarget_mapping,
                           ARRAY_SIZE(rendertarget_mapping), PIPE_TEXTURE_2D,
@@ -1155,6 +1193,8 @@ void st_init_extensions(struct pipe_screen *screen,
    consts->dri_config_options_sha1 = options->config_options_sha1;
 
    consts->AllowGLSLCrossStageInterpolationMismatch = options->allow_glsl_cross_stage_interpolation_mismatch;
+
+   consts->GLSLIgnoreWriteToReadonlyVar = options->glsl_ignore_write_to_readonly_var;
 
    consts->PrimitiveRestartFixedIndex =
       screen->get_param(screen, PIPE_CAP_PRIMITIVE_RESTART_FIXED_INDEX);
@@ -1229,6 +1269,7 @@ void st_init_extensions(struct pipe_screen *screen,
 
       /* Integer textures make no sense before GLSL 1.30 */
       extensions->EXT_texture_integer = GL_FALSE;
+      extensions->ARB_texture_rgb10_a2ui = GL_FALSE;
    }
 
    if (options->glsl_zero_init) {
@@ -1254,14 +1295,21 @@ void st_init_extensions(struct pipe_screen *screen,
       extensions->ARB_tessellation_shader = GL_TRUE;
    }
 
-   /* What this is really checking for is the ability to support multiple
-    * invocations of a geometry shader. There is no separate cap for that, so
-    * we check the GLSLVersion.
-    */
+   /* OES_geometry_shader requires instancing */
    if ((GLSLVersion >= 400 || ESSLVersion >= 310) &&
        screen->get_shader_param(screen, PIPE_SHADER_GEOMETRY,
-                                PIPE_SHADER_CAP_MAX_INSTRUCTIONS) > 0) {
+                                PIPE_SHADER_CAP_MAX_INSTRUCTIONS) > 0 &&
+       consts->MaxGeometryShaderInvocations >= 32) {
       extensions->OES_geometry_shader = GL_TRUE;
+   }
+
+   /* Some hardware may not support indirect draws, but still wants ES
+    * 3.1. This allows the extension to be enabled only in ES contexts to
+    * avoid claiming hw support when there is none, and using a software
+    * fallback for ES.
+    */
+   if (api == API_OPENGLES2 && ESSLVersion >= 310) {
+      extensions->ARB_draw_indirect = GL_TRUE;
    }
 
    /* Needs PIPE_CAP_SAMPLE_SHADING + all the sample-related bits of
@@ -1613,8 +1661,9 @@ void st_init_extensions(struct pipe_screen *screen,
          }
 
          extensions->ARB_compute_shader =
-                                      extensions->ARB_shader_image_load_store &&
-                                      extensions->ARB_shader_atomic_counters;
+            max_threads_per_block >= 1024 &&
+            extensions->ARB_shader_image_load_store &&
+            extensions->ARB_shader_atomic_counters;
 
          if (extensions->ARB_compute_shader) {
             uint64_t max_variable_threads_per_block = 0;
@@ -1783,7 +1832,6 @@ void st_init_extensions(struct pipe_screen *screen,
    }
 
    consts->AllowDrawOutOfOrder = options->allow_draw_out_of_order;
-   consts->AllowIncorrectPrimitiveId = options->allow_incorrect_primitive_id;
 
    bool prefer_nir = PIPE_SHADER_IR_NIR ==
          screen->get_shader_param(screen, PIPE_SHADER_FRAGMENT, PIPE_SHADER_CAP_PREFERRED_IR);
@@ -1795,4 +1843,7 @@ void st_init_extensions(struct pipe_screen *screen,
        extensions->ARB_stencil_texturing &&
        !(nir_options->lower_doubles_options & nir_lower_fp64_full_software))
       extensions->NV_copy_depth_to_color = TRUE;
+
+   if (prefer_nir)
+         extensions->ARB_point_sprite = GL_TRUE;
 }

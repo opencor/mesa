@@ -155,8 +155,11 @@ gl_vert_attrib_name(gl_vert_attrib attrib)
 }
 
 const char *
-gl_varying_slot_name(gl_varying_slot slot)
+gl_varying_slot_name_for_stage(gl_varying_slot slot, gl_shader_stage stage)
 {
+   if (stage != MESA_SHADER_FRAGMENT && slot == VARYING_SLOT_PRIMITIVE_SHADING_RATE)
+      return "VARYING_SLOT_PRIMITIVE_SHADING_RATE";
+
    static const char *names[] = {
       ENUM(VARYING_SLOT_POS),
       ENUM(VARYING_SLOT_COL0),
@@ -228,14 +231,6 @@ gl_varying_slot_name(gl_varying_slot slot)
 }
 
 const char *
-gl_varying_slot_name_for_stage(gl_varying_slot slot, gl_shader_stage stage)
-{
-   if (stage != MESA_SHADER_FRAGMENT && slot == VARYING_SLOT_PRIMITIVE_SHADING_RATE)
-      return "VARYING_SLOT_PRIMITIVE_SHADING_RATE";
-   return gl_varying_slot_name(slot);
-}
-
-const char *
 gl_system_value_name(gl_system_value sysval)
 {
    static const char *names[] = {
@@ -280,9 +275,9 @@ gl_system_value_name(gl_system_value sysval)
      ENUM(SYSTEM_VALUE_GLOBAL_INVOCATION_ID),
      ENUM(SYSTEM_VALUE_BASE_GLOBAL_INVOCATION_ID),
      ENUM(SYSTEM_VALUE_GLOBAL_INVOCATION_INDEX),
-     ENUM(SYSTEM_VALUE_WORK_GROUP_ID),
-     ENUM(SYSTEM_VALUE_NUM_WORK_GROUPS),
-     ENUM(SYSTEM_VALUE_LOCAL_GROUP_SIZE),
+     ENUM(SYSTEM_VALUE_WORKGROUP_ID),
+     ENUM(SYSTEM_VALUE_NUM_WORKGROUPS),
+     ENUM(SYSTEM_VALUE_WORKGROUP_SIZE),
      ENUM(SYSTEM_VALUE_GLOBAL_GROUP_SIZE),
      ENUM(SYSTEM_VALUE_USER_DATA_AMD),
      ENUM(SYSTEM_VALUE_WORK_DIM),

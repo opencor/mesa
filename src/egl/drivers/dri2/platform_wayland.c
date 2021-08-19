@@ -40,6 +40,7 @@
 #include <sys/mman.h>
 
 #include "egl_dri2.h"
+#include "loader_dri_helper.h"
 #include "loader.h"
 #include "util/u_vector.h"
 #include "util/anon_file.h"
@@ -310,6 +311,16 @@ dri2_wl_create_window_surface(_EGLDisplay *disp, _EGLConfig *conf,
    int visual_idx;
    const __DRIconfig *config;
 
+   if (!window) {
+      _eglError(EGL_BAD_NATIVE_WINDOW, "dri2_create_surface");
+      return NULL;
+   }
+
+   if (window->driver_private) {
+      _eglError(EGL_BAD_ALLOC, "dri2_create_surface");
+      return NULL;
+   }
+
    dri2_surf = calloc(1, sizeof *dri2_surf);
    if (!dri2_surf) {
       _eglError(EGL_BAD_ALLOC, "dri2_create_surface");
@@ -578,28 +589,16 @@ get_back_bo(struct dri2_egl_surface *dri2_surf)
        dri2_surf->back->linear_copy == NULL) {
       /* The LINEAR modifier should be a perfect alias of the LINEAR use
        * flag; try the new interface first before the old, then fall back. */
-      if (dri2_dpy->image->base.version >= 15 &&
-           dri2_dpy->image->createImageWithModifiers) {
-         uint64_t linear_mod = DRM_FORMAT_MOD_LINEAR;
+      uint64_t linear_mod = DRM_FORMAT_MOD_LINEAR;
 
-         dri2_surf->back->linear_copy =
-            dri2_dpy->image->createImageWithModifiers(dri2_dpy->dri_screen,
-                                                      dri2_surf->base.Width,
-                                                      dri2_surf->base.Height,
-                                                      linear_dri_image_format,
-                                                      &linear_mod,
-                                                      1,
-                                                      NULL);
-      } else {
-         dri2_surf->back->linear_copy =
-            dri2_dpy->image->createImage(dri2_dpy->dri_screen,
-                                         dri2_surf->base.Width,
-                                         dri2_surf->base.Height,
-                                         linear_dri_image_format,
-                                         use_flags |
-                                         __DRI_IMAGE_USE_LINEAR,
-                                         NULL);
-      }
+      dri2_surf->back->linear_copy =
+            loader_dri_create_image(dri2_dpy->dri_screen, dri2_dpy->image,
+                                    dri2_surf->base.Width,
+                                    dri2_surf->base.Height,
+                                    linear_dri_image_format,
+                                    use_flags | __DRI_IMAGE_USE_LINEAR,
+                                    &linear_mod, 1, NULL);
+
       if (dri2_surf->back->linear_copy == NULL)
           return -1;
    }
@@ -609,26 +608,13 @@ get_back_bo(struct dri2_egl_surface *dri2_surf)
        * createImageWithModifiers, then fall back to the old createImage,
        * and hope it allocates an image which is acceptable to the winsys.
         */
-      if (num_modifiers && dri2_dpy->image->base.version >= 15 &&
-          dri2_dpy->image->createImageWithModifiers) {
-         dri2_surf->back->dri_image =
-           dri2_dpy->image->createImageWithModifiers(dri2_dpy->dri_screen,
-                                                     dri2_surf->base.Width,
-                                                     dri2_surf->base.Height,
-                                                     dri_image_format,
-                                                     modifiers,
-                                                     num_modifiers,
-                                                     NULL);
-      } else {
-         dri2_surf->back->dri_image =
-            dri2_dpy->image->createImage(dri2_dpy->dri_screen,
-                                         dri2_surf->base.Width,
-                                         dri2_surf->base.Height,
-                                         dri_image_format,
-                                         dri2_dpy->is_different_gpu ?
-                                              0 : use_flags,
-                                         NULL);
-      }
+      dri2_surf->back->dri_image =
+            loader_dri_create_image(dri2_dpy->dri_screen, dri2_dpy->image,
+                                    dri2_surf->base.Width,
+                                    dri2_surf->base.Height,
+                                    dri_image_format,
+                                    dri2_dpy->is_different_gpu ? 0 : use_flags,
+                                    modifiers, num_modifiers, NULL);
 
       dri2_surf->back->age = 0;
    }
@@ -667,8 +653,9 @@ update_buffers(struct dri2_egl_surface *dri2_surf)
    struct dri2_egl_display *dri2_dpy =
       dri2_egl_display(dri2_surf->base.Resource.Display);
 
-   if (dri2_surf->base.Width != dri2_surf->wl_win->width ||
-       dri2_surf->base.Height != dri2_surf->wl_win->height) {
+   if (dri2_surf->wl_win &&
+       (dri2_surf->base.Width != dri2_surf->wl_win->width ||
+        dri2_surf->base.Height != dri2_surf->wl_win->height)) {
 
       dri2_surf->base.Width  = dri2_surf->wl_win->width;
       dri2_surf->base.Height = dri2_surf->wl_win->height;
@@ -676,8 +663,9 @@ update_buffers(struct dri2_egl_surface *dri2_surf)
       dri2_surf->dy = dri2_surf->wl_win->dy;
    }
 
-   if (dri2_surf->base.Width != dri2_surf->wl_win->attached_width ||
-       dri2_surf->base.Height != dri2_surf->wl_win->attached_height) {
+   if (dri2_surf->wl_win &&
+       (dri2_surf->base.Width != dri2_surf->wl_win->attached_width ||
+        dri2_surf->base.Height != dri2_surf->wl_win->attached_height)) {
       dri2_wl_release_buffers(dri2_surf);
    }
 
@@ -1056,6 +1044,9 @@ dri2_wl_swap_buffers_with_damage(_EGLDisplay *disp,
 {
    struct dri2_egl_display *dri2_dpy = dri2_egl_display(disp);
    struct dri2_egl_surface *dri2_surf = dri2_egl_surface(draw);
+
+   if (!dri2_surf->wl_win)
+      return _eglError(EGL_BAD_NATIVE_WINDOW, "dri2_swap_buffers");
 
    while (dri2_surf->throttle_callback != NULL)
       if (wl_display_dispatch_queue(dri2_dpy->wl_dpy,
@@ -1524,7 +1515,8 @@ dri2_initialize_wayland_drm(_EGLDisplay *disp)
    if (roundtrip(dri2_dpy) < 0 || dri2_dpy->fd == -1)
       goto cleanup;
 
-   if (roundtrip(dri2_dpy) < 0 || !dri2_dpy->authenticated)
+   if (!dri2_dpy->authenticated &&
+       (roundtrip(dri2_dpy) < 0 || !dri2_dpy->authenticated))
       goto cleanup;
 
    dri2_dpy->fd = loader_get_user_preferred_fd(dri2_dpy->fd,
@@ -1699,8 +1691,9 @@ swrast_update_buffers(struct dri2_egl_surface *dri2_surf)
    if (dri2_surf->back)
       return 0;
 
-   if (dri2_surf->base.Width != dri2_surf->wl_win->width ||
-       dri2_surf->base.Height != dri2_surf->wl_win->height) {
+   if (dri2_surf->wl_win &&
+       (dri2_surf->base.Width != dri2_surf->wl_win->width ||
+        dri2_surf->base.Height != dri2_surf->wl_win->height)) {
 
       dri2_wl_release_buffers(dri2_surf);
 
@@ -1945,6 +1938,9 @@ dri2_wl_swrast_swap_buffers(_EGLDisplay *disp, _EGLSurface *draw)
 {
    struct dri2_egl_display *dri2_dpy = dri2_egl_display(disp);
    struct dri2_egl_surface *dri2_surf = dri2_egl_surface(draw);
+
+   if (!dri2_surf->wl_win)
+      return _eglError(EGL_BAD_NATIVE_WINDOW, "dri2_swap_buffers");
 
    dri2_dpy->core->swapBuffers(dri2_surf->dri_drawable);
    return EGL_TRUE;

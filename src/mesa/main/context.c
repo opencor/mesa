@@ -93,6 +93,7 @@
 #include "debug_output.h"
 #include "depth.h"
 #include "dlist.h"
+#include "draw_validate.h"
 #include "eval.h"
 #include "extensions.h"
 #include "fbobject.h"
@@ -167,35 +168,17 @@ int MESA_DEBUG_FLAGS = 0;
 GLfloat _mesa_ubyte_to_float_color_tab[256];
 
 
-
-/**
- * Swap buffers notification callback.
- *
- * \param ctx GL context.
- *
- * Called by window system just before swapping buffers.
- * We have to finish any pending rendering.
- */
-void
-_mesa_notifySwapBuffers(struct gl_context *ctx)
-{
-   if (MESA_VERBOSE & VERBOSE_SWAPBUFFERS)
-      _mesa_debug(ctx, "SwapBuffers\n");
-   FLUSH_VERTICES(ctx, 0);
-   if (ctx->Driver.Flush) {
-      ctx->Driver.Flush(ctx);
-   }
-}
-
-
 /**********************************************************************/
-/** \name GL Visual allocation/destruction                            */
+/** \name GL Visual initialization                                    */
 /**********************************************************************/
 /*@{*/
 
+
 /**
- * Allocates a struct gl_config structure and initializes it via
- * _mesa_initialize_visual().
+ * Makes some sanity checks and fills in the fields of the struct
+ * gl_config object with the given parameters.  If the caller needs to
+ * set additional fields, he should just probably init the whole
+ * gl_config object himself.
  *
  * \param dbFlag double buffering
  * \param stereoFlag stereo buffer
@@ -210,55 +193,14 @@ _mesa_notifySwapBuffers(struct gl_context *ctx)
  * \param greenBits same as above.
  * \param blueBits same as above.
  * \param alphaBits same as above.
- * \param numSamples not really used.
+ * \param numSamples number of samples per pixel.
  *
  * \return pointer to new struct gl_config or NULL if requested parameters
  * can't be met.
  *
- * \note Need to add params for level and numAuxBuffers (at least)
- */
-struct gl_config *
-_mesa_create_visual( GLboolean dbFlag,
-                     GLboolean stereoFlag,
-                     GLint redBits,
-                     GLint greenBits,
-                     GLint blueBits,
-                     GLint alphaBits,
-                     GLint depthBits,
-                     GLint stencilBits,
-                     GLint accumRedBits,
-                     GLint accumGreenBits,
-                     GLint accumBlueBits,
-                     GLint accumAlphaBits,
-                     GLuint numSamples )
-{
-   struct gl_config *vis = CALLOC_STRUCT(gl_config);
-   if (vis) {
-      if (!_mesa_initialize_visual(vis, dbFlag, stereoFlag,
-                                   redBits, greenBits, blueBits, alphaBits,
-                                   depthBits, stencilBits,
-                                   accumRedBits, accumGreenBits,
-                                   accumBlueBits, accumAlphaBits,
-                                   numSamples)) {
-         free(vis);
-         return NULL;
-      }
-   }
-   return vis;
-}
-
-
-/**
- * Makes some sanity checks and fills in the fields of the struct
- * gl_config object with the given parameters.  If the caller needs to
- * set additional fields, he should just probably init the whole
- * gl_config object himself.
- *
  * \return GL_TRUE on success, or GL_FALSE on failure.
- *
- * \sa _mesa_create_visual() above for the parameter description.
  */
-GLboolean
+void
 _mesa_initialize_visual( struct gl_config *vis,
                          GLboolean dbFlag,
                          GLboolean stereoFlag,
@@ -276,17 +218,6 @@ _mesa_initialize_visual( struct gl_config *vis,
 {
    assert(vis);
 
-   if (depthBits < 0 || depthBits > 32) {
-      return GL_FALSE;
-   }
-   if (stencilBits < 0 || stencilBits > 8) {
-      return GL_FALSE;
-   }
-   assert(accumRedBits >= 0);
-   assert(accumGreenBits >= 0);
-   assert(accumBlueBits >= 0);
-   assert(accumAlphaBits >= 0);
-
    vis->doubleBufferMode = dbFlag;
    vis->stereoMode       = stereoFlag;
 
@@ -294,7 +225,7 @@ _mesa_initialize_visual( struct gl_config *vis,
    vis->greenBits        = greenBits;
    vis->blueBits         = blueBits;
    vis->alphaBits        = alphaBits;
-   vis->rgbBits          = redBits + greenBits + blueBits;
+   vis->rgbBits          = redBits + greenBits + blueBits + alphaBits;
 
    vis->depthBits      = depthBits;
    vis->stencilBits    = stencilBits;
@@ -304,27 +235,9 @@ _mesa_initialize_visual( struct gl_config *vis,
    vis->accumBlueBits  = accumBlueBits;
    vis->accumAlphaBits = accumAlphaBits;
 
-   vis->numAuxBuffers = 0;
-   vis->level = 0;
-   vis->sampleBuffers = numSamples > 0 ? 1 : 0;
    vis->samples = numSamples;
-
-   return GL_TRUE;
 }
 
-
-/**
- * Destroy a visual and free its memory.
- *
- * \param vis visual.
- *
- * Frees the visual structure.
- */
-void
-_mesa_destroy_visual( struct gl_config *vis )
-{
-   free(vis);
-}
 
 /*@}*/
 
@@ -880,7 +793,7 @@ init_attrib_groups(struct gl_context *ctx)
    ctx->NewDriverState = ~0;
    ctx->ErrorValue = GL_NO_ERROR;
    ctx->ShareGroupReset = false;
-   ctx->varying_vp_inputs = VERT_BIT_ALL;
+   ctx->VertexProgram._VaryingInputs = VERT_BIT_ALL;
    ctx->IntelBlackholeRender = env_var_as_boolean("INTEL_BLACKHOLE_DEFAULT", false);
 
    return GL_TRUE;
@@ -1246,6 +1159,7 @@ _mesa_initialize_context(struct gl_context *ctx,
    if (ctx->VertexProgram._MaintainTnlProgram) {
       /* this is required... */
       ctx->FragmentProgram._MaintainTexEnvProgram = GL_TRUE;
+      _mesa_reset_vertex_processing_mode(ctx);
    }
 
    /* Mesa core handles all the formats that mesa core knows about.
@@ -1286,11 +1200,11 @@ _mesa_initialize_context(struct gl_context *ctx,
    case API_OPENGLES2:
       ctx->FragmentProgram._MaintainTexEnvProgram = GL_TRUE;
       ctx->VertexProgram._MaintainTnlProgram = GL_TRUE;
+      _mesa_reset_vertex_processing_mode(ctx);
       break;
    }
 
    ctx->FirstTimeCurrent = GL_TRUE;
-   ctx->_PrimitiveIDIsUnused = true;
 
    return GL_TRUE;
 
@@ -1346,7 +1260,6 @@ _mesa_free_context_data(struct gl_context *ctx, bool destroy_debug_output)
    _mesa_reference_vao(ctx, &ctx->Array._DrawVAO, NULL);
 
    _mesa_free_attrib_data(ctx);
-   _mesa_free_buffer_objects(ctx);
    _mesa_free_eval_data( ctx );
    _mesa_free_texture_data( ctx );
    _mesa_free_image_textures(ctx);
@@ -1367,6 +1280,11 @@ _mesa_free_context_data(struct gl_context *ctx, bool destroy_debug_output)
    _mesa_reference_buffer_object(ctx, &ctx->DefaultPacking.BufferObj, NULL);
    _mesa_reference_buffer_object(ctx, &ctx->Array.ArrayBufferObj, NULL);
 
+   /* This must be called after all buffers are unbound because global buffer
+    * references that this context holds will be removed.
+    */
+   _mesa_free_buffer_objects(ctx);
+
    /* free dispatch tables */
    free(ctx->BeginEnd);
    free(ctx->OutsideBeginEnd);
@@ -1376,9 +1294,6 @@ _mesa_free_context_data(struct gl_context *ctx, bool destroy_debug_output)
 
    /* Shared context state (display lists, textures, etc) */
    _mesa_reference_shared_state(ctx, &ctx->Shared, NULL);
-
-   /* needs to be after freeing shared state */
-   _mesa_free_display_list_data(ctx);
 
    if (destroy_debug_output)
       _mesa_destroy_debug_output(ctx);
@@ -1697,7 +1612,9 @@ _mesa_make_current( struct gl_context *newCtx,
        curCtx != newCtx &&
        curCtx->Const.ContextReleaseBehavior ==
        GL_CONTEXT_RELEASE_BEHAVIOR_FLUSH) {
-      _mesa_flush(curCtx);
+      FLUSH_VERTICES(curCtx, 0, 0);
+      if (curCtx->Driver.Flush)
+         curCtx->Driver.Flush(curCtx, 0);
    }
 
    /* Call this periodically to detect when the user has begun using
@@ -1741,6 +1658,7 @@ _mesa_make_current( struct gl_context *newCtx,
              */
             _mesa_update_draw_buffers(newCtx);
             _mesa_update_allow_draw_out_of_order(newCtx);
+            _mesa_update_valid_to_render_state(newCtx);
          }
          if (!newCtx->ReadBuffer || _mesa_is_winsys_fbo(newCtx->ReadBuffer)) {
             _mesa_reference_framebuffer(&newCtx->ReadBuffer, readBuffer);
@@ -1851,9 +1769,11 @@ _mesa_get_dispatch(struct gl_context *ctx)
 void
 _mesa_flush(struct gl_context *ctx)
 {
-   FLUSH_VERTICES( ctx, 0 );
+   FLUSH_VERTICES(ctx, 0, 0);
    if (ctx->Driver.Flush) {
-      ctx->Driver.Flush(ctx);
+      bool async = !ctx->Shared->HasExternallySharedImages;
+
+      ctx->Driver.Flush(ctx, async ? PIPE_FLUSH_ASYNC : 0);
    }
 }
 
@@ -1871,7 +1791,7 @@ _mesa_Finish(void)
    GET_CURRENT_CONTEXT(ctx);
    ASSERT_OUTSIDE_BEGIN_END(ctx);
 
-   FLUSH_VERTICES(ctx, 0);
+   FLUSH_VERTICES(ctx, 0, 0);
 
    if (ctx->Driver.Finish) {
       ctx->Driver.Finish(ctx);

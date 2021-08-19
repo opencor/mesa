@@ -23,7 +23,7 @@
  */
 #include "helpers.h"
 #include "vulkan/vk_format.h"
-#include "llvm/ac_llvm_util.h"
+#include "common/amd_family.h"
 #include <stdio.h>
 #include <sstream>
 #include <llvm-c/Target.h>
@@ -42,7 +42,6 @@ radv_shader_info info;
 std::unique_ptr<Program> program;
 Builder bld(NULL);
 Temp inputs[16];
-Temp exec_input;
 
 static VkInstance instance_cache[CHIP_LAST] = {VK_NULL_HANDLE};
 static VkDevice device_cache[CHIP_LAST] = {VK_NULL_HANDLE};
@@ -79,8 +78,15 @@ void create_program(enum chip_class chip_class, Stage stage, unsigned wave_size,
    info.wave_size = wave_size;
 
    program.reset(new Program);
-   aco::init_program(program.get(), stage, &info, chip_class, family, &config);
+   aco::init_program(program.get(), stage, &info, chip_class, family, false, &config);
+   program->workgroup_size = UINT_MAX;
+   calc_min_waves(program.get());
 
+   program->debug.func = nullptr;
+   program->debug.private_data = nullptr;
+
+   program->debug.output = output;
+   program->debug.shorten_messages = true;
    program->debug.func = nullptr;
    program->debug.private_data = nullptr;
 
@@ -108,14 +114,12 @@ bool setup_cs(const char *input_spec, enum chip_class chip_class,
 
    if (input_spec) {
       unsigned num_inputs = DIV_ROUND_UP(strlen(input_spec), 3u);
-      aco_ptr<Instruction> startpgm{create_instruction<Pseudo_instruction>(aco_opcode::p_startpgm, Format::PSEUDO, 0, num_inputs + 1)};
+      aco_ptr<Instruction> startpgm{create_instruction<Pseudo_instruction>(aco_opcode::p_startpgm, Format::PSEUDO, 0, num_inputs)};
       for (unsigned i = 0; i < num_inputs; i++) {
          RegClass cls(input_spec[i * 3] == 'v' ? RegType::vgpr : RegType::sgpr, input_spec[i * 3 + 1] - '0');
          inputs[i] = bld.tmp(cls);
          startpgm->definitions[i] = Definition(inputs[i]);
       }
-      exec_input = bld.tmp(program->lane_mask);
-      startpgm->definitions[num_inputs] = bld.exec(Definition(exec_input));
       bld.insert(std::move(startpgm));
    }
 
@@ -181,6 +185,15 @@ void finish_ra_test(ra_test_policy policy)
       fail_test("Validation after register allocation failed");
       return;
    }
+
+   finish_program(program.get());
+   aco::optimize_postRA(program.get());
+}
+
+void finish_optimizer_postRA_test()
+{
+   finish_program(program.get());
+   aco::optimize_postRA(program.get());
    aco_print_program(program.get(), output);
 }
 
@@ -188,6 +201,20 @@ void finish_to_hw_instr_test()
 {
    finish_program(program.get());
    aco::lower_to_hw_instr(program.get());
+   aco_print_program(program.get(), output);
+}
+
+void finish_insert_nops_test()
+{
+   finish_program(program.get());
+   aco::insert_NOPs(program.get());
+   aco_print_program(program.get(), output);
+}
+
+void finish_form_hard_clause_test()
+{
+   finish_program(program.get());
+   aco::form_hard_clauses(program.get());
    aco_print_program(program.get(), output);
 }
 
@@ -199,11 +226,7 @@ void finish_assembler_test()
 
    /* we could use CLRX for disassembly but that would require it to be
     * installed */
-   if (program->chip_class == GFX10_3 && LLVM_VERSION_MAJOR < 9) {
-      skip_test("LLVM 11 needed for GFX10_3 disassembly");
-   } else if (program->chip_class == GFX10 && LLVM_VERSION_MAJOR < 9) {
-      skip_test("LLVM 9 needed for GFX10 disassembly");
-   } else if (program->chip_class >= GFX8) {
+   if (program->chip_class >= GFX8) {
       print_asm(program.get(), binary, exec_size / 4u, output);
    } else {
       //TODO: maybe we should use CLRX and skip this test if it's not available?
@@ -215,9 +238,37 @@ void finish_assembler_test()
 void writeout(unsigned i, Temp tmp)
 {
    if (tmp.id())
-      bld.pseudo(aco_opcode::p_unit_test, Operand(i), tmp);
+      bld.pseudo(aco_opcode::p_unit_test, Operand::c32(i), tmp);
    else
-      bld.pseudo(aco_opcode::p_unit_test, Operand(i));
+      bld.pseudo(aco_opcode::p_unit_test, Operand::c32(i));
+}
+
+void writeout(unsigned i, aco::Builder::Result res)
+{
+   bld.pseudo(aco_opcode::p_unit_test, Operand::c32(i), res);
+}
+
+void writeout(unsigned i, Operand op)
+{
+   bld.pseudo(aco_opcode::p_unit_test, Operand::c32(i), op);
+}
+
+void writeout(unsigned i, Operand op0, Operand op1)
+{
+   bld.pseudo(aco_opcode::p_unit_test, Operand::c32(i), op0, op1);
+}
+
+Temp fneg(Temp src)
+{
+   return bld.vop2(aco_opcode::v_mul_f32, bld.def(v1), Operand::c32(0xbf800000u), src);
+}
+
+Temp fabs(Temp src)
+{
+   Builder::Result res =
+      bld.vop2_e64(aco_opcode::v_mul_f32, bld.def(v1), Operand::c32(0x3f800000u), src);
+   res.instr->vop3().abs[1] = true;
+   return res;
 }
 
 VkDevice get_vk_device(enum chip_class chip_class)
@@ -239,6 +290,9 @@ VkDevice get_vk_device(enum chip_class chip_class)
    case GFX10:
       family = CHIP_NAVI10;
       break;
+   case GFX10_3:
+      family = CHIP_SIENNA_CICHLID;
+      break;
    default:
       family = CHIP_UNKNOWN;
       break;
@@ -255,7 +309,7 @@ VkDevice get_vk_device(enum radeon_family family)
    if (device_cache[family])
       return device_cache[family];
 
-   setenv("RADV_FORCE_FAMILY", ac_get_llvm_processor_name(family), 1);
+   setenv("RADV_FORCE_FAMILY", ac_get_family_name(family), 1);
 
    VkApplicationInfo app_info = {};
    app_info.pApplicationName = "aco_tests";

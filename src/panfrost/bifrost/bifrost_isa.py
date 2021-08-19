@@ -131,9 +131,12 @@ def parse_instruction(ins, include_pseudo):
             'derived': [],
             'staging': ins.attrib.get('staging', '').split('=')[0],
             'staging_count': ins.attrib.get('staging', '=0').split('=')[1],
+            'dests': int(ins.attrib.get('dests', '1')),
             'unused': ins.attrib.get('unused', False),
             'pseudo': ins.attrib.get('pseudo', False),
             'message': ins.attrib.get('message', 'none'),
+            'last': ins.attrib.get('last', False),
+            'table': ins.attrib.get('table', False),
     }
 
     if 'exact' in ins.attrib:
@@ -236,20 +239,24 @@ def simplify_to_ir(ins):
     return {
             'staging': ins['staging'],
             'srcs': len(ins['srcs']),
+            'dests': ins['dests'],
             'modifiers': [[m[0][0], m[2]] for m in ins['modifiers']],
             'immediates': [m[0] for m in ins['immediates']]
         }
 
 
-def combine_ir_variants(instructions, v):
-    variants = sum([[simplify_to_ir(Q[1]) for Q in instructions[x]] for x in v], [])
+def combine_ir_variants(instructions, key):
+    seen = [op for op in instructions.keys() if op[1:] == key]
+    variant_objs = [[simplify_to_ir(Q[1]) for Q in instructions[x]] for x in seen]
+    variants = sum(variant_objs, [])
 
     # Accumulate modifiers across variants
     modifiers = {}
 
-    for s in variants:
+    for s in variants[0:]:
         # Check consistency
         assert(s['srcs'] == variants[0]['srcs'])
+        assert(s['dests'] == variants[0]['dests'])
         assert(s['immediates'] == variants[0]['immediates'])
         assert(s['staging'] == variants[0]['staging'])
 
@@ -263,17 +270,22 @@ def combine_ir_variants(instructions, v):
     # modifiers
     return {
             'srcs': variants[0]['srcs'],
+            'dests': variants[0]['dests'],
             'staging': variants[0]['staging'],
             'immediates': sorted(variants[0]['immediates']),
-            'modifiers': { k: modifiers[k] for k in modifiers }
+            'modifiers': modifiers,
+            'v': len(variants),
+            'ir': variants
         }
 
 # Partition instructions to mnemonics, considering units and variants
 # equivalent.
 
 def partition_mnemonics(instructions):
-    partitions = itertools.groupby(instructions, lambda x: x[1:])
-    return { k: combine_ir_variants(instructions, v) for (k, v) in partitions }
+    key_func = lambda x: x[1:]
+    sorted_instrs = sorted(instructions.keys(), key = key_func)
+    partitions = itertools.groupby(sorted_instrs, key_func)
+    return { k: combine_ir_variants(instructions, k) for k, v in partitions }
 
 # Generate modifier lists, by accumulating all the possible modifiers, and
 # deduplicating thus assigning canonical enum values. We don't try _too_ hard
@@ -307,6 +319,11 @@ def order_modifiers(ir_instructions):
         # Ensure none is false for booleans so the builder makes sense
         if len(lst) == 2 and lst[1] == "none":
             lst.reverse()
+        elif mod == "table":
+            # We really need a zero sentinel to materialize DTSEL
+            assert(lst[2] == "none")
+            lst[2] = lst[0]
+            lst[0] = "none"
 
         out[mod] = lst
 
@@ -317,3 +334,17 @@ def order_modifiers(ir_instructions):
 def src_count(op):
     staging = 1 if (op["staging"] in ["r", "rw"]) else 0
     return op["srcs"] + staging
+
+# Parses out the size part of an opocde name
+def typesize(opcode):
+    if opcode[-3:] == '128':
+        return 128
+    if opcode[-2:] == '48':
+        return 48
+    elif opcode[-1] == '8':
+        return 8
+    else:
+        try:
+            return int(opcode[-2:])
+        except:
+            return 32

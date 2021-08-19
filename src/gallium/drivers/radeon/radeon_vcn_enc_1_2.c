@@ -397,15 +397,22 @@ static void radeon_enc_nalu_sps_hevc(struct radeon_encoder *enc)
    radeon_enc_code_ue(enc, enc->enc_pic.session_init.aligned_picture_width);
    radeon_enc_code_ue(enc, enc->enc_pic.session_init.aligned_picture_height);
 
-	if ((enc->enc_pic.crop_left != 0) || (enc->enc_pic.crop_right  != 0) ||
-	    (enc->enc_pic.crop_top  != 0) || (enc->enc_pic.crop_bottom != 0)) {
-		radeon_enc_code_fixed_bits(enc, 0x1, 1);
-		radeon_enc_code_ue(enc, enc->enc_pic.crop_left);
-		radeon_enc_code_ue(enc, enc->enc_pic.crop_right);
-		radeon_enc_code_ue(enc, enc->enc_pic.crop_top);
-		radeon_enc_code_ue(enc, enc->enc_pic.crop_bottom);
-	} else
-		radeon_enc_code_fixed_bits(enc, 0x0, 1);
+   if ((enc->enc_pic.crop_left != 0) || (enc->enc_pic.crop_right  != 0) ||
+       (enc->enc_pic.crop_top  != 0) || (enc->enc_pic.crop_bottom != 0)) {
+      radeon_enc_code_fixed_bits(enc, 0x1, 1);
+      radeon_enc_code_ue(enc, enc->enc_pic.crop_left);
+      radeon_enc_code_ue(enc, enc->enc_pic.crop_right);
+      radeon_enc_code_ue(enc, enc->enc_pic.crop_top);
+      radeon_enc_code_ue(enc, enc->enc_pic.crop_bottom);
+   } else if (enc->enc_pic.session_init.padding_width  != 0 ||
+              enc->enc_pic.session_init.padding_height != 0) {
+      radeon_enc_code_fixed_bits(enc, 0x1, 1);
+      radeon_enc_code_ue(enc, enc->enc_pic.session_init.padding_width / 2);
+      radeon_enc_code_ue(enc, enc->enc_pic.session_init.padding_width / 2);
+      radeon_enc_code_ue(enc, enc->enc_pic.session_init.padding_height / 2);
+      radeon_enc_code_ue(enc, enc->enc_pic.session_init.padding_height / 2);
+   } else
+      radeon_enc_code_fixed_bits(enc, 0x0, 1);
 
    radeon_enc_code_ue(enc, enc->enc_pic.bit_depth_luma_minus8);
    radeon_enc_code_ue(enc, enc->enc_pic.bit_depth_chroma_minus8);
@@ -976,10 +983,15 @@ static void radeon_enc_encode_params(struct radeon_encoder *enc)
       enc->enc_pic.enc_params.pic_type = RENCODE_PICTURE_TYPE_I;
    }
 
+   if (enc->luma->meta_offset) {
+      RVID_ERR("DCC surfaces not supported.\n");
+      return;
+   }
+
    enc->enc_pic.enc_params.allowed_max_bitstream_size = enc->bs_size;
    enc->enc_pic.enc_params.input_pic_luma_pitch = enc->luma->u.gfx9.surf_pitch;
    enc->enc_pic.enc_params.input_pic_chroma_pitch = enc->chroma->u.gfx9.surf_pitch;
-   enc->enc_pic.enc_params.input_pic_swizzle_mode = RENCODE_INPUT_SWIZZLE_MODE_LINEAR;
+   enc->enc_pic.enc_params.input_pic_swizzle_mode = enc->luma->u.gfx9.swizzle_mode;
 
    if (enc->enc_pic.picture_type == PIPE_H2645_ENC_PICTURE_TYPE_IDR)
       enc->enc_pic.enc_params.reference_picture_index = 0xFFFFFFFF;
@@ -1021,10 +1033,15 @@ static void radeon_enc_encode_params_hevc(struct radeon_encoder *enc)
       enc->enc_pic.enc_params.pic_type = RENCODE_PICTURE_TYPE_I;
    }
 
+   if (enc->luma->meta_offset) {
+      RVID_ERR("DCC surfaces not supported.\n");
+      return;
+   }
+
    enc->enc_pic.enc_params.allowed_max_bitstream_size = enc->bs_size;
    enc->enc_pic.enc_params.input_pic_luma_pitch = enc->luma->u.gfx9.surf_pitch;
    enc->enc_pic.enc_params.input_pic_chroma_pitch = enc->chroma->u.gfx9.surf_pitch;
-   enc->enc_pic.enc_params.input_pic_swizzle_mode = RENCODE_INPUT_SWIZZLE_MODE_LINEAR;
+   enc->enc_pic.enc_params.input_pic_swizzle_mode = enc->luma->u.gfx9.swizzle_mode;
 
    if (enc->enc_pic.enc_params.pic_type == RENCODE_PICTURE_TYPE_I)
       enc->enc_pic.enc_params.reference_picture_index = 0xFFFFFFFF;

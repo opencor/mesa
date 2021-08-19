@@ -192,8 +192,9 @@ dri_create_context(gl_api api, const struct gl_config * visual,
    ctx->stapi = stapi;
 
    if (ctx->st->cso_context) {
-      ctx->pp = pp_init(ctx->st->pipe, screen->pp_enabled, ctx->st->cso_context);
-      ctx->hud = hud_create(ctx->st->cso_context,
+      ctx->pp = pp_init(ctx->st->pipe, screen->pp_enabled, ctx->st->cso_context,
+                        ctx->st);
+      ctx->hud = hud_create(ctx->st->cso_context, ctx->st,
                             share_ctx ? share_ctx->hud : NULL);
    }
 
@@ -270,6 +271,8 @@ dri_unbind_context(__DRIcontext * cPriv)
          stapi->make_current(stapi, NULL, NULL, NULL);
       }
    }
+   ctx->dPriv = NULL;
+   ctx->rPriv = NULL;
 
    return GL_TRUE;
 }

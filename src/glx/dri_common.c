@@ -41,6 +41,8 @@
 #include "glxclient.h"
 #include "dri_common.h"
 #include "loader.h"
+#include <X11/Xlib-xcb.h>
+#include <xcb/xproto.h>
 
 #ifndef RTLD_NOW
 #define RTLD_NOW 0
@@ -48,30 +50,6 @@
 #ifndef RTLD_GLOBAL
 #define RTLD_GLOBAL 0
 #endif
-
-_X_HIDDEN void
-dri_message(int level, const char *f, ...)
-{
-   va_list args;
-   int threshold = _LOADER_WARNING;
-   const char *libgl_debug;
-
-   libgl_debug = getenv("LIBGL_DEBUG");
-   if (libgl_debug) {
-      if (strstr(libgl_debug, "quiet"))
-         threshold = _LOADER_FATAL;
-      else if (strstr(libgl_debug, "verbose"))
-         threshold = _LOADER_DEBUG;
-   }
-
-   /* Note that the _LOADER_* levels are lower numbers for more severe. */
-   if (level <= threshold) {
-      fprintf(stderr, "libGL%s: ", level <= _LOADER_WARNING ? " error" : "");
-      va_start(args, f);
-      vfprintf(stderr, f, args);
-      va_end(args);
-   }
-}
 
 #ifndef GL_LIB_NAME
 #define GL_LIB_NAME "libGL.so.1"
@@ -138,32 +116,10 @@ static const struct
       __ATTRIB(__DRI_ATTRIB_DOUBLE_BUFFER, doubleBufferMode),
       __ATTRIB(__DRI_ATTRIB_STEREO, stereoMode),
       __ATTRIB(__DRI_ATTRIB_AUX_BUFFERS, numAuxBuffers),
-#if 0
-      __ATTRIB(__DRI_ATTRIB_TRANSPARENT_TYPE, transparentPixel),
-      __ATTRIB(__DRI_ATTRIB_TRANSPARENT_INDEX_VALUE, transparentIndex),
-      __ATTRIB(__DRI_ATTRIB_TRANSPARENT_RED_VALUE, transparentRed),
-      __ATTRIB(__DRI_ATTRIB_TRANSPARENT_GREEN_VALUE, transparentGreen),
-      __ATTRIB(__DRI_ATTRIB_TRANSPARENT_BLUE_VALUE, transparentBlue),
-      __ATTRIB(__DRI_ATTRIB_TRANSPARENT_ALPHA_VALUE, transparentAlpha),
-      __ATTRIB(__DRI_ATTRIB_RED_MASK, redMask),
-      __ATTRIB(__DRI_ATTRIB_GREEN_MASK, greenMask),
-      __ATTRIB(__DRI_ATTRIB_BLUE_MASK, blueMask),
-      __ATTRIB(__DRI_ATTRIB_ALPHA_MASK, alphaMask),
-      __ATTRIB(__DRI_ATTRIB_RED_SHIFT, redShift),
-      __ATTRIB(__DRI_ATTRIB_GREEN_SHIFT, greenShift),
-      __ATTRIB(__DRI_ATTRIB_BLUE_SHIFT, blueShift),
-      __ATTRIB(__DRI_ATTRIB_ALPHA_SHIFT, alphaShift),
-#endif
-      __ATTRIB(__DRI_ATTRIB_MAX_PBUFFER_WIDTH, maxPbufferWidth),
-      __ATTRIB(__DRI_ATTRIB_MAX_PBUFFER_HEIGHT, maxPbufferHeight),
-      __ATTRIB(__DRI_ATTRIB_MAX_PBUFFER_PIXELS, maxPbufferPixels),
-      __ATTRIB(__DRI_ATTRIB_OPTIMAL_PBUFFER_WIDTH, optimalPbufferWidth),
-      __ATTRIB(__DRI_ATTRIB_OPTIMAL_PBUFFER_HEIGHT, optimalPbufferHeight),
       __ATTRIB(__DRI_ATTRIB_SWAP_METHOD, swapMethod),
       __ATTRIB(__DRI_ATTRIB_BIND_TO_TEXTURE_RGB, bindToTextureRgb),
       __ATTRIB(__DRI_ATTRIB_BIND_TO_TEXTURE_RGBA, bindToTextureRgba),
-      __ATTRIB(__DRI_ATTRIB_BIND_TO_MIPMAP_TEXTURE,
-                     bindToMipmapTexture),
+      __ATTRIB(__DRI_ATTRIB_BIND_TO_MIPMAP_TEXTURE, bindToMipmapTexture),
       __ATTRIB(__DRI_ATTRIB_YINVERTED, yInverted),
       __ATTRIB(__DRI_ATTRIB_FRAMEBUFFER_SRGB_CAPABLE, sRGBCapable)
 };
@@ -210,17 +166,6 @@ driConfigEqual(const __DRIcoreExtension *core,
             return GL_FALSE;
          break;
 
-      case __DRI_ATTRIB_CONFIG_CAVEAT:
-         if (value & __DRI_ATTRIB_NON_CONFORMANT_CONFIG)
-            glxValue = GLX_NON_CONFORMANT_CONFIG;
-         else if (value & __DRI_ATTRIB_SLOW_BIT)
-            glxValue = GLX_SLOW_CONFIG;
-         else
-            glxValue = GLX_NONE;
-         if (glxValue != config->visualRating)
-            return GL_FALSE;
-         break;
-
       case __DRI_ATTRIB_BIND_TO_TEXTURE_TARGETS:
          glxValue = 0;
          if (value & __DRI_ATTRIB_TEXTURE_1D_BIT)
@@ -245,6 +190,51 @@ driConfigEqual(const __DRIcoreExtension *core,
          if (!scalarEqual(config, attrib, glxValue))
             return GL_FALSE;
 
+         break;
+
+      /* Nerf some attributes we can safely ignore if the server claims to
+       * support them but the driver does not.
+       */
+      case __DRI_ATTRIB_CONFIG_CAVEAT:
+         if (value & __DRI_ATTRIB_NON_CONFORMANT_CONFIG)
+            glxValue = GLX_NON_CONFORMANT_CONFIG;
+         else if (value & __DRI_ATTRIB_SLOW_BIT)
+            glxValue = GLX_SLOW_CONFIG;
+         else
+            glxValue = GLX_NONE;
+         if (glxValue != config->visualRating) {
+            if (config->visualRating == GLX_NONE) {
+               static int warned;
+               if (!warned) {
+                  DebugMessageF("Not downgrading visual rating\n");
+                  warned = 1;
+               }
+            } else {
+               return GL_FALSE;
+            }
+         }
+         break;
+
+      case __DRI_ATTRIB_AUX_BUFFERS:
+         if (!scalarEqual(config, attrib, value)) {
+            static int warned;
+            if (!warned) {
+               DebugMessageF("Disabling server's aux buffer support\n");
+               warned = 1;
+            }
+            config->numAuxBuffers = 0;
+         }
+         break;
+
+      case __DRI_ATTRIB_BIND_TO_MIPMAP_TEXTURE:
+         if (!scalarEqual(config, attrib, value)) {
+            static int warned;
+            if (!warned) {
+               DebugMessageF("Disabling server's tfp mipmap support\n");
+               warned = 1;
+            }
+            config->bindToMipmapTexture = 0;
+         }
          break;
 
       default:
@@ -317,9 +307,30 @@ static struct glx_config *
 driInferDrawableConfig(struct glx_screen *psc, GLXDrawable draw)
 {
    unsigned int fbconfig = 0;
+   xcb_get_window_attributes_cookie_t cookie = { 0 };
+   xcb_get_window_attributes_reply_t *attr = NULL;
+   xcb_connection_t *conn = XGetXCBConnection(psc->dpy);
 
+   /* In practice here, either the XID is a bare Window or it was created
+    * by some other client. First let's see if the X server can tell us
+    * the answer. Xorg first added GLX_EXT_no_config_context in 1.20, where
+    * this usually works except for bare Windows that haven't been made
+    * current yet.
+    */
    if (__glXGetDrawableAttribute(psc->dpy, draw, GLX_FBCONFIG_ID, &fbconfig)) {
       return glx_config_find_fbconfig(psc->configs, fbconfig);
+   }
+
+   /* Well this had better be a Window then. Figure out its visual and
+    * then find the corresponding GLX visual.
+    */
+   cookie = xcb_get_window_attributes(conn, draw);
+   attr = xcb_get_window_attributes_reply(conn, cookie, NULL);
+
+   if (attr) {
+      uint32_t vid = attr->visual;
+      free(attr);
+      return glx_config_find_visual(psc->visuals, vid);
    }
 
    return NULL;
@@ -348,6 +359,7 @@ driFetchDrawable(struct glx_context *gc, GLXDrawable glxDrawable)
       return pdraw;
    }
 
+   /* if this is a no-config context, infer the fbconfig from the drawable */
    if (config == NULL)
       config = driInferDrawableConfig(gc->psc, glxDrawable);
    if (config == NULL)
@@ -482,6 +494,10 @@ dri2_convert_glx_attribs(unsigned num_attribs, const uint32_t *attribs,
             *error = __DRI_CTX_ERROR_UNKNOWN_ATTRIBUTE;
             return false;
          }
+         break;
+      case GLX_SCREEN:
+         /* Implies GLX_EXT_no_config_context */
+         *render_type = GLX_DONT_CARE;
          break;
       default:
 	 /* If an unknown attribute is received, fail.

@@ -718,7 +718,7 @@ vl_idct_upload_matrix(struct pipe_context *pipe, float scale)
    if (!matrix)
       goto error_matrix;
 
-   f = pipe->transfer_map(pipe, matrix, 0,
+   f = pipe->texture_map(pipe, matrix, 0,
                                      PIPE_MAP_WRITE |
                                      PIPE_MAP_DISCARD_RANGE,
                                      &rect, &buf_transfer);
@@ -732,7 +732,7 @@ vl_idct_upload_matrix(struct pipe_context *pipe, float scale)
          // transpose and scale
          f[i * pitch + j] = ((const float (*)[8])const_matrix)[j][i] * scale;
 
-   pipe->transfer_unmap(pipe, buf_transfer);
+   pipe->texture_unmap(pipe, buf_transfer);
 
    memset(&sv_templ, 0, sizeof(sv_templ));
    u_sampler_view_default_template(&sv_templ, matrix, matrix->format);
@@ -835,7 +835,7 @@ vl_idct_flush(struct vl_idct *idct, struct vl_idct_buffer *buffer, unsigned num_
    idct->pipe->bind_sampler_states(idct->pipe, PIPE_SHADER_FRAGMENT,
                                    0, 2, idct->samplers);
 
-   idct->pipe->set_sampler_views(idct->pipe, PIPE_SHADER_FRAGMENT, 0, 2,
+   idct->pipe->set_sampler_views(idct->pipe, PIPE_SHADER_FRAGMENT, 0, 2, 0,
                                  buffer->sampler_views.stage[0]);
 
    /* mismatch control */
@@ -863,6 +863,6 @@ vl_idct_prepare_stage2(struct vl_idct *idct, struct vl_idct_buffer *buffer)
    idct->pipe->bind_sampler_states(idct->pipe, PIPE_SHADER_FRAGMENT,
                                    0, 2, idct->samplers);
    idct->pipe->set_sampler_views(idct->pipe, PIPE_SHADER_FRAGMENT,
-                                 0, 2, buffer->sampler_views.stage[1]);
+                                 0, 2, 0, buffer->sampler_views.stage[1]);
 }
 

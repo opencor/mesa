@@ -561,7 +561,7 @@ vlVaRenderPicture(VADriverContextP ctx, VAContextID context_id, VABufferID *buff
          handleVAProtectedSliceDataBufferType(context, buf);
    }
 
-   for (i = 0; i < num_buffers; ++i) {
+   for (i = 0; i < num_buffers && vaStatus == VA_STATUS_SUCCESS; ++i) {
       vlVaBuffer *buf = handle_table_get(drv->htab, buffers[i]);
 
       switch (buf->type) {
@@ -675,7 +675,7 @@ vlVaEndPicture(VADriverContextP ctx, VAContextID context_id)
    }
 
    format = screen->get_video_param(screen, context->decoder->profile,
-                                    PIPE_VIDEO_ENTRYPOINT_BITSTREAM,
+                                    context->decoder->entrypoint,
                                     PIPE_VIDEO_CAP_PREFERED_FORMAT);
 
    if (surf->buffer->buffer_format != format &&
@@ -698,7 +698,7 @@ vlVaEndPicture(VADriverContextP ctx, VAContextID context_id)
       }
    }
 
-   if ((surf->templat.bind & PIPE_BIND_PROTECTED) != context->desc.base.protected_playback) {
+   if ((bool)(surf->templat.bind & PIPE_BIND_PROTECTED) != context->desc.base.protected_playback) {
       if (context->desc.base.protected_playback) {
          surf->templat.bind |= PIPE_BIND_PROTECTED;
       }
@@ -710,7 +710,7 @@ vlVaEndPicture(VADriverContextP ctx, VAContextID context_id)
    if (realloc) {
       struct pipe_video_buffer *old_buf = surf->buffer;
 
-      if (vlVaHandleSurfaceAllocate(drv, surf, &surf->templat) != VA_STATUS_SUCCESS) {
+      if (vlVaHandleSurfaceAllocate(drv, surf, &surf->templat, NULL, 0) != VA_STATUS_SUCCESS) {
          mtx_unlock(&drv->mutex);
          return VA_STATUS_ERROR_ALLOCATION_FAILED;
       }

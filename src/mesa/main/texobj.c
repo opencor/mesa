@@ -313,7 +313,6 @@ _mesa_initialize_texture_object( struct gl_context *ctx,
 
    memset(obj, 0, sizeof(*obj));
    /* init the non-zero fields */
-   simple_mtx_init(&obj->Mutex, mtx_plain);
    obj->RefCount = 1;
    obj->Name = name;
    obj->Target = target;
@@ -337,23 +336,41 @@ _mesa_initialize_texture_object( struct gl_context *ctx,
       obj->Sampler.Attrib.WrapT = GL_CLAMP_TO_EDGE;
       obj->Sampler.Attrib.WrapR = GL_CLAMP_TO_EDGE;
       obj->Sampler.Attrib.MinFilter = GL_LINEAR;
+      obj->Sampler.Attrib.state.wrap_s = PIPE_TEX_WRAP_CLAMP_TO_EDGE;
+      obj->Sampler.Attrib.state.wrap_t = PIPE_TEX_WRAP_CLAMP_TO_EDGE;
+      obj->Sampler.Attrib.state.wrap_r = PIPE_TEX_WRAP_CLAMP_TO_EDGE;
+      obj->Sampler.Attrib.state.min_img_filter = PIPE_TEX_FILTER_LINEAR;
+      obj->Sampler.Attrib.state.min_mip_filter = PIPE_TEX_MIPFILTER_NONE;
    }
    else {
       obj->Sampler.Attrib.WrapS = GL_REPEAT;
       obj->Sampler.Attrib.WrapT = GL_REPEAT;
       obj->Sampler.Attrib.WrapR = GL_REPEAT;
       obj->Sampler.Attrib.MinFilter = GL_NEAREST_MIPMAP_LINEAR;
+      obj->Sampler.Attrib.state.wrap_s = PIPE_TEX_WRAP_REPEAT;
+      obj->Sampler.Attrib.state.wrap_t = PIPE_TEX_WRAP_REPEAT;
+      obj->Sampler.Attrib.state.wrap_r = PIPE_TEX_WRAP_REPEAT;
+      obj->Sampler.Attrib.state.min_img_filter = PIPE_TEX_FILTER_NEAREST;
+      obj->Sampler.Attrib.state.min_mip_filter = PIPE_TEX_MIPFILTER_LINEAR;
    }
    obj->Sampler.Attrib.MagFilter = GL_LINEAR;
+   obj->Sampler.Attrib.state.mag_img_filter = PIPE_TEX_FILTER_LINEAR;
    obj->Sampler.Attrib.MinLod = -1000.0;
    obj->Sampler.Attrib.MaxLod = 1000.0;
+   obj->Sampler.Attrib.state.min_lod = 0; /* no negative numbers */
+   obj->Sampler.Attrib.state.max_lod = 1000;
    obj->Sampler.Attrib.LodBias = 0.0;
+   obj->Sampler.Attrib.state.lod_bias = 0;
    obj->Sampler.Attrib.MaxAnisotropy = 1.0;
+   obj->Sampler.Attrib.state.max_anisotropy = 0; /* gallium sets 0 instead of 1 */
    obj->Sampler.Attrib.CompareMode = GL_NONE;         /* ARB_shadow */
    obj->Sampler.Attrib.CompareFunc = GL_LEQUAL;       /* ARB_shadow */
+   obj->Sampler.Attrib.state.compare_mode = PIPE_TEX_COMPARE_NONE;
+   obj->Sampler.Attrib.state.compare_func = PIPE_FUNC_LEQUAL;
    obj->Attrib.DepthMode = ctx->API == API_OPENGL_CORE ? GL_RED : GL_LUMINANCE;
-   obj->Attrib.StencilSampling = false;
+   obj->StencilSampling = false;
    obj->Sampler.Attrib.CubeMapSeamless = GL_FALSE;
+   obj->Sampler.Attrib.state.seamless_cube_map = false;
    obj->Sampler.HandleAllocated = GL_FALSE;
    obj->Attrib.Swizzle[0] = GL_RED;
    obj->Attrib.Swizzle[1] = GL_GREEN;
@@ -361,9 +378,11 @@ _mesa_initialize_texture_object( struct gl_context *ctx,
    obj->Attrib.Swizzle[3] = GL_ALPHA;
    obj->Attrib._Swizzle = SWIZZLE_NOOP;
    obj->Sampler.Attrib.sRGBDecode = GL_DECODE_EXT;
+   obj->Sampler.Attrib.ReductionMode = GL_WEIGHTED_AVERAGE_EXT;
+   obj->Sampler.Attrib.state.reduction_mode = PIPE_TEX_REDUCTION_WEIGHTED_AVERAGE;
    obj->BufferObjectFormat = GL_R8;
    obj->_BufferObjectFormat = MESA_FORMAT_R_UNORM8;
-   obj->ImageFormatCompatibilityType = GL_IMAGE_FORMAT_COMPATIBILITY_BY_SIZE;
+   obj->Attrib.ImageFormatCompatibilityType = GL_IMAGE_FORMAT_COMPATIBILITY_BY_SIZE;
 
    /* GL_ARB_bindless_texture */
    _mesa_init_texture_handles(obj);
@@ -397,8 +416,14 @@ finish_texture_init(struct gl_context *ctx, GLenum target,
          obj->Sampler.Attrib.WrapS = GL_CLAMP_TO_EDGE;
          obj->Sampler.Attrib.WrapT = GL_CLAMP_TO_EDGE;
          obj->Sampler.Attrib.WrapR = GL_CLAMP_TO_EDGE;
+         obj->Sampler.Attrib.state.wrap_s = PIPE_TEX_WRAP_CLAMP_TO_EDGE;
+         obj->Sampler.Attrib.state.wrap_t = PIPE_TEX_WRAP_CLAMP_TO_EDGE;
+         obj->Sampler.Attrib.state.wrap_r = PIPE_TEX_WRAP_CLAMP_TO_EDGE;
          obj->Sampler.Attrib.MinFilter = filter;
          obj->Sampler.Attrib.MagFilter = filter;
+         obj->Sampler.Attrib.state.min_img_filter = filter_to_gallium(filter);
+         obj->Sampler.Attrib.state.min_mip_filter = mipfilter_to_gallium(filter);
+         obj->Sampler.Attrib.state.mag_img_filter = filter_to_gallium(filter);
          if (ctx->Driver.TexParameter) {
             /* XXX we probably don't need to make all these calls */
             ctx->Driver.TexParameter(ctx, obj, GL_TEXTURE_WRAP_S);
@@ -447,11 +472,7 @@ _mesa_delete_texture_object(struct gl_context *ctx,
    /* Delete all texture/image handles. */
    _mesa_delete_texture_handles(ctx, texObj);
 
-   _mesa_reference_buffer_object(ctx, &texObj->BufferObject, NULL);
-
-   /* destroy the mutex -- it may have allocated memory (eg on bsd) */
-   simple_mtx_destroy(&texObj->Mutex);
-
+   _mesa_reference_buffer_object_shared(ctx, &texObj->BufferObject, NULL);
    free(texObj->Label);
 
    /* free this object */
@@ -537,20 +558,14 @@ _mesa_reference_texobj_(struct gl_texture_object **ptr,
 
    if (*ptr) {
       /* Unreference the old texture */
-      GLboolean deleteFlag = GL_FALSE;
       struct gl_texture_object *oldTex = *ptr;
 
       assert(valid_texture_object(oldTex));
       (void) valid_texture_object; /* silence warning in release builds */
 
-      simple_mtx_lock(&oldTex->Mutex);
       assert(oldTex->RefCount > 0);
-      oldTex->RefCount--;
 
-      deleteFlag = (oldTex->RefCount == 0);
-      simple_mtx_unlock(&oldTex->Mutex);
-
-      if (deleteFlag) {
+      if (p_atomic_dec_zero(&oldTex->RefCount)) {
          /* Passing in the context drastically changes the driver code for
           * framebuffer deletion.
           */
@@ -560,21 +575,17 @@ _mesa_reference_texobj_(struct gl_texture_object **ptr,
          else
             _mesa_problem(NULL, "Unable to delete texture, no context");
       }
-
-      *ptr = NULL;
    }
-   assert(!*ptr);
 
    if (tex) {
       /* reference new texture */
       assert(valid_texture_object(tex));
-      simple_mtx_lock(&tex->Mutex);
       assert(tex->RefCount > 0);
 
-      tex->RefCount++;
-      *ptr = tex;
-      simple_mtx_unlock(&tex->Mutex);
+      p_atomic_inc(&tex->RefCount);
    }
+
+   *ptr = tex;
 }
 
 
@@ -710,7 +721,7 @@ _mesa_test_texobj_completeness( const struct gl_context *ctx,
       /* Adjust max level for views: the data store may have more levels than
        * the view exposes.
        */
-      t->_MaxLevel = MAX2(MIN2(t->_MaxLevel, t->NumLevels - 1), 0);
+      t->_MaxLevel = MAX2(MIN2(t->_MaxLevel, t->Attrib.NumLevels - 1), 0);
    }
 
    /* Compute _MaxLambda = q - p in the spec used during mipmapping */
@@ -892,6 +903,7 @@ _mesa_dirty_texobj(struct gl_context *ctx, struct gl_texture_object *texObj)
    texObj->_BaseComplete = GL_FALSE;
    texObj->_MipmapComplete = GL_FALSE;
    ctx->NewState |= _NEW_TEXTURE_OBJECT;
+   ctx->PopAttribState |= GL_TEXTURE_BIT;
 }
 
 
@@ -986,6 +998,9 @@ _mesa_get_fallback_texture(struct gl_context *ctx, gl_texture_index tex)
       assert(texObj->RefCount == 1);
       texObj->Sampler.Attrib.MinFilter = GL_NEAREST;
       texObj->Sampler.Attrib.MagFilter = GL_NEAREST;
+      texObj->Sampler.Attrib.state.min_img_filter = PIPE_TEX_FILTER_NEAREST;
+      texObj->Sampler.Attrib.state.min_mip_filter = PIPE_TEX_MIPFILTER_NONE;
+      texObj->Sampler.Attrib.state.mag_img_filter = PIPE_TEX_FILTER_NEAREST;
 
       texFormat = ctx->Driver.ChooseTextureFormat(ctx, target,
                                                   GL_RGBA, GL_RGBA,
@@ -1395,6 +1410,7 @@ unbind_textures_from_unit(struct gl_context *ctx, GLuint unit)
 
       texUnit->_BoundTextures &= ~(1 << index);
       ctx->NewState |= _NEW_TEXTURE_OBJECT;
+      ctx->PopAttribState |= GL_TEXTURE_BIT;
    }
 }
 
@@ -1416,7 +1432,7 @@ unbind_textures_from_unit(struct gl_context *ctx, GLuint unit)
 static void
 delete_textures(struct gl_context *ctx, GLsizei n, const GLuint *textures)
 {
-   FLUSH_VERTICES(ctx, 0); /* too complex */
+   FLUSH_VERTICES(ctx, 0, 0); /* too complex */
 
    if (!textures)
       return;
@@ -1454,6 +1470,7 @@ delete_textures(struct gl_context *ctx, GLsizei n, const GLuint *textures)
             _mesa_unlock_texture(ctx, delObj);
 
             ctx->NewState |= _NEW_TEXTURE_OBJECT;
+            ctx->PopAttribState |= GL_TEXTURE_BIT;
 
             /* The texture _name_ is now free for re-use.
              * Remove it from the hash table now.
@@ -1483,7 +1500,7 @@ _mesa_delete_nameless_texture(struct gl_context *ctx,
    if (!texObj)
       return;
 
-   FLUSH_VERTICES(ctx, 0);
+   FLUSH_VERTICES(ctx, _NEW_TEXTURE_OBJECT, GL_TEXTURE_BIT);
 
    _mesa_lock_texture(ctx, texObj);
    {
@@ -1505,8 +1522,6 @@ _mesa_delete_nameless_texture(struct gl_context *ctx,
       unbind_texobj_from_image_units(ctx, texObj);
    }
    _mesa_unlock_texture(ctx, texObj);
-
-   ctx->NewState |= _NEW_TEXTURE_OBJECT;
 
    /* Unreference the texobj.  If refcount hits zero, the texture
     * will be deleted.
@@ -1621,19 +1636,19 @@ bind_texture_object(struct gl_context *ctx, unsigned unit,
     * If so, just return. For GL_OES_image_external, rebinding the texture
     * always must invalidate cached resources.
     */
-   if (targetIndex != TEXTURE_EXTERNAL_INDEX) {
-      bool early_out;
-      simple_mtx_lock(&ctx->Shared->Mutex);
-      early_out = ((ctx->Shared->RefCount == 1)
-                   && (texObj == texUnit->CurrentTex[targetIndex]));
-      simple_mtx_unlock(&ctx->Shared->Mutex);
-      if (early_out) {
-         return;
-      }
-   }
+   if (targetIndex != TEXTURE_EXTERNAL_INDEX &&
+       ctx->Shared->RefCount == 1 &&
+       texObj == texUnit->CurrentTex[targetIndex])
+      return;
 
-   /* flush before changing binding */
-   FLUSH_VERTICES(ctx, _NEW_TEXTURE_OBJECT);
+   /* Flush before changing binding.
+    *
+    * Note: Multisample textures don't need to flag GL_TEXTURE_BIT because
+    *       they are not restored by glPopAttrib according to the GL 4.6
+    *       Compatibility Profile specification. We set GL_TEXTURE_BIT anyway
+    *       to simplify the code. This has no effect on behavior.
+    */
+   FLUSH_VERTICES(ctx, _NEW_TEXTURE_OBJECT, GL_TEXTURE_BIT);
 
    /* If the refcount on the previously bound texture is decremented to
     * zero, it'll be deleted here.
@@ -2025,7 +2040,6 @@ _mesa_PrioritizeTextures( GLsizei n, const GLuint *texName,
    if (MESA_VERBOSE & (VERBOSE_API|VERBOSE_TEXTURE))
       _mesa_debug(ctx, "glPrioritizeTextures %d\n", n);
 
-   FLUSH_VERTICES(ctx, 0);
 
    if (n < 0) {
       _mesa_error( ctx, GL_INVALID_VALUE, "glPrioritizeTextures" );
@@ -2035,6 +2049,8 @@ _mesa_PrioritizeTextures( GLsizei n, const GLuint *texName,
    if (!priorities)
       return;
 
+   FLUSH_VERTICES(ctx, _NEW_TEXTURE_OBJECT, GL_TEXTURE_BIT);
+
    for (i = 0; i < n; i++) {
       if (texName[i] > 0) {
          struct gl_texture_object *t = _mesa_lookup_texture(ctx, texName[i]);
@@ -2043,8 +2059,6 @@ _mesa_PrioritizeTextures( GLsizei n, const GLuint *texName,
          }
       }
    }
-
-   ctx->NewState |= _NEW_TEXTURE_OBJECT;
 }
 
 
@@ -2150,6 +2164,7 @@ _mesa_lock_context_textures( struct gl_context *ctx )
 
    if (ctx->Shared->TextureStateStamp != ctx->TextureStateTimestamp) {
       ctx->NewState |= _NEW_TEXTURE_OBJECT;
+      ctx->PopAttribState |= GL_TEXTURE_BIT;
       ctx->TextureStateTimestamp = ctx->Shared->TextureStateStamp;
    }
 }

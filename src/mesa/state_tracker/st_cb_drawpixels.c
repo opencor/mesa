@@ -167,7 +167,7 @@ make_drawpix_z_stencil_program_nir(struct st_context *st,
                              "gl_FragDepth");
       out->data.location = FRAG_RESULT_DEPTH;
       nir_ssa_def *depth = sample_via_nir(&b, texcoord, "depth", 0,
-                                          GLSL_TYPE_FLOAT, nir_type_float);
+                                          GLSL_TYPE_FLOAT, nir_type_float32);
       nir_store_var(&b, out, depth, 0x1);
 
       /* Also copy color */
@@ -189,7 +189,7 @@ make_drawpix_z_stencil_program_nir(struct st_context *st,
                              "gl_FragStencilRefARB");
       out->data.location = FRAG_RESULT_STENCIL;
       nir_ssa_def *stencil = sample_via_nir(&b, texcoord, "stencil", 1,
-                                            GLSL_TYPE_UINT, nir_type_uint);
+                                            GLSL_TYPE_UINT, nir_type_uint32);
       nir_store_var(&b, out, stencil, 0x1);
    }
 
@@ -213,9 +213,9 @@ make_drawpix_zs_to_color_program_nir(struct st_context *st,
 
    /* Sample depth and stencil */
    nir_ssa_def *depth = sample_via_nir(&b, texcoord, "depth", 0,
-                                       GLSL_TYPE_FLOAT, nir_type_float);
+                                       GLSL_TYPE_FLOAT, nir_type_float32);
    nir_ssa_def *stencil = sample_via_nir(&b, texcoord, "stencil", 1,
-                                         GLSL_TYPE_UINT, nir_type_uint);
+                                         GLSL_TYPE_UINT, nir_type_uint32);
 
    /* Create the variable to store the output color */
    nir_variable *color_out =
@@ -669,7 +669,7 @@ make_texture(struct st_context *st,
       ctx->_ImageTransferState = 0x0;
 
       /* map texture transfer */
-      dest = pipe_transfer_map(pipe, pt, 0, 0,
+      dest = pipe_texture_map(pipe, pt, 0, 0,
                                PIPE_MAP_WRITE, 0, 0,
                                width, height, &transfer);
       if (!dest) {
@@ -715,7 +715,7 @@ make_texture(struct st_context *st,
       }
 
       /* unmap */
-      pipe_transfer_unmap(pipe, transfer);
+      pipe_texture_unmap(pipe, transfer);
 
       /* restore */
       ctx->_ImageTransferState = imageTransferStateSave;
@@ -745,6 +745,7 @@ draw_textured_quad(struct gl_context *ctx, GLint x, GLint y, GLfloat z,
                    GLboolean write_depth, GLboolean write_stencil)
 {
    struct st_context *st = st_context(ctx);
+   struct pipe_context *pipe = st->pipe;
    struct cso_context *cso = st->cso_context;
    const unsigned fb_width = _mesa_geometric_width(ctx->DrawBuffer);
    const unsigned fb_height = _mesa_geometric_height(ctx->DrawBuffer);
@@ -767,10 +768,8 @@ draw_textured_quad(struct gl_context *ctx, GLint x, GLint y, GLfloat z,
    cso_state_mask = (CSO_BIT_RASTERIZER |
                      CSO_BIT_VIEWPORT |
                      CSO_BIT_FRAGMENT_SAMPLERS |
-                     CSO_BIT_FRAGMENT_SAMPLER_VIEWS |
                      CSO_BIT_STREAM_OUTPUTS |
                      CSO_BIT_VERTEX_ELEMENTS |
-                     CSO_BIT_AUX_VERTEX_BUFFER_SLOT |
                      CSO_BITS_ALL_SHADERS);
    if (write_stencil) {
       cso_state_mask |= (CSO_BIT_DEPTH_STENCIL_ALPHA |
@@ -836,9 +835,9 @@ draw_textured_quad(struct gl_context *ctx, GLint x, GLint y, GLfloat z,
       struct pipe_sampler_state sampler;
 
       memset(&sampler, 0, sizeof(sampler));
-      sampler.wrap_s = PIPE_TEX_WRAP_CLAMP;
-      sampler.wrap_t = PIPE_TEX_WRAP_CLAMP;
-      sampler.wrap_r = PIPE_TEX_WRAP_CLAMP;
+      sampler.wrap_s = PIPE_TEX_WRAP_CLAMP_TO_EDGE;
+      sampler.wrap_t = PIPE_TEX_WRAP_CLAMP_TO_EDGE;
+      sampler.wrap_r = PIPE_TEX_WRAP_CLAMP_TO_EDGE;
       sampler.min_img_filter = PIPE_TEX_FILTER_NEAREST;
       sampler.min_mip_filter = PIPE_TEX_MIPFILTER_NONE;
       sampler.mag_img_filter = PIPE_TEX_FILTER_NEAREST;
@@ -868,24 +867,38 @@ draw_textured_quad(struct gl_context *ctx, GLint x, GLint y, GLfloat z,
       }
    }
 
+   unsigned tex_width = sv[0]->texture->width0;
+   unsigned tex_height = sv[0]->texture->height0;
+
    /* user textures, plus the drawpix textures */
    if (fpv) {
       /* drawing a color image */
       struct pipe_sampler_view *sampler_views[PIPE_MAX_SAMPLERS];
-      uint num = MAX3(fpv->drawpix_sampler + 1,
-                      fpv->pixelmap_sampler + 1,
-                      st->state.num_sampler_views[PIPE_SHADER_FRAGMENT]);
+      unsigned num_views =
+         st_get_sampler_views(st, PIPE_SHADER_FRAGMENT,
+                              ctx->FragmentProgram._Current, sampler_views);
 
-      memcpy(sampler_views, st->state.frag_sampler_views,
-             sizeof(sampler_views));
+      num_views = MAX3(fpv->drawpix_sampler + 1, fpv->pixelmap_sampler + 1,
+                       num_views);
 
       sampler_views[fpv->drawpix_sampler] = sv[0];
       if (sv[1])
          sampler_views[fpv->pixelmap_sampler] = sv[1];
-      cso_set_sampler_views(cso, PIPE_SHADER_FRAGMENT, num, sampler_views);
+      pipe->set_sampler_views(pipe, PIPE_SHADER_FRAGMENT, 0, num_views, 0,
+                              sampler_views);
+      st->state.num_sampler_views[PIPE_SHADER_FRAGMENT] = num_views;
+
+      for (unsigned i = 0; i < num_views; i++)
+         pipe_sampler_view_reference(&sampler_views[i], NULL);
    } else {
       /* drawing a depth/stencil image */
-      cso_set_sampler_views(cso, PIPE_SHADER_FRAGMENT, num_sampler_view, sv);
+      pipe->set_sampler_views(pipe, PIPE_SHADER_FRAGMENT, 0, num_sampler_view,
+                              0, sv);
+      st->state.num_sampler_views[PIPE_SHADER_FRAGMENT] =
+         MAX2(st->state.num_sampler_views[PIPE_SHADER_FRAGMENT], num_sampler_view);
+
+      for (unsigned i = 0; i < num_sampler_view; i++)
+         pipe_sampler_view_reference(&sv[i], NULL);
    }
 
    /* viewport state: viewport matching window dims */
@@ -918,9 +931,9 @@ draw_textured_quad(struct gl_context *ctx, GLint x, GLint y, GLfloat z,
       const float clip_x1 = x1 / (float) fb_width * 2.0f - 1.0f;
       const float clip_y1 = y1 / (float) fb_height * 2.0f - 1.0f;
       const float maxXcoord = normalized ?
-         ((float) width / sv[0]->texture->width0) : (float) width;
+         ((float) width / tex_width) : (float) width;
       const float maxYcoord = normalized
-         ? ((float) height / sv[0]->texture->height0) : (float) height;
+         ? ((float) height / tex_height) : (float) height;
       const float sLeft = 0.0f, sRight = maxXcoord;
       const float tTop = invertTex ? maxYcoord : 0.0f;
       const float tBot = invertTex ? 0.0f : maxYcoord;
@@ -933,6 +946,17 @@ draw_textured_quad(struct gl_context *ctx, GLint x, GLint y, GLfloat z,
 
    /* restore state */
    cso_restore_state(cso);
+
+   /* Unbind all because st/mesa won't do it if the current shader doesn't
+    * use them.
+    */
+   pipe->set_sampler_views(pipe, PIPE_SHADER_FRAGMENT, 0, 0,
+                           st->state.num_sampler_views[PIPE_SHADER_FRAGMENT],
+                           NULL);
+   st->state.num_sampler_views[PIPE_SHADER_FRAGMENT] = 0;
+
+   st->dirty |= ST_NEW_VERTEX_ARRAYS |
+                ST_NEW_FS_SAMPLER_VIEWS;
 }
 
 
@@ -973,7 +997,7 @@ draw_stencil_pixels(struct gl_context *ctx, GLint x, GLint y,
       usage = PIPE_MAP_WRITE;
    }
 
-   stmap = pipe_transfer_map(pipe, strb->texture,
+   stmap = pipe_texture_map(pipe, strb->texture,
                              strb->surface->u.tex.level,
                              strb->surface->u.tex.first_layer,
                              usage, x, y,
@@ -1104,7 +1128,7 @@ draw_stencil_pixels(struct gl_context *ctx, GLint x, GLint y,
    _mesa_unmap_pbo_source(ctx, &clippedUnpack);
 
    /* unmap the stencil buffer */
-   pipe_transfer_unmap(pipe, pt);
+   pipe_texture_unmap(pipe, pt);
 }
 
 
@@ -1372,7 +1396,7 @@ st_DrawPixels(struct gl_context *ctx, GLint x, GLint y,
       /* compiling a new fragment shader variant added new state constants
        * into the constant buffer, we need to update them
        */
-      st_upload_constants(st, &st->fp->Base);
+      st_upload_constants(st, &st->fp->Base, MESA_SHADER_FRAGMENT);
    }
 
    {
@@ -1419,9 +1443,6 @@ st_DrawPixels(struct gl_context *ctx, GLint x, GLint y,
                       driver_fp, fpv,
                       ctx->Current.RasterColor,
                       GL_FALSE, write_depth, write_stencil);
-   pipe_sampler_view_reference(&sv[0], NULL);
-   if (num_sampler_view > 1)
-      pipe_sampler_view_reference(&sv[1], NULL);
 
    /* free the texture (but may persist in the cache) */
    pipe_resource_reference(&pt, NULL);
@@ -1485,7 +1506,7 @@ copy_stencil_pixels(struct gl_context *ctx, GLint srcx, GLint srcy,
    assert(util_format_get_blockheight(rbDraw->texture->format) == 1);
 
    /* map the stencil buffer */
-   drawMap = pipe_transfer_map(pipe,
+   drawMap = pipe_texture_map(pipe,
                                rbDraw->texture,
                                rbDraw->surface->u.tex.level,
                                rbDraw->surface->u.tex.first_layer,
@@ -1514,7 +1535,7 @@ copy_stencil_pixels(struct gl_context *ctx, GLint srcx, GLint srcy,
    free(buffer);
 
    /* unmap the stencil buffer */
-   pipe_transfer_unmap(pipe, ptDraw);
+   pipe_texture_unmap(pipe, ptDraw);
 }
 
 
@@ -1765,7 +1786,7 @@ st_CopyPixels(struct gl_context *ctx, GLint srcx, GLint srcy,
       /* compiling a new fragment shader variant added new state constants
        * into the constant buffer, we need to update them
        */
-      st_upload_constants(st, &st->fp->Base);
+      st_upload_constants(st, &st->fp->Base, MESA_SHADER_FRAGMENT);
    } else if (type == GL_DEPTH) {
       rbRead = st_renderbuffer(ctx->ReadBuffer->
                                Attachment[BUFFER_DEPTH].Renderbuffer);
@@ -1959,7 +1980,6 @@ st_CopyPixels(struct gl_context *ctx, GLint srcx, GLint srcy,
                       invertTex, write_depth, write_stencil);
 
    pipe_resource_reference(&pt, NULL);
-   pipe_sampler_view_reference(&sv[0], NULL);
 }
 
 

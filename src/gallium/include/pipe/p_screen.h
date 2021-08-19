@@ -68,6 +68,12 @@ struct u_transfer_helper;
  * context.
  */
 struct pipe_screen {
+   /**
+    * Atomically incremented by drivers to track the number of contexts.
+    * If it's 0, it can be assumed that contexts are not tracked.
+    * Used by some places to skip locking if num_contexts == 1.
+    */
+   unsigned num_contexts;
 
    /**
     * For drivers using u_transfer_helper:
@@ -544,7 +550,7 @@ struct pipe_screen {
    /**
     * Bind memory to a resource.
     */
-   void (*resource_bind_backing)(struct pipe_screen *screen,
+   bool (*resource_bind_backing)(struct pipe_screen *screen,
                                  struct pipe_resource *pt,
                                  struct pipe_memory_allocation *pmem,
                                  uint64_t offset);

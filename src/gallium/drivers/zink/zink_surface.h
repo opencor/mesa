@@ -25,14 +25,21 @@
  #define ZINK_SURFACE_H
 
 #include "pipe/p_state.h"
-
+#include "zink_batch.h"
 #include <vulkan/vulkan.h>
 
 struct pipe_context;
 
 struct zink_surface {
    struct pipe_surface base;
+   VkImageViewCreateInfo ivci;
    VkImageView image_view;
+   VkImageView simage_view;//old iview after storage replacement/rebind
+   void *obj; //backing resource object
+   uint32_t hash;
+   struct zink_batch_usage *batch_uses;
+   struct util_dynarray framebuffer_refs;
+   struct zink_descriptor_refs desc_set_refs;
 };
 
 static inline struct zink_surface *
@@ -42,6 +49,58 @@ zink_surface(struct pipe_surface *pipe)
 }
 
 void
+zink_destroy_surface(struct zink_screen *screen, struct pipe_surface *psurface);
+
+static inline void
+zink_surface_reference(struct zink_screen *screen, struct zink_surface **dst, struct zink_surface *src)
+{
+   struct zink_surface *old_dst = *dst;
+
+   if (pipe_reference_described(old_dst ? &old_dst->base.reference : NULL,
+                                src ? &src->base.reference : NULL,
+                                (debug_reference_descriptor)
+                                debug_describe_surface))
+      zink_destroy_surface(screen, &old_dst->base);
+   *dst = src;
+}
+
+void
 zink_context_surface_init(struct pipe_context *context);
 
+VkImageViewCreateInfo
+create_ivci(struct zink_screen *screen,
+            struct zink_resource *res,
+            const struct pipe_surface *templ,
+            enum pipe_texture_target target);
+
+struct pipe_surface *
+zink_get_surface(struct zink_context *ctx,
+            struct pipe_resource *pres,
+            const struct pipe_surface *templ,
+            VkImageViewCreateInfo *ivci);
+
+static inline VkImageViewType
+zink_surface_clamp_viewtype(VkImageViewType viewType, unsigned first_layer, unsigned last_layer, unsigned array_size)
+{
+   unsigned layerCount = 1 + last_layer - first_layer;
+   if (viewType == VK_IMAGE_VIEW_TYPE_CUBE || viewType == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY) {
+      if (first_layer == last_layer)
+         return VK_IMAGE_VIEW_TYPE_2D;
+      if (layerCount % 6 == 0) {
+         if (viewType == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY && layerCount == 6)
+            return VK_IMAGE_VIEW_TYPE_CUBE;
+      } else if (first_layer || layerCount != array_size)
+         return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+   } else if (viewType == VK_IMAGE_VIEW_TYPE_2D_ARRAY) {
+      if (first_layer == last_layer)
+         return VK_IMAGE_VIEW_TYPE_2D;
+   }
+   return viewType;
+}
+
+bool
+zink_rebind_surface(struct zink_context *ctx, struct pipe_surface **psurface);
+
+struct pipe_surface *
+zink_surface_create_null(struct zink_context *ctx, enum pipe_texture_target target, unsigned width, unsigned height, unsigned samples);
 #endif

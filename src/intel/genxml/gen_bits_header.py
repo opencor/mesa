@@ -67,7 +67,7 @@ from operator import itemgetter
 
 #include <stdint.h>
 
-#include "dev/gen_device_info.h"
+#include "dev/intel_device_info.h"
 #include "util/macros.h"
 
 <%def name="emit_per_gen_prop_func(item, prop)">
@@ -77,44 +77,20 @@ from operator import itemgetter
 % endfor
 
 static inline uint32_t ATTRIBUTE_PURE
-${item.token_name}_${prop}(const struct gen_device_info *devinfo)
+${item.token_name}_${prop}(const struct intel_device_info *devinfo)
 {
-   switch (devinfo->gen) {
-   case 12:
-%if item.get_prop(prop, 12.5) == item.get_prop(prop, 12):
-      return ${item.get_prop(prop, 12)};
-%else:
-      if (gen_device_info_is_12hp(devinfo)) {
-         return ${item.get_prop(prop, 12.5)};
-      } else {
-         return ${item.get_prop(prop, 12)};
-      }
-%endif
-   case 11: return ${item.get_prop(prop, 11)};
-   case 9: return ${item.get_prop(prop, 9)};
-   case 8: return ${item.get_prop(prop, 8)};
-   case 7:
-%if item.get_prop(prop, 7.5) == item.get_prop(prop, 7):
-      return ${item.get_prop(prop, 7)};
-%else:
-      if (devinfo->is_haswell) {
-         return ${item.get_prop(prop, 7.5)};
-      } else {
-         return ${item.get_prop(prop, 7)};
-      }
-%endif
-   case 6: return ${item.get_prop(prop, 6)};
-   case 5: return ${item.get_prop(prop, 5)};
-   case 4:
-%if item.get_prop(prop, 4.5) == item.get_prop(prop, 4):
-      return ${item.get_prop(prop, 4)};
-%else:
-      if (devinfo->is_g4x) {
-         return ${item.get_prop(prop, 4.5)};
-      } else {
-         return ${item.get_prop(prop, 4)};
-      }
-%endif
+   switch (devinfo->verx10) {
+   case 125: return ${item.get_prop(prop, 12.5)};
+   case 120: return ${item.get_prop(prop, 12)};
+   case 110: return ${item.get_prop(prop, 11)};
+   case 90: return ${item.get_prop(prop, 9)};
+   case 80: return ${item.get_prop(prop, 8)};
+   case 75: return ${item.get_prop(prop, 7.5)};
+   case 70: return ${item.get_prop(prop, 7)};
+   case 60: return ${item.get_prop(prop, 6)};
+   case 50: return ${item.get_prop(prop, 5)};
+   case 45: return ${item.get_prop(prop, 4.5)};
+   case 40: return ${item.get_prop(prop, 4)};
    default:
       unreachable("Invalid hardware generation");
    }
@@ -172,7 +148,7 @@ class Gen(object):
         if token[0] == '_':
             token = token[1:]
 
-        return 'GEN{}_{}'.format(gen, token)
+        return 'GFX{}_{}'.format(gen, token)
 
 class Container(object):
 

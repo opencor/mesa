@@ -272,7 +272,7 @@ clc_lower_input_image_deref(nir_builder *b, struct clc_image_lower_context *cont
                }
 
                /* No actual intrinsic needed here, just reference the loaded variable */
-               nir_ssa_def_rewrite_uses(&intrinsic->dest.ssa, nir_src_for_ssa(*cached_deref));
+               nir_ssa_def_rewrite_uses(&intrinsic->dest.ssa, *cached_deref);
                nir_instr_remove(&intrinsic->instr);
                break;
             }
@@ -351,10 +351,10 @@ clc_lower_64bit_semantics(nir_shader *nir)
                case nir_intrinsic_load_global_invocation_id_zero_base:
                case nir_intrinsic_load_base_global_invocation_id:
                case nir_intrinsic_load_local_invocation_id:
-               case nir_intrinsic_load_work_group_id:
-               case nir_intrinsic_load_work_group_id_zero_base:
-               case nir_intrinsic_load_base_work_group_id:
-               case nir_intrinsic_load_num_work_groups:
+               case nir_intrinsic_load_workgroup_id:
+               case nir_intrinsic_load_workgroup_id_zero_base:
+               case nir_intrinsic_load_base_workgroup_id:
+               case nir_intrinsic_load_num_workgroups:
                   break;
                default:
                   continue;
@@ -369,7 +369,7 @@ clc_lower_64bit_semantics(nir_shader *nir)
                nir_ssa_def *i64 = nir_u2u64(&b, &intrinsic->dest.ssa);
                nir_ssa_def_rewrite_uses_after(
                   &intrinsic->dest.ssa,
-                  nir_src_for_ssa(i64),
+                  i64,
                   i64->parent_instr);
             }
          }
@@ -653,11 +653,12 @@ add_kernel_inputs_var(struct clc_dxil_object *dxil, nir_shader *nir,
 
    size = align(size, 4);
 
+   const struct glsl_type *array_type = glsl_array_type(glsl_uint_type(), size / 4, 4);
+   const struct glsl_struct_field field = { array_type, "arr" };
    nir_variable *var =
       nir_variable_create(nir, nir_var_mem_ubo,
-                          glsl_array_type(glsl_uint_type(),
-                                          size / 4, 0),
-                          "kernel_inputs");
+         glsl_struct_type(&field, 1, "kernel_inputs", false),
+         "kernel_inputs");
    var->data.binding = (*cbv_id)++;
    var->data.how_declared = nir_var_hidden;
    return var;
@@ -668,12 +669,15 @@ add_work_properties_var(struct clc_dxil_object *dxil,
                            struct nir_shader *nir, unsigned *cbv_id)
 {
    struct clc_dxil_metadata *metadata = &dxil->metadata;
+   const struct glsl_type *array_type =
+      glsl_array_type(glsl_uint_type(),
+         sizeof(struct clc_work_properties_data) / sizeof(unsigned),
+         sizeof(unsigned));
+   const struct glsl_struct_field field = { array_type, "arr" };
    nir_variable *var =
       nir_variable_create(nir, nir_var_mem_ubo,
-                          glsl_array_type(glsl_uint_type(),
-                                          sizeof(struct clc_work_properties_data) / sizeof(unsigned),
-                                          0),
-                          "kernel_work_properies");
+         glsl_struct_type(&field, 1, "kernel_work_properties", false),
+         "kernel_work_properies");
    var->data.binding = (*cbv_id)++;
    var->data.how_declared = nir_var_hidden;
    return var;
@@ -826,7 +830,7 @@ split_unaligned_load(nir_builder *b, nir_intrinsic_instr *intrin, unsigned align
    }
 
    nir_ssa_def *new_dest = nir_extract_bits(b, srcs, num_loads, 0, num_comps, intrin->dest.ssa.bit_size);
-   nir_ssa_def_rewrite_uses(&intrin->dest.ssa, nir_src_for_ssa(new_dest));
+   nir_ssa_def_rewrite_uses(&intrin->dest.ssa, new_dest);
    nir_instr_remove(&intrin->instr);
 }
 
@@ -976,7 +980,7 @@ scale_fdiv(nir_shader *nir)
             if (instr->type != nir_instr_type_alu)
                continue;
             nir_alu_instr *alu = nir_instr_as_alu(instr);
-            if (alu->op != nir_op_fdiv)
+            if (alu->op != nir_op_fdiv || alu->src[0].src.ssa->bit_size != 32)
                continue;
 
             b.cursor = nir_before_instr(instr);
@@ -1076,7 +1080,7 @@ clc_to_dxil(struct clc_context *ctx,
       clc_error(logger, "spirv_to_nir() failed");
       goto err_free_dxil;
    }
-   nir->info.cs.local_size_variable = true;
+   nir->info.workgroup_size_variable = true;
 
    NIR_PASS_V(nir, nir_lower_goto_ifs);
    NIR_PASS_V(nir, nir_opt_dead_cf);
@@ -1145,43 +1149,22 @@ clc_to_dxil(struct clc_context *ctx,
       } while (progress);
    }
 
-   // Before removing dead uniforms, dedupe constant samplers to make more dead uniforms
-   NIR_PASS_V(nir, clc_nir_dedupe_const_samplers);
-   NIR_PASS_V(nir, nir_remove_dead_variables, nir_var_uniform | nir_var_mem_ubo | nir_var_mem_constant | nir_var_function_temp, NULL);
-
    NIR_PASS_V(nir, scale_fdiv);
 
    dxil_wrap_sampler_state int_sampler_states[PIPE_MAX_SHADER_SAMPLER_VIEWS] = { {{0}} };
    unsigned sampler_id = 0;
 
-   struct exec_list tmp_list;
-   exec_list_make_empty(&tmp_list);
+   struct exec_list inline_samplers_list;
+   exec_list_make_empty(&inline_samplers_list);
 
-   // Assign bindings for constant samplers, and move them to the end of the variable list
+   // Move inline samplers to the end of the uniforms list
    nir_foreach_variable_with_modes_safe(var, nir, nir_var_uniform) {
       if (glsl_type_is_sampler(var->type) && var->data.sampler.is_inline_sampler) {
-         int_sampler_states[sampler_id].wrap[0] =
-            int_sampler_states[sampler_id].wrap[1] =
-            int_sampler_states[sampler_id].wrap[2] =
-            wrap_from_cl_addressing(var->data.sampler.addressing_mode);
-         int_sampler_states[sampler_id].is_nonnormalized_coords =
-            !var->data.sampler.normalized_coordinates;
-         int_sampler_states[sampler_id].is_linear_filtering =
-            var->data.sampler.filter_mode == SAMPLER_FILTER_MODE_LINEAR;
-         var->data.binding = sampler_id++;
-
-         assert(metadata->num_const_samplers < CLC_MAX_SAMPLERS);
-         metadata->const_samplers[metadata->num_const_samplers].sampler_id = var->data.binding;
-         metadata->const_samplers[metadata->num_const_samplers].addressing_mode = var->data.sampler.addressing_mode;
-         metadata->const_samplers[metadata->num_const_samplers].normalized_coords = var->data.sampler.normalized_coordinates;
-         metadata->const_samplers[metadata->num_const_samplers].filter_mode = var->data.sampler.filter_mode;
-         metadata->num_const_samplers++;
-
          exec_node_remove(&var->node);
-         exec_list_push_tail(&tmp_list, &var->node);
+         exec_list_push_tail(&inline_samplers_list, &var->node);
       }
    }
-   exec_node_insert_list_after(exec_list_get_tail(&nir->variables), &tmp_list);
+   exec_node_insert_list_after(exec_list_get_tail(&nir->variables), &inline_samplers_list);
 
    NIR_PASS_V(nir, nir_lower_variable_initializers, ~(nir_var_function_temp | nir_var_shader_temp));
 
@@ -1274,8 +1257,34 @@ clc_to_dxil(struct clc_context *ctx,
       }
    }
 
+   // Before removing dead uniforms, dedupe constant samplers to make more dead uniforms
+   NIR_PASS_V(nir, clc_nir_dedupe_const_samplers);
+   NIR_PASS_V(nir, nir_remove_dead_variables, nir_var_uniform | nir_var_mem_ubo | nir_var_mem_constant | nir_var_function_temp, NULL);
+
+   // Fill out inline sampler metadata, now that they've been deduped and dead ones removed
+   nir_foreach_variable_with_modes(var, nir, nir_var_uniform) {
+      if (glsl_type_is_sampler(var->type) && var->data.sampler.is_inline_sampler) {
+         int_sampler_states[sampler_id].wrap[0] =
+            int_sampler_states[sampler_id].wrap[1] =
+            int_sampler_states[sampler_id].wrap[2] =
+            wrap_from_cl_addressing(var->data.sampler.addressing_mode);
+         int_sampler_states[sampler_id].is_nonnormalized_coords =
+            !var->data.sampler.normalized_coordinates;
+         int_sampler_states[sampler_id].is_linear_filtering =
+            var->data.sampler.filter_mode == SAMPLER_FILTER_MODE_LINEAR;
+         var->data.binding = sampler_id++;
+
+         assert(metadata->num_const_samplers < CLC_MAX_SAMPLERS);
+         metadata->const_samplers[metadata->num_const_samplers].sampler_id = var->data.binding;
+         metadata->const_samplers[metadata->num_const_samplers].addressing_mode = var->data.sampler.addressing_mode;
+         metadata->const_samplers[metadata->num_const_samplers].normalized_coords = var->data.sampler.normalized_coordinates;
+         metadata->const_samplers[metadata->num_const_samplers].filter_mode = var->data.sampler.filter_mode;
+         metadata->num_const_samplers++;
+      }
+   }
+
    // Needs to come before lower_explicit_io
-   NIR_PASS_V(nir, nir_lower_cl_images_to_tex);
+   NIR_PASS_V(nir, nir_lower_readonly_images_to_tex, false);
    struct clc_image_lower_context image_lower_context = { metadata, &srv_id, &uav_id };
    NIR_PASS_V(nir, clc_lower_images, &image_lower_context);
    NIR_PASS_V(nir, clc_lower_nonnormalized_samplers, int_sampler_states);
@@ -1313,7 +1322,7 @@ clc_to_dxil(struct clc_context *ctx,
 
    nir_lower_compute_system_values_options compute_options = {
       .has_base_global_invocation_id = (conf && conf->support_global_work_id_offsets),
-      .has_base_work_group_id = (conf && conf->support_work_group_id_offsets),
+      .has_base_workgroup_id = (conf && conf->support_workgroup_id_offsets),
    };
    NIR_PASS_V(nir, nir_lower_compute_system_values, &compute_options);
 
@@ -1329,20 +1338,33 @@ clc_to_dxil(struct clc_context *ctx,
    nir_variable *work_properties_var =
       add_work_properties_var(dxil, nir, &cbv_id);
 
+   memcpy(metadata->local_size, nir->info.workgroup_size,
+          sizeof(metadata->local_size));
+   memcpy(metadata->local_size_hint, nir->info.cs.workgroup_size_hint,
+          sizeof(metadata->local_size));
+
    // Patch the localsize before calling clc_nir_lower_system_values().
    if (conf) {
-      for (unsigned i = 0; i < ARRAY_SIZE(nir->info.cs.local_size); i++) {
+      for (unsigned i = 0; i < ARRAY_SIZE(nir->info.workgroup_size); i++) {
          if (!conf->local_size[i] ||
-             conf->local_size[i] == nir->info.cs.local_size[i])
+             conf->local_size[i] == nir->info.workgroup_size[i])
             continue;
 
-         if (nir->info.cs.local_size[i] &&
-             nir->info.cs.local_size[i] != conf->local_size[i]) {
+         if (nir->info.workgroup_size[i] &&
+             nir->info.workgroup_size[i] != conf->local_size[i]) {
             debug_printf("D3D12: runtime local size does not match reqd_work_group_size() values\n");
             goto err_free_dxil;
          }
 
-         nir->info.cs.local_size[i] = conf->local_size[i];
+         nir->info.workgroup_size[i] = conf->local_size[i];
+      }
+      memcpy(metadata->local_size, nir->info.workgroup_size,
+            sizeof(metadata->local_size));
+   } else {
+      /* Make sure there's at least one thread that's set to run */
+      for (unsigned i = 0; i < ARRAY_SIZE(nir->info.workgroup_size); i++) {
+         if (nir->info.workgroup_size[i] == 0)
+            nir->info.workgroup_size[i] = 1;
       }
    }
 
@@ -1354,7 +1376,7 @@ clc_to_dxil(struct clc_context *ctx,
    NIR_PASS_V(nir, dxil_nir_lower_loads_stores_to_dxil);
    NIR_PASS_V(nir, dxil_nir_opt_alu_deref_srcs);
    NIR_PASS_V(nir, dxil_nir_lower_atomics_to_dxil);
-   NIR_PASS_V(nir, dxil_nir_lower_fp16_casts);
+   NIR_PASS_V(nir, nir_lower_fp16_casts);
    NIR_PASS_V(nir, nir_lower_convert_alu_types, NULL);
 
    // Convert pack to pack_split
@@ -1394,12 +1416,12 @@ clc_to_dxil(struct clc_context *ctx,
        */
       unsigned alignment = size < 128 ? (1 << (ffs(size) - 1)) : 128;
 
-      nir->info.cs.shared_size = align(nir->info.cs.shared_size, alignment);
-      metadata->args[i].localptr.sharedmem_offset = nir->info.cs.shared_size;
-      nir->info.cs.shared_size += size;
+      nir->info.shared_size = align(nir->info.shared_size, alignment);
+      metadata->args[i].localptr.sharedmem_offset = nir->info.shared_size;
+      nir->info.shared_size += size;
    }
 
-   metadata->local_mem_size = nir->info.cs.shared_size;
+   metadata->local_mem_size = nir->info.shared_size;
    metadata->priv_mem_size = nir->scratch_size;
 
    /* DXIL double math is too limited compared to what NIR expects. Let's refuse
@@ -1416,11 +1438,6 @@ clc_to_dxil(struct clc_context *ctx,
       debug_printf("D3D12: nir_to_dxil failed\n");
       goto err_free_dxil;
    }
-
-   memcpy(metadata->local_size, nir->info.cs.local_size,
-          sizeof(metadata->local_size));
-   memcpy(metadata->local_size_hint, nir->info.cs.local_size_hint,
-          sizeof(metadata->local_size));
 
    nir_foreach_variable_with_modes(var, nir, nir_var_mem_ssbo) {
       if (var->constant_initializer) {

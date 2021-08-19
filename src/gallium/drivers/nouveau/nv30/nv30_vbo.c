@@ -24,6 +24,7 @@
  */
 
 #include "util/format/u_format.h"
+#include "util/u_draw.h"
 #include "util/u_inlines.h"
 #include "util/u_prim.h"
 #include "translate/translate.h"
@@ -513,9 +514,9 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
       if (!info->has_user_indices)
          data = nouveau_resource_map_offset(&nv30->base,
                                             nv04_resource(info->index.resource),
-                                            start * index_size, NOUVEAU_BO_RD);
+                                            0, NOUVEAU_BO_RD);
       else
-         data = (char*)info->index.user + start * index_size;
+         data = info->index.user;
       if (!data)
          return;
 
@@ -545,18 +546,13 @@ nv30_draw_elements(struct nv30_context *nv30, bool shorten,
 
 static void
 nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
+              unsigned drawid_offset,
               const struct pipe_draw_indirect_info *indirect,
-              const struct pipe_draw_start_count *draws,
+              const struct pipe_draw_start_count_bias *draws,
               unsigned num_draws)
 {
    if (num_draws > 1) {
-      struct pipe_draw_info tmp_info = *info;
-
-      for (unsigned i = 0; i < num_draws; i++) {
-         nv30_draw_vbo(pipe, &tmp_info, indirect, &draws[i], 1);
-         if (tmp_info.increment_draw_id)
-            tmp_info.drawid++;
-      }
+      util_draw_multi(pipe, info, drawid_offset, indirect, draws, num_draws);
       return;
    }
 
@@ -596,7 +592,7 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
 
    nv30_state_validate(nv30, ~0, true);
    if (nv30->draw_flags) {
-      nv30_render_vbo(pipe, info, &draws[0]);
+      nv30_render_vbo(pipe, info, drawid_offset, &draws[0]);
       return;
    } else
    if (nv30->vbo_fifo) {
@@ -652,7 +648,7 @@ nv30_draw_vbo(struct pipe_context *pipe, const struct pipe_draw_info *info,
 
       nv30_draw_elements(nv30, shorten, info,
                          info->mode, draws[0].start, draws[0].count,
-                         info->instance_count, info->index_bias, info->index_size);
+                         info->instance_count, draws[0].index_bias, info->index_size);
    }
 
    nv30_state_release(nv30);

@@ -42,13 +42,14 @@
 
 
 static void
-glthread_unmarshal_batch(void *job, int thread_index)
+glthread_unmarshal_batch(void *job, void *gdata, int thread_index)
 {
    struct glthread_batch *batch = (struct glthread_batch*)job;
    struct gl_context *ctx = batch->ctx;
    unsigned pos = 0;
    unsigned used = batch->used;
    uint64_t *buffer = batch->buffer;
+   const uint64_t *last = &buffer[used];
 
    _glapi_set_dispatch(ctx->CurrentServerDispatch);
 
@@ -61,8 +62,7 @@ glthread_unmarshal_batch(void *job, int thread_index)
       const struct marshal_cmd_base *cmd =
          (const struct marshal_cmd_base *)&buffer[pos];
 
-      _mesa_unmarshal_dispatch[cmd->cmd_id](ctx, cmd);
-      pos += cmd->cmd_size;
+      pos += _mesa_unmarshal_dispatch[cmd->cmd_id](ctx, cmd, last);
    }
 
    ctx->TexturesLocked = false;
@@ -76,11 +76,11 @@ glthread_unmarshal_batch(void *job, int thread_index)
    unsigned batch_index = batch - ctx->GLThread.batches;
    /* Atomically set this to -1 if it's equal to batch_index. */
    p_atomic_cmpxchg(&ctx->GLThread.LastProgramChangeBatch, batch_index, -1);
-
+   p_atomic_cmpxchg(&ctx->GLThread.LastDListChangeBatchIndex, batch_index, -1);
 }
 
 static void
-glthread_thread_initialization(void *job, int thread_index)
+glthread_thread_initialization(void *job, void *gdata, int thread_index)
 {
    struct gl_context *ctx = (struct gl_context*)job;
 
@@ -96,7 +96,7 @@ _mesa_glthread_init(struct gl_context *ctx)
    assert(!glthread->enabled);
 
    if (!util_queue_init(&glthread->queue, "gl", MARSHAL_MAX_BATCHES - 2,
-                        1, 0)) {
+                        1, 0, NULL)) {
       return;
    }
 
@@ -138,6 +138,8 @@ _mesa_glthread_init(struct gl_context *ctx)
                                      ctx->Const.VertexBufferOffsetIsInt32;
 
    ctx->CurrentClientDispatch = ctx->MarshalExec;
+
+   glthread->LastDListChangeBatchIndex = -1;
 
    /* Execute the thread initialization function in the thread. */
    struct util_queue_fence fence;
@@ -214,19 +216,20 @@ _mesa_glthread_flush_batch(struct gl_context *ctx)
    /* Pin threads regularly to the same Zen CCX that the main thread is
     * running on. The main thread can move between CCXs.
     */
-   if (util_cpu_caps.nr_cpus != util_cpu_caps.cores_per_L3 &&
+   if (util_get_cpu_caps()->num_L3_caches > 1 &&
        /* driver support */
        ctx->Driver.PinDriverToL3Cache &&
        ++glthread->pin_thread_counter % 128 == 0) {
       int cpu = util_get_current_cpu();
 
       if (cpu >= 0) {
-         unsigned L3_cache = util_cpu_caps.cpu_to_L3[cpu];
-
-         util_set_thread_affinity(glthread->queue.threads[0],
-                                  util_cpu_caps.L3_affinity_mask[L3_cache],
-                                  NULL, util_cpu_caps.num_cpu_mask_bits);
-         ctx->Driver.PinDriverToL3Cache(ctx, L3_cache);
+         uint16_t L3_cache = util_get_cpu_caps()->cpu_to_L3[cpu];
+         if (L3_cache != U_CPU_INVALID_L3) {
+            util_set_thread_affinity(glthread->queue.threads[0],
+                                     util_get_cpu_caps()->L3_affinity_mask[L3_cache],
+                                     NULL, util_get_cpu_caps()->num_cpu_mask_bits);
+            ctx->Driver.PinDriverToL3Cache(ctx, L3_cache);
+         }
       }
    }
 
@@ -238,7 +241,7 @@ _mesa_glthread_flush_batch(struct gl_context *ctx)
     * need to restore it when it returns.
     */
    if (false) {
-      glthread_unmarshal_batch(next, 0);
+      glthread_unmarshal_batch(next, NULL, 0);
       _glapi_set_dispatch(ctx->CurrentClientDispatch);
       return;
    }
@@ -293,7 +296,7 @@ _mesa_glthread_finish(struct gl_context *ctx)
        * restore it after it's done.
        */
       struct _glapi_table *dispatch = _glapi_get_dispatch();
-      glthread_unmarshal_batch(next, 0);
+      glthread_unmarshal_batch(next, NULL, 0);
       _glapi_set_dispatch(dispatch);
 
       /* It's not a sync because we don't enqueue partial batches, but

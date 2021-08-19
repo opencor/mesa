@@ -300,6 +300,7 @@ swr_set_sampler_views(struct pipe_context *pipe,
                       enum pipe_shader_type shader,
                       unsigned start,
                       unsigned num,
+                      unsigned unbind_num_trailing_slots,
                       struct pipe_sampler_view **views)
 {
    struct swr_context *ctx = swr_context(pipe);
@@ -315,6 +316,10 @@ swr_set_sampler_views(struct pipe_context *pipe,
    for (i = 0; i < num; i++) {
       pipe_sampler_view_reference(&ctx->sampler_views[shader][start + i],
                                   views[i]);
+   }
+   for (; i < num + unbind_num_trailing_slots; i++) {
+      pipe_sampler_view_reference(&ctx->sampler_views[shader][start + i],
+                                  NULL);
    }
 
    ctx->dirty |= SWR_NEW_SAMPLER_VIEW;
@@ -546,7 +551,7 @@ swr_delete_tes_state(struct pipe_context *pipe, void *tes)
 static void
 swr_set_constant_buffer(struct pipe_context *pipe,
                         enum pipe_shader_type shader,
-                        uint index,
+                        uint index, bool take_ownership,
                         const struct pipe_constant_buffer *cb)
 {
    struct swr_context *ctx = swr_context(pipe);
@@ -556,7 +561,7 @@ swr_set_constant_buffer(struct pipe_context *pipe,
    assert(index < ARRAY_SIZE(ctx->constants[shader]));
 
    /* note: reference counting */
-   util_copy_constant_buffer(&ctx->constants[shader][index], cb);
+   util_copy_constant_buffer(&ctx->constants[shader][index], cb, take_ownership);
 
    if (shader == PIPE_SHADER_VERTEX) {
       ctx->dirty |= SWR_NEW_VSCONSTANTS;
@@ -664,6 +669,8 @@ static void
 swr_set_vertex_buffers(struct pipe_context *pipe,
                        unsigned start_slot,
                        unsigned num_elements,
+                       unsigned unbind_num_trailing_slots,
+                       bool take_ownership,
                        const struct pipe_vertex_buffer *buffers)
 {
    struct swr_context *ctx = swr_context(pipe);
@@ -674,7 +681,9 @@ swr_set_vertex_buffers(struct pipe_context *pipe,
                                  &ctx->num_vertex_buffers,
                                  buffers,
                                  start_slot,
-                                 num_elements);
+                                 num_elements,
+                                 unbind_num_trailing_slots,
+                                 take_ownership);
 
    ctx->dirty |= SWR_NEW_VERTEX;
 }
@@ -1104,7 +1113,8 @@ swr_user_vbuf_range(const struct pipe_draw_info *info,
                     uint32_t i,
                     uint32_t *totelems,
                     uint32_t *base,
-                    uint32_t *size)
+                    uint32_t *size,
+                    int index_bias)
 {
    /* FIXME: The size is too large - we don't access the full extra stride. */
    unsigned elems;
@@ -1116,8 +1126,8 @@ swr_user_vbuf_range(const struct pipe_draw_info *info,
       *size = elems * elem_pitch;
    } else if (vb->stride) {
       elems = info->max_index - info->min_index + 1;
-      *totelems = (info->max_index + (info->index_size ? info->index_bias : 0)) + 1;
-      *base = (info->min_index + (info->index_size ? info->index_bias : 0)) * vb->stride;
+      *totelems = (info->max_index + (info->index_size ? index_bias : 0)) + 1;
+      *base = (info->min_index + (info->index_size ? index_bias : 0)) * vb->stride;
       *size = elems * elem_pitch;
    } else {
       *totelems = 1;
@@ -1159,7 +1169,7 @@ swr_get_last_fe(const struct swr_context *ctx)
 void
 swr_update_derived(struct pipe_context *pipe,
                    const struct pipe_draw_info *p_draw_info,
-                   const struct pipe_draw_start_count *draw)
+                   const struct pipe_draw_start_count_bias *draw)
 {
    struct swr_context *ctx = swr_context(pipe);
    struct swr_screen *screen = swr_screen(pipe->screen);
@@ -1421,9 +1431,9 @@ swr_update_derived(struct pipe_context *pipe,
             post_update_dirty_flags |= SWR_NEW_VERTEX;
 
             uint32_t base;
-            swr_user_vbuf_range(&info, ctx->velems, vb, i, &elems, &base, &size);
+            swr_user_vbuf_range(&info, ctx->velems, vb, i, &elems, &base, &size, draw->index_bias);
             partial_inbounds = 0;
-            min_vertex_index = info.min_index + (info.index_size ? info.index_bias : 0);
+            min_vertex_index = info.min_index + (info.index_size ? draw->index_bias : 0);
 
             size = AlignUp(size, 4);
             /* If size of client memory copy is too large, don't copy. The

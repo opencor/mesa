@@ -33,7 +33,6 @@ DOCUMENTATION
 R: Emil Velikov <emil.l.velikov@gmail.com>
 R: Eric Engestrom <eric@engestrom.ch>
 F: docs/
-F: doxygen/
 
 COMPATIBILITY HEADERS
 R: Emil Velikov <emil.l.velikov@gmail.com>
@@ -53,7 +52,7 @@ HAIKU
 R: Alexander von Gluck IV <kallisti5@unixzen.com>
 F: include/HaikuGL/
 F: src/egl/drivers/haiku/
-F: src/gallium/state_trackers/hgl/
+F: src/gallium/frontends/hgl/
 F: src/gallium/targets/haiku-softpipe/
 F: src/gallium/winsys/sw/hgl/
 F: src/hgl/
@@ -66,11 +65,6 @@ F: src/gallium/auxiliary/target-helpers/
 GALLIUM TARGETS
 R: Emil Velikov <emil.l.velikov@gmail.com>
 F: src/gallium/targets/
-
-SCONS BUILD
-F: scons/
-F: */SConscript*
-F: */Makefile.sources
 
 ANDROID BUILD
 R: Emil Velikov <emil.l.velikov@gmail.com>

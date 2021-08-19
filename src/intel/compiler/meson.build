@@ -28,6 +28,7 @@ libintel_compiler_files = files(
   'brw_clip_unfilled.c',
   'brw_clip_util.c',
   'brw_compile_clip.c',
+  'brw_compile_ff_gs.c',
   'brw_compile_sf.c',
   'brw_compiler.c',
   'brw_compiler.h',
@@ -130,8 +131,8 @@ libintel_compiler_files = files(
   'brw_vec4_vs.h',
   'brw_vue_map.c',
   'brw_wm_iz.cpp',
-  'gen6_gs_visitor.cpp',
-  'gen6_gs_visitor.h',
+  'gfx6_gs_visitor.cpp',
+  'gfx6_gs_visitor.h',
 )
 
 brw_nir_trig = custom_target(

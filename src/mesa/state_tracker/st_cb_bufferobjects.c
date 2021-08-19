@@ -70,6 +70,28 @@ st_bufferobj_alloc(struct gl_context *ctx, GLuint name)
 }
 
 
+static void
+release_buffer(struct gl_buffer_object *obj)
+{
+   struct st_buffer_object *st_obj = st_buffer_object(obj);
+
+   if (!st_obj->buffer)
+      return;
+
+   /* Subtract the remaining private references before unreferencing
+    * the buffer. See the header file for explanation.
+    */
+   if (st_obj->private_refcount) {
+      assert(st_obj->private_refcount > 0);
+      p_atomic_add(&st_obj->buffer->reference.count,
+                   -st_obj->private_refcount);
+      st_obj->private_refcount = 0;
+   }
+   st_obj->ctx = NULL;
+
+   pipe_resource_reference(&st_obj->buffer, NULL);
+}
+
 
 /**
  * Deallocate/free a vertex/pixel buffer object.
@@ -78,14 +100,9 @@ st_bufferobj_alloc(struct gl_context *ctx, GLuint name)
 static void
 st_bufferobj_free(struct gl_context *ctx, struct gl_buffer_object *obj)
 {
-   struct st_buffer_object *st_obj = st_buffer_object(obj);
-
    assert(obj->RefCount == 0);
    _mesa_buffer_unmap_all_mappings(ctx, obj);
-
-   if (st_obj->buffer)
-      pipe_resource_reference(&st_obj->buffer, NULL);
-
+   release_buffer(obj);
    _mesa_delete_buffer_object(ctx, obj);
 }
 
@@ -233,16 +250,20 @@ static enum pipe_resource_usage
 buffer_usage(GLenum target, GLboolean immutable,
              GLbitfield storageFlags, GLenum usage)
 {
+   /* "immutable" means that "storageFlags" was set by the user and "usage"
+    * was guessed by Mesa. Otherwise, "usage" was set by the user and
+    * storageFlags was guessed by Mesa.
+    *
+    * Therefore, use storageFlags with immutable, else use "usage".
+    */
    if (immutable) {
       /* BufferStorage */
-      if (storageFlags & GL_CLIENT_STORAGE_BIT) {
-         if (storageFlags & GL_MAP_READ_BIT)
-            return PIPE_USAGE_STAGING;
-         else
-            return PIPE_USAGE_STREAM;
-      } else {
+      if (storageFlags & GL_MAP_READ_BIT)
+         return PIPE_USAGE_STAGING;
+      else if (storageFlags & GL_CLIENT_STORAGE_BIT)
+         return PIPE_USAGE_STREAM;
+      else
          return PIPE_USAGE_DEFAULT;
-      }
    }
    else {
       /* These are often read by the CPU, so enable CPU caches. */
@@ -330,7 +351,7 @@ bufferobj_data(struct gl_context *ctx,
    st_obj->Base.Usage = usage;
    st_obj->Base.StorageFlags = storageFlags;
 
-   pipe_resource_reference( &st_obj->buffer, NULL );
+   release_buffer(obj);
 
    const unsigned bindings = buffer_target_to_bind_flags(target);
 
@@ -375,6 +396,8 @@ bufferobj_data(struct gl_context *ctx,
          st_obj->Base.Size = 0;
          return GL_FALSE;
       }
+
+      st_obj->ctx = ctx;
    }
 
    /* The current buffer may be bound, so we have to revalidate all atoms that
@@ -520,9 +543,19 @@ st_bufferobj_map_range(struct gl_context *ctx,
    assert(offset < obj->Size);
    assert(offset + length <= obj->Size);
 
-   const enum pipe_map_flags transfer_flags =
+   enum pipe_map_flags transfer_flags =
       st_access_flags_to_transfer_flags(access,
                                         offset == 0 && length == obj->Size);
+
+   /* Sometimes games do silly things like MapBufferRange(UNSYNC|DISCARD_RANGE)
+    * In this case, the the UNSYNC is a bit redundant, but the games rely
+    * on the driver rebinding/replacing the backing storage rather than
+    * going down the UNSYNC path (ie. honoring DISCARD_x first before UNSYNC).
+    */
+   if (unlikely(st_context(ctx)->options.ignore_map_unsynchronized)) {
+      if (transfer_flags & (PIPE_MAP_DISCARD_RANGE | PIPE_MAP_DISCARD_WHOLE_RESOURCE))
+         transfer_flags &= ~PIPE_MAP_UNSYNCHRONIZED;
+   }
 
    obj->Mappings[index].Pointer = pipe_buffer_map_range(pipe,
                                                         st_obj->buffer,

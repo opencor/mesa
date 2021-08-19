@@ -44,7 +44,7 @@ anv_nir_add_base_work_group_id(nir_shader *shader)
                continue;
 
             nir_intrinsic_instr *load_id = nir_instr_as_intrinsic(instr);
-            if (load_id->intrinsic != nir_intrinsic_load_work_group_id)
+            if (load_id->intrinsic != nir_intrinsic_load_workgroup_id)
                continue;
 
             b.cursor = nir_after_instr(&load_id->instr);
@@ -58,7 +58,7 @@ anv_nir_add_base_work_group_id(nir_shader *shader)
                                            load_base);
 
             nir_ssa_def_rewrite_uses_after(&load_id->dest.ssa,
-                                           nir_src_for_ssa(id),
+                                           id,
                                            id->parent_instr);
             progress = true;
          }

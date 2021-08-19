@@ -55,8 +55,24 @@ enum cpu_family {
 
 typedef uint32_t util_affinity_mask[UTIL_MAX_CPUS / 32];
 
-struct util_cpu_caps {
-   int nr_cpus;
+struct util_cpu_caps_t {
+   /**
+    * Number of CPUs available to the process.
+    *
+    * This will be less than or equal to \c max_cpus.  This is the number of
+    * CPUs that are online and available to the process.
+    */
+   int16_t nr_cpus;
+
+   /**
+    * Maximum number of CPUs that can be online in the system.
+    *
+    * This will be greater than or equal to \c nr_cpus.  This is the number of
+    * CPUs installed in the system.  \c nr_cpus will be less if some CPUs are
+    * offline.
+    */
+   int16_t max_cpus;
+
    enum cpu_family family;
 
    /* Feature flags */
@@ -97,7 +113,6 @@ struct util_cpu_caps {
    unsigned has_avx512vbmi:1;
 
    unsigned num_L3_caches;
-   unsigned cores_per_L3;
    unsigned num_cpu_mask_bits;
 
    uint16_t cpu_to_L3[UTIL_MAX_CPUS];
@@ -105,8 +120,20 @@ struct util_cpu_caps {
    util_affinity_mask *L3_affinity_mask;
 };
 
-extern struct util_cpu_caps
-util_cpu_caps;
+#define U_CPU_INVALID_L3 0xffff
+
+static inline const struct util_cpu_caps_t *
+util_get_cpu_caps(void)
+{
+	extern struct util_cpu_caps_t util_cpu_caps;
+
+	/* If you hit this assert, it means that something is using the
+	 * cpu-caps without having first called util_cpu_detect()
+	 */
+	assert(util_cpu_caps.nr_cpus >= 1);
+
+	return &util_cpu_caps;
+}
 
 void util_cpu_detect(void);
 

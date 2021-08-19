@@ -25,7 +25,6 @@
 #include "drm-uapi/drm_fourcc.h"
 #include "vk_enum_to_str.h"
 #include "vk_format.h"
-#include "vk_format_info.h"
 #include "vk_util.h"
 
 /*
@@ -469,7 +468,8 @@ anv_format_has_npot_plane(const struct anv_format *anv_format) {
  * _cannot_ check for compatibility).
  */
 struct anv_format_plane
-anv_get_format_plane(const struct gen_device_info *devinfo, VkFormat vk_format,
+anv_get_format_plane(const struct intel_device_info *devinfo,
+                     VkFormat vk_format,
                      VkImageAspectFlagBits aspect, VkImageTiling tiling)
 {
    const struct anv_format *format = anv_get_format(vk_format);
@@ -507,7 +507,7 @@ anv_get_format_plane(const struct gen_device_info *devinfo, VkFormat vk_format,
     * can reliably do texture upload with BLORP so just don't claim support
     * for any of them.
     */
-   if (devinfo->gen == 7 && !devinfo->is_haswell &&
+   if (devinfo->verx10 == 70 &&
        (isl_layout->bpb == 24 || isl_layout->bpb == 48))
       return unsupported;
 
@@ -532,7 +532,7 @@ anv_get_format_plane(const struct gen_device_info *devinfo, VkFormat vk_format,
    /* The B4G4R4A4 format isn't available prior to Broadwell so we have to fall
     * back to a format with a more complex swizzle.
     */
-   if (vk_format == VK_FORMAT_B4G4R4A4_UNORM_PACK16 && devinfo->gen < 8) {
+   if (vk_format == VK_FORMAT_B4G4R4A4_UNORM_PACK16 && devinfo->ver < 8) {
       plane_format.isl_format = ISL_FORMAT_B4G4R4A4_UNORM;
       plane_format.swizzle = ISL_SWIZZLE(GREEN, RED, ALPHA, BLUE);
    }
@@ -543,7 +543,7 @@ anv_get_format_plane(const struct gen_device_info *devinfo, VkFormat vk_format,
 // Format capabilities
 
 VkFormatFeatureFlags
-anv_get_image_format_features(const struct gen_device_info *devinfo,
+anv_get_image_format_features(const struct intel_device_info *devinfo,
                               VkFormat vk_format,
                               const struct anv_format *anv_format,
                               VkImageTiling vk_tiling,
@@ -574,7 +574,7 @@ anv_get_image_format_features(const struct gen_device_info *devinfo,
       if (aspects & VK_IMAGE_ASPECT_DEPTH_BIT)
          flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
 
-      if ((aspects & VK_IMAGE_ASPECT_DEPTH_BIT) && devinfo->gen >= 9)
+      if ((aspects & VK_IMAGE_ASPECT_DEPTH_BIT) && devinfo->ver >= 9)
          flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_MINMAX_BIT_EXT;
 
       return flags;
@@ -607,14 +607,14 @@ anv_get_image_format_features(const struct gen_device_info *devinfo,
     *
     * TODO: Figure out the ASTC workarounds and re-enable on BSW.
     */
-   if (devinfo->gen < 9 &&
+   if (devinfo->ver < 9 &&
        isl_format_get_layout(plane_format.isl_format)->txc == ISL_TXC_ASTC)
       return 0;
 
    if (isl_format_supports_sampling(devinfo, plane_format.isl_format)) {
       flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
 
-      if (devinfo->gen >= 9)
+      if (devinfo->ver >= 9)
          flags |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_MINMAX_BIT_EXT;
 
       if (isl_format_supports_filtering(devinfo, plane_format.isl_format))
@@ -636,7 +636,7 @@ anv_get_image_format_features(const struct gen_device_info *devinfo,
    /* Load/store is determined based on base format.  This prevents RGB
     * formats from showing up as load/store capable.
     */
-   if (isl_is_storage_image_format(base_isl_format))
+   if (isl_format_supports_typed_writes(devinfo, base_isl_format))
       flags |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
 
    if (base_isl_format == ISL_FORMAT_R32_SINT ||
@@ -646,9 +646,12 @@ anv_get_image_format_features(const struct gen_device_info *devinfo,
 
    if (flags) {
       flags |= VK_FORMAT_FEATURE_BLIT_SRC_BIT |
-               VK_FORMAT_FEATURE_BLIT_DST_BIT |
                VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
                VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+
+      /* Blit destination requires rendering support. */
+      if (isl_format_supports_rendering(devinfo, plane_format.isl_format))
+         flags |= VK_FORMAT_FEATURE_BLIT_DST_BIT;
    }
 
    /* XXX: We handle 3-channel formats by switching them out for RGBX or
@@ -722,16 +725,16 @@ anv_get_image_format_features(const struct gen_device_info *devinfo,
       switch (isl_layout->colorspace) {
       case ISL_COLORSPACE_LINEAR:
       case ISL_COLORSPACE_SRGB:
-         /* Each DRM_FORMAT in in the rgb/srgb space uses unorm (if the DRM
-          * format name has no type suffix) or sfloat (if it has suffix F). No
-          * format contains mixed types. (as of 2020-10-16)
+         /* Each DRM_FORMAT that we support uses unorm (if the DRM format name
+          * has no type suffix) or sfloat (if it has suffix F). No format
+          * contains mixed types. (as of 2021-06-14)
           */
          if (isl_layout->uniform_channel_type != ISL_UNORM &&
              isl_layout->uniform_channel_type != ISL_SFLOAT)
             return 0;
          break;
       case ISL_COLORSPACE_YUV:
-         anv_finishme("support YUV formats with DRM format modifiers");
+         anv_finishme("support YUV colorspace with DRM format modifiers");
          return 0;
       case ISL_COLORSPACE_NONE:
          return 0;
@@ -751,8 +754,26 @@ anv_get_image_format_features(const struct gen_device_info *devinfo,
          return 0;
 
       if (anv_format->n_planes > 1) {
-         anv_finishme("support multi-planar formats with DRM format modifiers");
-         return 0;
+         /* For simplicity, keep DISJOINT disabled for multi-planar format. */
+         flags &= ~VK_FORMAT_FEATURE_DISJOINT_BIT;
+
+         /* VK_ANDROID_external_memory_android_hardware_buffer in Virtio-GPU
+          * Venus driver layers on top of VK_EXT_image_drm_format_modifier of
+          * the host Vulkan driver, and VK_FORMAT_G8_B8R8_2PLANE_420_UNORM is
+          * required to support camera/media interop in Android.
+          */
+         if (vk_format != VK_FORMAT_G8_B8R8_2PLANE_420_UNORM) {
+            anv_finishme("support more multi-planar formats with DRM modifiers");
+            return 0;
+         }
+
+         /* Currently there is no way to properly map memory planes to format
+          * planes and aux planes due to the lack of defined ABI for external
+          * multi-planar images.
+          */
+         if (isl_mod_info->aux_usage != ISL_AUX_USAGE_NONE) {
+            return 0;
+         }
       }
 
       if (isl_mod_info->aux_usage == ISL_AUX_USAGE_CCS_E &&
@@ -780,7 +801,7 @@ anv_get_image_format_features(const struct gen_device_info *devinfo,
 }
 
 static VkFormatFeatureFlags
-get_buffer_format_features(const struct gen_device_info *devinfo,
+get_buffer_format_features(const struct intel_device_info *devinfo,
                            VkFormat vk_format,
                            const struct anv_format *anv_format)
 {
@@ -824,7 +845,7 @@ get_drm_format_modifier_properties_list(const struct anv_physical_device *physic
                                         VkFormat vk_format,
                                         VkDrmFormatModifierPropertiesListEXT *list)
 {
-   const struct gen_device_info *devinfo = &physical_device->info;
+   const struct intel_device_info *devinfo = &physical_device->info;
    const struct anv_format *anv_format = anv_get_format(vk_format);
 
    VK_OUTARRAY_MAKE(out, list->pDrmFormatModifierProperties,
@@ -858,7 +879,7 @@ void anv_GetPhysicalDeviceFormatProperties(
     VkFormatProperties*                         pFormatProperties)
 {
    ANV_FROM_HANDLE(anv_physical_device, physical_device, physicalDevice);
-   const struct gen_device_info *devinfo = &physical_device->info;
+   const struct intel_device_info *devinfo = &physical_device->info;
    const struct anv_format *anv_format = anv_get_format(vk_format);
 
    *pFormatProperties = (VkFormatProperties) {
@@ -909,7 +930,7 @@ anv_get_image_format_properties(
    uint32_t maxArraySize;
    VkSampleCountFlags sampleCounts;
    struct anv_instance *instance = physical_device->instance;
-   const struct gen_device_info *devinfo = &physical_device->info;
+   const struct intel_device_info *devinfo = &physical_device->info;
    const struct anv_format *format = anv_get_format(info->format);
    const struct isl_drm_modifier_info *isl_mod_info = NULL;
    const VkImageFormatListCreateInfo *format_list_info =
@@ -978,7 +999,15 @@ anv_get_image_format_properties(
       maxExtent.width = 2048;
       maxExtent.height = 2048;
       maxExtent.depth = 2048;
-      maxMipLevels = 12; /* log2(maxWidth) + 1 */
+      /* Prior to SKL, the mipmaps for 3D surfaces are laid out in a way
+       * that make it impossible to represent in the way that
+       * VkSubresourceLayout expects. Since we can't tell users how to make
+       * sense of them, don't report them as available.
+       */
+      if (devinfo->ver < 9 && info->tiling == VK_IMAGE_TILING_LINEAR)
+         maxMipLevels = 1;
+      else
+         maxMipLevels = 12; /* log2(maxWidth) + 1 */
       maxArraySize = 1;
       sampleCounts = VK_SAMPLE_COUNT_1_BIT;
       break;
@@ -989,7 +1018,8 @@ anv_get_image_format_properties(
        * non-mipmapped single-sample) 2D images.
        */
       if (info->type != VK_IMAGE_TYPE_2D) {
-         vk_errorfi(instance, physical_device, VK_ERROR_FORMAT_NOT_SUPPORTED,
+         vk_errorfi(instance, &physical_device->vk.base,
+                    VK_ERROR_FORMAT_NOT_SUPPORTED,
                     "VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT "
                     "requires VK_IMAGE_TYPE_2D");
          goto unsupported;
@@ -1094,6 +1124,23 @@ anv_get_image_format_properties(
       }
    }
 
+   if (info->flags & VK_IMAGE_CREATE_ALIAS_BIT) {
+      /* Reject aliasing of images with non-linear DRM format modifiers because:
+       *
+       * 1. For modifiers with compression, we store aux tracking state in
+       *    ANV_IMAGE_MEMORY_BINDING_PRIVATE, which is not aliasable because it's
+       *    not client-bound.
+       *
+       * 2. For tiled modifiers without compression, we may attempt to compress
+       *    them behind the scenes, in which case both the aux tracking state
+       *    and the CCS data are bound to ANV_IMAGE_MEMORY_BINDING_PRIVATE.
+       */
+      if (info->tiling == VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT &&
+          isl_mod_info->modifier != DRM_FORMAT_MOD_LINEAR) {
+         goto unsupported;
+      }
+   }
+
    if (info->usage & VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT) {
       /* Nothing to check. */
    }
@@ -1105,14 +1152,14 @@ anv_get_image_format_properties(
    }
 
    /* From the bspec section entitled "Surface Layout and Tiling",
-    * pre-gen9 has a 2 GB limitation of the size in bytes,
-    * gen9 and gen10 have a 256 GB limitation and gen11+
+    * pre-gfx9 has a 2 GB limitation of the size in bytes,
+    * gfx9 and gfx10 have a 256 GB limitation and gfx11+
     * has a 16 TB limitation.
     */
    uint64_t maxResourceSize = 0;
-   if (devinfo->gen < 9)
+   if (devinfo->ver < 9)
       maxResourceSize = (uint64_t) 1 << 31;
-   else if (devinfo->gen < 11)
+   else if (devinfo->ver < 11)
       maxResourceSize = (uint64_t) 1 << 38;
    else
       maxResourceSize = (uint64_t) 1 << 44;
@@ -1280,7 +1327,7 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
       goto fail;
 
    bool ahw_supported =
-      physical_device->supported_extensions.ANDROID_external_memory_android_hardware_buffer;
+      physical_device->vk.supported_extensions.ANDROID_external_memory_android_hardware_buffer;
 
    if (ahw_supported && android_usage) {
       android_usage->androidHardwareBufferUsage =
@@ -1346,6 +1393,15 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
        */
       switch (external_info->handleType) {
       case VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT:
+
+         /* Disable stencil export, there are issues. */
+         if (vk_format_aspects(base_info->format) & VK_IMAGE_ASPECT_STENCIL_BIT) {
+            result = vk_errorfi(instance, &physical_device->vk.base,
+                                VK_ERROR_FORMAT_NOT_SUPPORTED,
+                                "External stencil buffers are not supported yet");
+            goto fail;
+         }
+
          if (external_props) {
             if (tiling_has_explicit_layout) {
                /* With an explicit memory layout, we don't care which type of fd
@@ -1367,7 +1423,7 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
           * and therefore requires explicit memory layout.
           */
          if (!tiling_has_explicit_layout) {
-            result = vk_errorfi(instance, physical_device,
+            result = vk_errorfi(instance, &physical_device->vk.base,
                                 VK_ERROR_FORMAT_NOT_SUPPORTED,
                                 "VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT "
                                 "requires VK_IMAGE_TILING_LINEAR or "
@@ -1387,7 +1443,7 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
           * and therefore requires explicit memory layout.
           */
          if (!tiling_has_explicit_layout) {
-            result = vk_errorfi(instance, physical_device,
+            result = vk_errorfi(instance, &physical_device->vk.base,
                                 VK_ERROR_FORMAT_NOT_SUPPORTED,
                                 "VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT "
                                 "requires VK_IMAGE_TILING_LINEAR or "
@@ -1408,7 +1464,7 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
             external_props->externalMemoryProperties = android_image_props;
             break;
          }
-      /* fallthrough - if ahw not supported */
+         FALLTHROUGH; /* If ahw not supported */
       default:
          /* From the Vulkan 1.0.42 spec:
           *
@@ -1417,7 +1473,7 @@ VkResult anv_GetPhysicalDeviceImageFormatProperties2(
           *    vkGetPhysicalDeviceImageFormatProperties2 returns
           *    VK_ERROR_FORMAT_NOT_SUPPORTED.
           */
-         result = vk_errorfi(physical_device->instance, physical_device,
+         result = vk_errorfi(instance, &physical_device->vk.base,
                              VK_ERROR_FORMAT_NOT_SUPPORTED,
                              "unsupported VkExternalMemoryTypeFlagBits 0x%x",
                              external_info->handleType);
@@ -1497,11 +1553,11 @@ void anv_GetPhysicalDeviceExternalBufferProperties(
       pExternalBufferProperties->externalMemoryProperties = userptr_props;
       return;
    case VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID:
-      if (physical_device->supported_extensions.ANDROID_external_memory_android_hardware_buffer) {
+      if (physical_device->vk.supported_extensions.ANDROID_external_memory_android_hardware_buffer) {
          pExternalBufferProperties->externalMemoryProperties = android_buffer_props;
          return;
       }
-      /* fallthrough if ahw not supported */
+      FALLTHROUGH; /* If ahw not supported */
    default:
       goto unsupported;
    }
@@ -1539,15 +1595,11 @@ VkResult anv_CreateSamplerYcbcrConversion(
 
    assert(pCreateInfo->sType == VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO);
 
-   conversion = vk_alloc2(&device->vk.alloc, pAllocator, sizeof(*conversion), 8,
-                          VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
+   conversion = vk_object_zalloc(&device->vk, pAllocator, sizeof(*conversion),
+                                 VK_OBJECT_TYPE_SAMPLER_YCBCR_CONVERSION);
    if (!conversion)
       return vk_error(VK_ERROR_OUT_OF_HOST_MEMORY);
 
-   memset(conversion, 0, sizeof(*conversion));
-
-   vk_object_base_init(&device->vk, &conversion->base,
-                       VK_OBJECT_TYPE_SAMPLER_YCBCR_CONVERSION);
    conversion->format = anv_get_format(pCreateInfo->format);
    conversion->ycbcr_model = pCreateInfo->ycbcrModel;
    conversion->ycbcr_range = pCreateInfo->ycbcrRange;
@@ -1597,6 +1649,5 @@ void anv_DestroySamplerYcbcrConversion(
    if (!conversion)
       return;
 
-   vk_object_base_finish(&conversion->base);
-   vk_free2(&device->vk.alloc, pAllocator, conversion);
+   vk_object_free(&device->vk, pAllocator, conversion);
 }

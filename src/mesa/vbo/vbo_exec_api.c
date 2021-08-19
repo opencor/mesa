@@ -83,7 +83,7 @@ vbo_exec_wrap_buffers(struct vbo_exec_context *exec)
    else {
       struct gl_context *ctx = gl_context_from_vbo_exec(exec);
       unsigned last = exec->vtx.prim_count - 1;
-      struct pipe_draw_start_count *last_draw = &exec->vtx.draw[last];
+      struct pipe_draw_start_count_bias *last_draw = &exec->vtx.draw[last];
       const bool last_begin = exec->vtx.markers[last].begin;
       GLuint last_count = 0;
 
@@ -178,6 +178,7 @@ vbo_exec_copy_to_current(struct vbo_exec_context *exec)
    struct gl_context *ctx = gl_context_from_vbo_exec(exec);
    struct vbo_context *vbo = vbo_context(ctx);
    GLbitfield64 enabled = exec->vtx.enabled & (~BITFIELD64_BIT(VBO_ATTRIB_POS));
+   bool color0_changed = false;
 
    while (enabled) {
       const int i = u_bit_scan64(&enabled);
@@ -187,11 +188,7 @@ vbo_exec_copy_to_current(struct vbo_exec_context *exec)
        */
       GLfloat *current = (GLfloat *)vbo->current[i].Ptr;
       fi_type tmp[8]; /* space for doubles */
-      int dmul = 1;
-
-      if (exec->vtx.attr[i].type == GL_DOUBLE ||
-          exec->vtx.attr[i].type == GL_UNSIGNED_INT64_ARB)
-         dmul = 2;
+      int dmul_shift = 0;
 
       assert(exec->vtx.attr[i].size);
 
@@ -199,6 +196,7 @@ vbo_exec_copy_to_current(struct vbo_exec_context *exec)
           exec->vtx.attr[i].type == GL_UNSIGNED_INT64_ARB) {
          memset(tmp, 0, sizeof(tmp));
          memcpy(tmp, exec->vtx.attrptr[i], exec->vtx.attr[i].size * sizeof(GLfloat));
+         dmul_shift = 1;
       } else {
          COPY_CLEAN_4V_TYPE_AS_UNION(tmp,
                                      exec->vtx.attr[i].size,
@@ -206,35 +204,41 @@ vbo_exec_copy_to_current(struct vbo_exec_context *exec)
                                      exec->vtx.attr[i].type);
       }
 
+      if (memcmp(current, tmp, 4 * sizeof(GLfloat) << dmul_shift) != 0) {
+         memcpy(current, tmp, 4 * sizeof(GLfloat) << dmul_shift);
+
+         if (i == VBO_ATTRIB_COLOR0)
+            color0_changed = true;
+
+         if (i >= VBO_ATTRIB_MAT_FRONT_AMBIENT) {
+            ctx->NewState |= _NEW_MATERIAL;
+            ctx->PopAttribState |= GL_LIGHTING_BIT;
+
+            /* The fixed-func vertex program uses this. */
+            if (i == VBO_ATTRIB_MAT_FRONT_SHININESS ||
+                i == VBO_ATTRIB_MAT_BACK_SHININESS)
+               ctx->NewState |= _NEW_FF_VERT_PROGRAM;
+         } else {
+            ctx->NewState |= _NEW_CURRENT_ATTRIB;
+            ctx->PopAttribState |= GL_CURRENT_BIT;
+         }
+      }
+
+      /* Given that we explicitly state size here, there is no need
+       * for the COPY_CLEAN above, could just copy 16 bytes and be
+       * done.  The only problem is when Mesa accesses ctx->Current
+       * directly.
+       */
+      /* Size here is in components - not bytes */
       if (exec->vtx.attr[i].type != vbo->current[i].Format.Type ||
-          memcmp(current, tmp, 4 * sizeof(GLfloat) * dmul) != 0) {
-         memcpy(current, tmp, 4 * sizeof(GLfloat) * dmul);
-
-         /* Given that we explicitly state size here, there is no need
-          * for the COPY_CLEAN above, could just copy 16 bytes and be
-          * done.  The only problem is when Mesa accesses ctx->Current
-          * directly.
-          */
-         /* Size here is in components - not bytes */
+          (exec->vtx.attr[i].size >> dmul_shift) != vbo->current[i].Format.Size) {
          vbo_set_vertex_format(&vbo->current[i].Format,
-                               exec->vtx.attr[i].size / dmul,
+                               exec->vtx.attr[i].size >> dmul_shift,
                                exec->vtx.attr[i].type);
-
-         /* This triggers rather too much recalculation of Mesa state
-          * that doesn't get used (eg light positions).
-          */
-         if (i >= VBO_ATTRIB_MAT_FRONT_AMBIENT &&
-             i <= VBO_ATTRIB_MAT_BACK_INDEXES)
-            ctx->NewState |= _NEW_LIGHT;
-
-         ctx->NewState |= _NEW_CURRENT_ATTRIB;
       }
    }
 
-   /* Colormaterial -- this kindof sucks.
-    */
-   if (ctx->Light.ColorMaterialEnabled &&
-       exec->vtx.attr[VBO_ATTRIB_COLOR0].size) {
+   if (color0_changed && ctx->Light.ColorMaterialEnabled) {
       _mesa_update_color_material(ctx,
                                   ctx->Current.Attrib[VBO_ATTRIB_COLOR0]);
    }
@@ -263,6 +267,13 @@ vbo_exec_wrap_upgrade_vertex(struct vbo_exec_context *exec,
    GLuint i;
 
    assert(attr < VBO_ATTRIB_MAX);
+
+   if (unlikely(!exec->vtx.buffer_ptr)) {
+      /* We should only hit this when use_buffer_objects=true */
+      assert(exec->vtx.bufferobj);
+      vbo_exec_vtx_map(exec);
+      assert(exec->vtx.buffer_ptr);
+   }
 
    /* Run pipeline on current vertices, copy wrapped vertices
     * to exec->vtx.copied.
@@ -484,7 +495,6 @@ do {                                                                    \
    int sz = (sizeof(C) / sizeof(GLfloat));                              \
                                                                         \
    assert(sz == 1 || sz == 2);                                          \
-                                                                        \
    /* store a copy of the attribute in exec except for glVertex */      \
    if ((A) != 0) {                                                      \
       /* Check if attribute size or type is changing. */                \
@@ -819,11 +829,12 @@ vbo_exec_Begin(GLenum mode)
       return;
    }
 
-   if (!_mesa_valid_prim_mode(ctx, mode, "glBegin")) {
-      return;
-   }
+   if (ctx->NewState)
+      _mesa_update_state(ctx);
 
-   if (!_mesa_valid_to_render(ctx, "glBegin")) {
+   GLenum error = _mesa_valid_prim_mode(ctx, mode);
+   if (error != GL_NO_ERROR) {
+      _mesa_error(ctx, error, "glBegin");
       return;
    }
 
@@ -917,7 +928,7 @@ vbo_exec_End(void)
    if (exec->vtx.prim_count > 0) {
       /* close off current primitive */
       unsigned last = exec->vtx.prim_count - 1;
-      struct pipe_draw_start_count *last_draw = &exec->vtx.draw[last];
+      struct pipe_draw_start_count_bias *last_draw = &exec->vtx.draw[last];
       unsigned count = exec->vtx.vert_count - last_draw->start;
 
       last_draw->count = count;
@@ -1026,12 +1037,7 @@ vbo_exec_vtx_init(struct vbo_exec_context *exec, bool use_buffer_objects)
    if (use_buffer_objects) {
       /* Use buffer objects for immediate mode. */
       struct vbo_exec_context *exec = &vbo_context(ctx)->exec;
-
       exec->vtx.bufferobj = ctx->Driver.NewBufferObject(ctx, IMM_BUFFER_NAME);
-
-      /* Map the buffer. */
-      vbo_exec_vtx_map(exec);
-      assert(exec->vtx.buffer_ptr);
    } else {
       /* Use allocated memory for immediate mode. */
       exec->vtx.bufferobj = NULL;

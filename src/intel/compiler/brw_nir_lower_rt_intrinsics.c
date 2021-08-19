@@ -46,7 +46,7 @@ build_leaf_is_procedural(nir_builder *b, struct brw_nir_rt_mem_hit_defs *hit)
 
 static void
 lower_rt_intrinsics_impl(nir_function_impl *impl,
-                         const struct gen_device_info *devinfo)
+                         const struct intel_device_info *devinfo)
 {
    nir_builder build;
    nir_builder_init(&build, impl);
@@ -72,7 +72,7 @@ lower_rt_intrinsics_impl(nir_function_impl *impl,
                               stage == MESA_SHADER_CLOSEST_HIT);
       brw_nir_rt_load_mem_ray(b, &object_ray_in,
                               BRW_RT_BVH_LEVEL_OBJECT);
-      /* Fall through */
+      FALLTHROUGH;
 
    case MESA_SHADER_MISS:
       brw_nir_rt_load_mem_ray(b, &world_ray_in,
@@ -108,7 +108,7 @@ lower_rt_intrinsics_impl(nir_function_impl *impl,
             break;
 
          case nir_intrinsic_btd_stack_push_intel: {
-            int32_t stack_size = nir_intrinsic_range(intrin);
+            int32_t stack_size = nir_intrinsic_stack_size(intrin);
             if (stack_size > 0) {
                nir_ssa_def *child_stack_offset =
                   nir_iadd_imm(b, stack_base_offset, stack_size);
@@ -118,13 +118,13 @@ lower_rt_intrinsics_impl(nir_function_impl *impl,
             break;
          }
 
-         case nir_intrinsic_btd_resume_intel:
+         case nir_intrinsic_rt_resume:
             /* This is the first "interesting" instruction */
             assert(block == nir_start_block(impl));
             assert(!seen_scratch_base_ptr_load);
             found_resume = true;
 
-            int32_t stack_size = nir_intrinsic_range(intrin);
+            int32_t stack_size = nir_intrinsic_stack_size(intrin);
             if (stack_size > 0) {
                stack_base_offset =
                   nir_iadd_imm(b, stack_base_offset, -stack_size);
@@ -164,7 +164,8 @@ lower_rt_intrinsics_impl(nir_function_impl *impl,
                   nir_ssa_def *addr =
                      nir_iadd_imm(b, nir_load_btd_global_arg_addr_intel(b),
                                      aligned_offset + i * 64);
-                  data[i] = nir_load_global_const_block_intel(b, 16, addr);
+                  data[i] = nir_load_global_const_block_intel(b, 16, addr,
+                                                              nir_imm_true(b));
                }
 
                sysval = nir_extract_bits(b, data, 2, suboffset * 8,
@@ -336,8 +337,9 @@ lower_rt_intrinsics_impl(nir_function_impl *impl,
             break;
 
          case nir_intrinsic_load_btd_resume_sbt_addr_intel:
-            /* The call stack handler is just the first in our resume SBT */
-            sysval = globals.resume_sbt_addr;
+            sysval = nir_pack_64_2x32_split(b,
+               nir_load_reloc_const_intel(b, BRW_SHADER_RELOC_RESUME_SBT_ADDR_LOW),
+               nir_load_reloc_const_intel(b, BRW_SHADER_RELOC_RESUME_SBT_ADDR_HIGH));
             break;
 
          case nir_intrinsic_load_leaf_procedural_intel:
@@ -365,7 +367,7 @@ lower_rt_intrinsics_impl(nir_function_impl *impl,
 
          if (sysval) {
             nir_ssa_def_rewrite_uses(&intrin->dest.ssa,
-                                     nir_src_for_ssa(sysval));
+                                     sysval);
             nir_instr_remove(&intrin->instr);
          }
       }
@@ -399,7 +401,7 @@ lower_rt_intrinsics_impl(nir_function_impl *impl,
  */
 void
 brw_nir_lower_rt_intrinsics(nir_shader *nir,
-                            const struct gen_device_info *devinfo)
+                            const struct intel_device_info *devinfo)
 {
    nir_foreach_function(function, nir) {
       if (function->impl)

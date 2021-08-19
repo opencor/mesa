@@ -130,10 +130,10 @@ files_libnir = files(
   'nir_lower_array_deref_of_vec.c',
   'nir_lower_atomics_to_ssbo.c',
   'nir_lower_bitmap.c',
+  'nir_lower_blend.c',
   'nir_lower_bool_to_bitsize.c',
   'nir_lower_bool_to_float.c',
   'nir_lower_bool_to_int32.c',
-  'nir_lower_cl_images_to_tex.c',
   'nir_lower_clamp_color_outputs.c',
   'nir_lower_clip.c',
   'nir_lower_clip_cull_distance_arrays.c',
@@ -147,6 +147,7 @@ files_libnir = files(
   'nir_lower_fb_read.c',
   'nir_lower_flatshade.c',
   'nir_lower_flrp.c',
+  'nir_lower_fp16_conv.c',
   'nir_lower_fragcoord_wtrans.c',
   'nir_lower_fragcolor.c',
   'nir_lower_frexp.c',
@@ -166,8 +167,9 @@ files_libnir = files(
   'nir_lower_io_to_temporaries.c',
   'nir_lower_io_to_scalar.c',
   'nir_lower_io_to_vector.c',
+  'nir_lower_is_helper_invocation.c',
   'nir_lower_multiview.c',
-  'nir_lower_mediump_outputs.c',
+  'nir_lower_mediump.c',
   'nir_lower_memcpy.c',
   'nir_lower_memory_model.c',
   'nir_lower_non_uniform_access.c',
@@ -180,13 +182,16 @@ files_libnir = files(
   'nir_lower_point_size_mov.c',
   'nir_lower_printf.c',
   'nir_lower_regs_to_ssa.c',
+  'nir_lower_readonly_images_to_tex.c',
   'nir_lower_returns.c',
   'nir_lower_samplers.c',
   'nir_lower_scratch.c',
+  'nir_lower_shader_calls.c',
   'nir_lower_ssbo.c',
   'nir_lower_subgroups.c',
   'nir_lower_system_values.c',
   'nir_lower_tex.c',
+  'nir_lower_texcoord_replace.c',
   'nir_lower_to_source_mods.c',
   'nir_lower_two_sided_color.c',
   'nir_lower_undef_to_zero.c',
@@ -226,7 +231,10 @@ files_libnir = files(
   'nir_opt_loop_unroll.c',
   'nir_opt_memcpy.c',
   'nir_opt_move.c',
+  'nir_opt_move_discards_to_top.c',
+  'nir_opt_offsets.c',
   'nir_opt_peephole_select.c',
+  'nir_opt_phi_precision.c',
   'nir_opt_rematerialize_compares.c',
   'nir_opt_remove_phis.c',
   'nir_opt_shrink_vectors.c',
@@ -385,6 +393,19 @@ if with_tests
   )
 
   test(
+    'nir_core',
+    executable(
+      'nir_core_test',
+      files('tests/core_tests.cpp'),
+      cpp_args : [cpp_msvc_compat_args],
+      gnu_symbol_visibility : 'hidden',
+      include_directories : [inc_include, inc_src, inc_mapi, inc_mesa, inc_gallium, inc_gallium_aux],
+      dependencies : [dep_thread, idep_gtest, idep_nir, idep_mesautil],
+    ),
+    suite : ['compiler', 'nir'],
+  )
+
+  test(
     'nir_vars',
     executable(
       'nir_vars_test',
@@ -478,6 +499,19 @@ if with_tests
       'nir_lower_returns_tests',
       files('tests/lower_returns_tests.cpp'),
       cpp_args : [cpp_msvc_compat_args],
+      gnu_symbol_visibility : 'hidden',
+      include_directories : [inc_include, inc_src, inc_mapi, inc_mesa, inc_gallium, inc_gallium_aux],
+      dependencies : [dep_thread, idep_gtest, idep_nir, idep_mesautil],
+    ),
+    suite : ['compiler', 'nir'],
+  )
+
+  test(
+    'ssa_def_bits_used',
+    executable(
+      'ssa_def_bits_used',
+      files('tests/ssa_def_bits_used_tests.cpp'),
+      c_args : [c_msvc_compat_args, no_override_init_args],
       gnu_symbol_visibility : 'hidden',
       include_directories : [inc_include, inc_src, inc_mapi, inc_mesa, inc_gallium, inc_gallium_aux],
       dependencies : [dep_thread, idep_gtest, idep_nir, idep_mesautil],

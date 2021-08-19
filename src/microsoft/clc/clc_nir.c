@@ -44,7 +44,7 @@ lower_load_base_global_invocation_id(nir_builder *b, nir_intrinsic_instr *intr,
                                                global_offset_x)),
                           nir_dest_num_components(intr->dest),
                           nir_dest_bit_size(intr->dest));
-   nir_ssa_def_rewrite_uses(&intr->dest.ssa, nir_src_for_ssa(offset));
+   nir_ssa_def_rewrite_uses(&intr->dest.ssa, offset);
    nir_instr_remove(&intr->instr);
    return true;
 }
@@ -62,7 +62,7 @@ lower_load_work_dim(nir_builder *b, nir_intrinsic_instr *intr,
                                                work_dim)),
                           nir_dest_num_components(intr->dest),
                           nir_dest_bit_size(intr->dest));
-   nir_ssa_def_rewrite_uses(&intr->dest.ssa, nir_src_for_ssa(dim));
+   nir_ssa_def_rewrite_uses(&intr->dest.ssa, dim);
    nir_instr_remove(&intr->instr);
    return true;
 }
@@ -73,19 +73,19 @@ lower_load_local_group_size(nir_builder *b, nir_intrinsic_instr *intr)
    b->cursor = nir_after_instr(&intr->instr);
 
    nir_const_value v[3] = {
-      nir_const_value_for_int(b->shader->info.cs.local_size[0], 32),
-      nir_const_value_for_int(b->shader->info.cs.local_size[1], 32),
-      nir_const_value_for_int(b->shader->info.cs.local_size[2], 32)
+      nir_const_value_for_int(b->shader->info.workgroup_size[0], 32),
+      nir_const_value_for_int(b->shader->info.workgroup_size[1], 32),
+      nir_const_value_for_int(b->shader->info.workgroup_size[2], 32)
    };
    nir_ssa_def *size = nir_build_imm(b, 3, 32, v);
-   nir_ssa_def_rewrite_uses(&intr->dest.ssa, nir_src_for_ssa(size));
+   nir_ssa_def_rewrite_uses(&intr->dest.ssa, size);
    nir_instr_remove(&intr->instr);
    return true;
 }
 
 static bool
-lower_load_num_work_groups(nir_builder *b, nir_intrinsic_instr *intr,
-                           nir_variable *var)
+lower_load_num_workgroups(nir_builder *b, nir_intrinsic_instr *intr,
+                          nir_variable *var)
 {
    b->cursor = nir_after_instr(&intr->instr);
 
@@ -96,13 +96,13 @@ lower_load_num_work_groups(nir_builder *b, nir_intrinsic_instr *intr,
                                               group_count_total_x)),
                          nir_dest_num_components(intr->dest),
                          nir_dest_bit_size(intr->dest));
-   nir_ssa_def_rewrite_uses(&intr->dest.ssa, nir_src_for_ssa(count));
+   nir_ssa_def_rewrite_uses(&intr->dest.ssa, count);
    nir_instr_remove(&intr->instr);
    return true;
 }
 
 static bool
-lower_load_base_work_group_id(nir_builder *b, nir_intrinsic_instr *intr,
+lower_load_base_workgroup_id(nir_builder *b, nir_intrinsic_instr *intr,
                              nir_variable *var)
 {
    b->cursor = nir_after_instr(&intr->instr);
@@ -114,7 +114,7 @@ lower_load_base_work_group_id(nir_builder *b, nir_intrinsic_instr *intr,
                                               group_id_offset_x)),
                          nir_dest_num_components(intr->dest),
                          nir_dest_bit_size(intr->dest));
-   nir_ssa_def_rewrite_uses(&intr->dest.ssa, nir_src_for_ssa(offset));
+   nir_ssa_def_rewrite_uses(&intr->dest.ssa, offset);
    nir_instr_remove(&intr->instr);
    return true;
 }
@@ -146,14 +146,14 @@ clc_nir_lower_system_values(nir_shader *nir, nir_variable *var)
             case nir_intrinsic_load_work_dim:
                progress |= lower_load_work_dim(&b, intr, var);
                break;
-            case nir_intrinsic_load_local_group_size:
+            case nir_intrinsic_load_workgroup_size:
                lower_load_local_group_size(&b, intr);
                break;
-            case nir_intrinsic_load_num_work_groups:
-               lower_load_num_work_groups(&b, intr, var);
+            case nir_intrinsic_load_num_workgroups:
+               lower_load_num_workgroups(&b, intr, var);
                break;
-            case nir_intrinsic_load_base_work_group_id:
-               lower_load_base_work_group_id(&b, intr, var);
+            case nir_intrinsic_load_base_workgroup_id:
+               lower_load_base_workgroup_id(&b, intr, var);
                break;
             default: break;
             }
@@ -199,7 +199,7 @@ lower_load_kernel_input(nir_builder *b, nir_intrinsic_instr *intr,
 
    nir_ssa_def *result =
       nir_load_deref(b, deref);
-   nir_ssa_def_rewrite_uses(&intr->dest.ssa, nir_src_for_ssa(result));
+   nir_ssa_def_rewrite_uses(&intr->dest.ssa, result);
    nir_instr_remove(&intr->instr);
    return true;
 }
@@ -272,7 +272,7 @@ clc_lower_printf_base(nir_shader *nir, unsigned uav_id)
                nir_deref_instr *deref = nir_build_deref_var(&b, printf_var);
                printf_deref = &deref->dest.ssa;
             }
-            nir_ssa_def_rewrite_uses(&intrin->dest.ssa, nir_src_for_ssa(printf_deref));
+            nir_ssa_def_rewrite_uses(&intrin->dest.ssa, printf_deref);
          }
       }
 

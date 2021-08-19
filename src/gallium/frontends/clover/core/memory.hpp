@@ -107,6 +107,7 @@ namespace clover {
 
       std::map<device *,
                std::unique_ptr<root_resource>> resources;
+      std::mutex resources_mtx;
    };
 
    class sub_buffer : public buffer {
@@ -128,6 +129,7 @@ namespace clover {
       size_t _offset;
       std::map<device *,
                std::unique_ptr<sub_resource>> resources;
+      std::mutex resources_mtx;
    };
 
    class image : public memory_obj {
@@ -167,6 +169,19 @@ namespace clover {
       size_t _slice_pitch;
       std::map<device *,
                std::unique_ptr<root_resource>> resources;
+      std::mutex resources_mtx;
+   };
+
+   class image1d : public image {
+   public:
+      image1d(clover::context &ctx,
+              std::vector<cl_mem_properties> properties,
+              cl_mem_flags flags,
+              const cl_image_format *format,
+              size_t width, size_t row_pitch,
+              void *host_ptr);
+
+      virtual cl_mem_object_type type() const;
    };
 
    class image2d : public image {

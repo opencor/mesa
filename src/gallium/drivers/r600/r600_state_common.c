@@ -29,6 +29,7 @@
 #include "r600d.h"
 
 #include "util/format/u_format_s3tc.h"
+#include "util/u_draw.h"
 #include "util/u_index_modify.h"
 #include "util/u_memory.h"
 #include "util/u_upload_mgr.h"
@@ -566,6 +567,8 @@ void r600_vertex_buffers_dirty(struct r600_context *rctx)
 
 static void r600_set_vertex_buffers(struct pipe_context *ctx,
 				    unsigned start_slot, unsigned count,
+				    unsigned unbind_num_trailing_slots,
+				    bool take_ownership,
 				    const struct pipe_vertex_buffer *input)
 {
 	struct r600_context *rctx = (struct r600_context *)ctx;
@@ -586,7 +589,13 @@ static void r600_set_vertex_buffers(struct pipe_context *ctx,
 				if (input[i].buffer.resource) {
 					vb[i].stride = input[i].stride;
 					vb[i].buffer_offset = input[i].buffer_offset;
-					pipe_resource_reference(&vb[i].buffer.resource, input[i].buffer.resource);
+					if (take_ownership) {
+						pipe_resource_reference(&vb[i].buffer.resource, NULL);
+						vb[i].buffer.resource = input[i].buffer.resource;
+					} else {
+						pipe_resource_reference(&vb[i].buffer.resource,
+									input[i].buffer.resource);
+					}
 					new_buffer_mask |= 1 << i;
 					r600_context_add_resource_size(ctx, input[i].buffer.resource);
 				} else {
@@ -601,6 +610,11 @@ static void r600_set_vertex_buffers(struct pipe_context *ctx,
 		}
 		disable_mask = ((1ull << count) - 1);
 	}
+
+	for (i = 0; i < unbind_num_trailing_slots; i++) {
+		pipe_resource_reference(&vb[count + i].buffer.resource, NULL);
+	}
+	disable_mask |= ((1ull << unbind_num_trailing_slots) - 1) << count;
 
 	disable_mask <<= start_slot;
 	new_buffer_mask <<= start_slot;
@@ -626,6 +640,7 @@ void r600_sampler_views_dirty(struct r600_context *rctx,
 static void r600_set_sampler_views(struct pipe_context *pipe,
 				   enum pipe_shader_type shader,
 				   unsigned start, unsigned count,
+				   unsigned unbind_num_trailing_slots,
 				   struct pipe_sampler_view **views)
 {
 	struct r600_context *rctx = (struct r600_context *) pipe;
@@ -1186,6 +1201,7 @@ void r600_constant_buffers_dirty(struct r600_context *rctx, struct r600_constbuf
 
 static void r600_set_constant_buffer(struct pipe_context *ctx,
 				     enum pipe_shader_type shader, uint index,
+				     bool take_ownership,
 				     const struct pipe_constant_buffer *input)
 {
 	struct r600_context *rctx = (struct r600_context *)ctx;
@@ -1236,7 +1252,12 @@ static void r600_set_constant_buffer(struct pipe_context *ctx,
 	} else {
 		/* Setup the hw buffer. */
 		cb->buffer_offset = input->buffer_offset;
-		pipe_resource_reference(&cb->buffer, input->buffer);
+		if (take_ownership) {
+			pipe_resource_reference(&cb->buffer, NULL);
+			cb->buffer = input->buffer;
+		} else {
+			pipe_resource_reference(&cb->buffer, input->buffer);
+		}
 		r600_context_add_resource_size(ctx, input->buffer);
 	}
 
@@ -1342,7 +1363,7 @@ void r600_update_driver_const_buffers(struct r600_context *rctx, bool compute_on
 		cb.user_buffer = ptr;
 		cb.buffer_offset = 0;
 		cb.buffer_size = size;
-		rctx->b.b.set_constant_buffer(&rctx->b.b, sh, R600_BUFFER_INFO_CONST_BUFFER, &cb);
+		rctx->b.b.set_constant_buffer(&rctx->b.b, sh, R600_BUFFER_INFO_CONST_BUFFER, false, &cb);
 		pipe_resource_reference(&cb.buffer, NULL);
 	}
 }
@@ -1531,21 +1552,21 @@ static void update_gs_block_state(struct r600_context *rctx, unsigned enable)
 
 		if (enable) {
 			r600_set_constant_buffer(&rctx->b.b, PIPE_SHADER_GEOMETRY,
-					R600_GS_RING_CONST_BUFFER, &rctx->gs_rings.esgs_ring);
+					R600_GS_RING_CONST_BUFFER, false, &rctx->gs_rings.esgs_ring);
 			if (rctx->tes_shader) {
 				r600_set_constant_buffer(&rctx->b.b, PIPE_SHADER_TESS_EVAL,
-							 R600_GS_RING_CONST_BUFFER, &rctx->gs_rings.gsvs_ring);
+							 R600_GS_RING_CONST_BUFFER, false, &rctx->gs_rings.gsvs_ring);
 			} else {
 				r600_set_constant_buffer(&rctx->b.b, PIPE_SHADER_VERTEX,
-							 R600_GS_RING_CONST_BUFFER, &rctx->gs_rings.gsvs_ring);
+							 R600_GS_RING_CONST_BUFFER, false, &rctx->gs_rings.gsvs_ring);
 			}
 		} else {
 			r600_set_constant_buffer(&rctx->b.b, PIPE_SHADER_GEOMETRY,
-					R600_GS_RING_CONST_BUFFER, NULL);
+					R600_GS_RING_CONST_BUFFER, false, NULL);
 			r600_set_constant_buffer(&rctx->b.b, PIPE_SHADER_VERTEX,
-					R600_GS_RING_CONST_BUFFER, NULL);
+					R600_GS_RING_CONST_BUFFER, false, NULL);
 			r600_set_constant_buffer(&rctx->b.b, PIPE_SHADER_TESS_EVAL,
-					R600_GS_RING_CONST_BUFFER, NULL);
+					R600_GS_RING_CONST_BUFFER, false, NULL);
 		}
 	}
 }
@@ -2053,19 +2074,14 @@ static inline void r600_emit_rasterizer_prim_state(struct r600_context *rctx)
 }
 
 static void r600_draw_vbo(struct pipe_context *ctx, const struct pipe_draw_info *info,
+                          unsigned drawid_offset,
                           const struct pipe_draw_indirect_info *indirect,
-                          const struct pipe_draw_start_count *draws,
+                          const struct pipe_draw_start_count_bias *draws,
                           unsigned num_draws)
 {
 	if (num_draws > 1) {
-           struct pipe_draw_info tmp_info = *info;
-
-           for (unsigned i = 0; i < num_draws; i++) {
-              r600_draw_vbo(ctx, &tmp_info, indirect, &draws[i], 1);
-              if (tmp_info.increment_draw_id)
-                 tmp_info.drawid++;
-           }
-           return;
+		util_draw_multi(ctx, info, drawid_offset, indirect, draws, num_draws);
+		return;
 	}
 
 	struct r600_context *rctx = (struct r600_context *)ctx;
@@ -2208,14 +2224,17 @@ static void r600_draw_vbo(struct pipe_context *ctx, const struct pipe_draw_info 
 			index_offset -= start_offset;
 			has_user_indices = false;
 		}
-		index_bias = info->index_bias;
+		index_bias = draws->index_bias;
 	} else {
 		index_bias = indirect ? 0 : draws[0].start;
 	}
 
 	/* Set the index offset and primitive restart. */
-	if (rctx->vgt_state.vgt_multi_prim_ib_reset_en != info->primitive_restart ||
-	    rctx->vgt_state.vgt_multi_prim_ib_reset_indx != info->restart_index ||
+        bool restart_index_changed = info->primitive_restart &&
+            rctx->vgt_state.vgt_multi_prim_ib_reset_indx != info->restart_index;
+
+	if (rctx->vgt_state.vgt_multi_prim_ib_reset_en != info->primitive_restart  ||
+            restart_index_changed ||
 	    rctx->vgt_state.vgt_indx_offset != index_bias ||
 	    (rctx->vgt_state.last_draw_was_indirect && !indirect)) {
 		rctx->vgt_state.vgt_multi_prim_ib_reset_en = info->primitive_restart;
@@ -2807,7 +2826,7 @@ uint32_t r600_translate_texformat(struct pipe_screen *screen,
 		case PIPE_FORMAT_RGTC1_SNORM:
 		case PIPE_FORMAT_LATC1_SNORM:
 			word4 |= sign_bit[0];
-			/* fallthrough */
+			FALLTHROUGH;
 		case PIPE_FORMAT_RGTC1_UNORM:
 		case PIPE_FORMAT_LATC1_UNORM:
 			result = FMT_BC4;
@@ -2815,7 +2834,7 @@ uint32_t r600_translate_texformat(struct pipe_screen *screen,
 		case PIPE_FORMAT_RGTC2_SNORM:
 		case PIPE_FORMAT_LATC2_SNORM:
 			word4 |= sign_bit[0] | sign_bit[1];
-			/* fallthrough */
+			FALLTHROUGH;
 		case PIPE_FORMAT_RGTC2_UNORM:
 		case PIPE_FORMAT_LATC2_UNORM:
 			result = FMT_BC5;
@@ -2861,7 +2880,7 @@ uint32_t r600_translate_texformat(struct pipe_screen *screen,
 				goto out_word4;
 			case PIPE_FORMAT_BPTC_RGB_FLOAT:
 				word4 |= sign_bit[0] | sign_bit[1] | sign_bit[2];
-				/* fall through */
+				FALLTHROUGH;
 			case PIPE_FORMAT_BPTC_RGB_UFLOAT:
 				result = FMT_BC6;
 				goto out_word4;

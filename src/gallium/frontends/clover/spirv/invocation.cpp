@@ -90,17 +90,23 @@ namespace {
    enum module::argument::type
    convert_image_type(SpvId id, SpvDim dim, SpvAccessQualifier access,
                       std::string &err) {
-      if (dim == SpvDim2D && access == SpvAccessQualifierReadOnly)
-         return module::argument::image2d_rd;
-      else if (dim == SpvDim2D && access == SpvAccessQualifierWriteOnly)
-         return module::argument::image2d_wr;
-      else if (dim == SpvDim3D && access == SpvAccessQualifierReadOnly)
-         return module::argument::image3d_rd;
-      else if (dim == SpvDim3D && access == SpvAccessQualifierWriteOnly)
-         return module::argument::image3d_wr;
-      else {
-         err += "Unknown access qualifier " + std::to_string(access)
-             +  " or dimension " + std::to_string(dim) + " for image "
+      switch (dim) {
+      case SpvDim1D:
+      case SpvDim2D:
+      case SpvDim3D:
+      case SpvDimBuffer:
+         switch (access) {
+         case SpvAccessQualifierReadOnly:
+            return module::argument::image_rd;
+         case SpvAccessQualifierWriteOnly:
+            return module::argument::image_wr;
+         default:
+            err += "Unknown access qualifier " + std::to_string(access) + " for image "
+                +  std::to_string(id) + ".\n";
+            throw build_error();
+         }
+      default:
+         err += "Unknown dimension " + std::to_string(dim) + " for image "
              +  std::to_string(id) + ".\n";
          throw build_error();
       }
@@ -324,9 +330,8 @@ namespace {
 
             const auto elem_size = types_iter->second.size;
             const auto elem_nbs = get<uint32_t>(inst, 3);
-            const auto size = elem_size * elem_nbs;
-            const auto align = elem_size * util_next_power_of_two(elem_nbs);
-            types[id] = { module::argument::scalar, size, size, align,
+            const auto size = elem_size * (elem_nbs != 3 ? elem_nbs : 4);
+            types[id] = { module::argument::scalar, size, size, size,
                           module::argument::zero_ext };
             types[id].info.address_qualifier = CL_KERNEL_ARG_ADDRESS_PRIVATE;
             break;
