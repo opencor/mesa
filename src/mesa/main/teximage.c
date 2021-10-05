@@ -2346,7 +2346,25 @@ copytexture_error_check( struct gl_context *ctx, GLuint dimensions,
       case GL_RGBA:
       case GL_LUMINANCE:
       case GL_LUMINANCE_ALPHA:
+
+      /* Added by GL_OES_required_internalformat (always enabled) in table 3.4.y.*/
+      case GL_ALPHA8:
+      case GL_LUMINANCE8:
+      case GL_LUMINANCE8_ALPHA8:
+      case GL_LUMINANCE4_ALPHA4:
+      case GL_RGB565:
+      case GL_RGB8:
+      case GL_RGBA4:
+      case GL_RGB5_A1:
+      case GL_RGBA8:
+      case GL_DEPTH_COMPONENT16:
+      case GL_DEPTH_COMPONENT24:
+      case GL_DEPTH_COMPONENT32:
+      case GL_DEPTH24_STENCIL8:
+      case GL_RGB10:
+      case GL_RGB10_A2:
          break;
+
       default:
          _mesa_error(ctx, GL_INVALID_ENUM,
                      "glCopyTexImage%dD(internalFormat=%s)", dimensions,
@@ -3132,6 +3150,8 @@ teximage(struct gl_context *ctx, GLboolean compressed, GLuint dims,
 
       _mesa_lock_texture(ctx, texObj);
       {
+         texObj->External = GL_FALSE;
+
          texImage = _mesa_get_tex_image(ctx, texObj, target, level);
 
          if (!texImage) {
@@ -3437,6 +3457,8 @@ egl_image_target_texture(struct gl_context *ctx,
       _mesa_error(ctx, GL_OUT_OF_MEMORY, "%s", caller);
    } else {
       ctx->Driver.FreeTextureImageBuffer(ctx, texImage);
+
+      texObj->External = GL_TRUE;
 
       if (tex_storage) {
          ctx->Driver.EGLImageTargetTexStorage(ctx, target, texObj, texImage,
@@ -4410,6 +4432,7 @@ copyteximage(struct gl_context *ctx, GLuint dims, struct gl_texture_object *texO
 
    _mesa_lock_texture(ctx, texObj);
    {
+      texObj->External = GL_FALSE;
       texImage = _mesa_get_tex_image(ctx, texObj, target, level);
 
       if (!texImage) {
@@ -6907,6 +6930,7 @@ texture_image_multisample(struct gl_context *ctx, GLuint dims,
          }
       }
 
+      texObj->External = GL_FALSE;
       texObj->Immutable |= immutable;
 
       if (immutable) {

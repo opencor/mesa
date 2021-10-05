@@ -107,9 +107,8 @@ isl_device_setup_mocs(struct isl_device *dev)
           */
          dev->mocs.external = 5 << 1;
       } else {
-         /* TODO: Set PTE to MOCS 61 when the kernel is ready */
-         /* TC=1/LLC Only, LeCC=1/Uncacheable, LRUM=0, L3CC=1/Uncacheable */
-         dev->mocs.external = 3 << 1;
+         /* TC=1/LLC Only, LeCC=1/UC, LRUM=0, L3CC=3/WB */
+         dev->mocs.external = 61 << 1;
          /* TC=LLC/eLLC, LeCC=WB, LRUM=3, L3CC=WB */
          dev->mocs.internal = 2 << 1;
 
@@ -2891,6 +2890,9 @@ isl_surf_get_uncompressed_surf(const struct isl_device *dev,
 
       *ucompr_surf = *surf;
       ucompr_surf->levels = 1;
+
+      /* The surface mostly stays as-is; there is no offset */
+      *offset_B = 0;
 
       /* The view remains the same */
       *ucompr_view = *view;

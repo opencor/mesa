@@ -40,6 +40,7 @@
 #include <map>
 #include <numeric>
 #include <stack>
+#include <utility>
 #include <vector>
 
 namespace aco {
@@ -3509,6 +3510,14 @@ visit_alu_instr(isel_context* ctx, nir_alu_instr* instr)
    case nir_op_fddy_fine:
    case nir_op_fddx_coarse:
    case nir_op_fddy_coarse: {
+      if (!nir_src_is_divergent(instr->src[0].src)) {
+         /* Source is the same in all lanes, so the derivative is zero.
+          * This also avoids emitting invalid IR.
+          */
+         bld.copy(Definition(dst), Operand::zero());
+         break;
+      }
+
       Temp src = as_vgpr(ctx, get_alu_src(ctx, instr->src[0]));
       uint16_t dpp_ctrl1, dpp_ctrl2;
       if (instr->op == nir_op_fddx_fine) {
@@ -11553,8 +11562,11 @@ ngg_emit_sendmsg_gs_alloc_req(isel_context* ctx, Temp vtx_cnt, Temp prm_cnt)
    Builder bld(ctx->program, ctx->block);
    Temp prm_cnt_0;
 
-   if (ctx->program->chip_class == GFX10 && ctx->stage.has(SWStage::GS)) {
-      /* Navi 1x workaround: make sure to always export at least 1 vertex and triangle */
+   if (ctx->program->chip_class == GFX10 &&
+       (ctx->stage.has(SWStage::GS) || ctx->program->info->has_ngg_culling)) {
+      /* Navi 1x workaround: check whether the workgroup has no output.
+       * If so, change the number of exported vertices and primitives to 1.
+       */
       prm_cnt_0 = bld.sopc(aco_opcode::s_cmp_eq_u32, bld.def(s1, scc), prm_cnt, Operand::zero());
       prm_cnt = bld.sop2(aco_opcode::s_cselect_b32, bld.def(s1), Operand::c32(1u), prm_cnt,
                          bld.scc(prm_cnt_0));
@@ -11568,11 +11580,12 @@ ngg_emit_sendmsg_gs_alloc_req(isel_context* ctx, Temp vtx_cnt, Temp prm_cnt)
    tmp = bld.sop2(aco_opcode::s_or_b32, bld.m0(bld.def(s1)), bld.def(s1, scc), tmp, vtx_cnt);
 
    /* Request the SPI to allocate space for the primitives and vertices
-    * that will be exported by the threadgroup. */
+    * that will be exported by the threadgroup.
+    */
    bld.sopp(aco_opcode::s_sendmsg, bld.m0(tmp), -1, sendmsg_gs_alloc_req);
 
    if (prm_cnt_0.id()) {
-      /* Navi 1x workaround: export a triangle with NaN coordinates when GS has no output.
+      /* Navi 1x workaround: export a triangle with NaN coordinates when NGG has no output.
        * It can't have all-zero positions because that would render an undesired pixel with
        * conservative rasterization.
        */

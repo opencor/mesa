@@ -1116,9 +1116,13 @@ fs_inst::flags_read(const intel_device_info *devinfo) const
 }
 
 unsigned
-fs_inst::flags_written() const
+fs_inst::flags_written(const intel_device_info *devinfo) const
 {
-   if ((conditional_mod && (opcode != BRW_OPCODE_SEL &&
+   /* On Gfx4 and Gfx5, sel.l (for min) and sel.ge (for max) are implemented
+    * using a separte cmpn and sel instruction.  This lowering occurs in
+    * fs_vistor::lower_minmax which is called very, very late.
+    */
+   if ((conditional_mod && ((opcode != BRW_OPCODE_SEL || devinfo->ver <= 5) &&
                             opcode != BRW_OPCODE_CSEL &&
                             opcode != BRW_OPCODE_IF &&
                             opcode != BRW_OPCODE_WHILE)) ||
@@ -4867,6 +4871,20 @@ lower_fb_read_logical_send(const fs_builder &bld, fs_inst *inst)
       }
    }
 
+   /* BSpec 12470 (Gfx8-11), BSpec 47842 (Gfx12+) :
+    *
+    *   "Must be zero for Render Target Read message."
+    *
+    * For bits :
+    *   - 14 : Stencil Present to Render Target
+    *   - 13 : Source Depth Present to Render Target
+    *   - 12 : oMask to Render Target
+    *   - 11 : Source0 Alpha Present to Render Target
+    */
+   ubld.group(1, 0).AND(component(header, 0),
+                        component(header, 0),
+                        brw_imm_ud(~INTEL_MASK(14, 11)));
+
    inst->resize_sources(1);
    inst->src[0] = header;
    inst->opcode = FS_OPCODE_FB_READ;
@@ -7609,7 +7627,7 @@ needs_src_copy(const fs_builder &lbld, const fs_inst *inst, unsigned i)
    return !(is_periodic(inst->src[i], lbld.dispatch_width()) ||
             (inst->components_read(i) == 1 &&
              lbld.dispatch_width() <= inst->exec_size)) ||
-          (inst->flags_written() &
+          (inst->flags_written(lbld.shader->devinfo) &
            flag_mask(inst->src[i], type_sz(inst->src[i].type)));
 }
 
@@ -8730,7 +8748,7 @@ fs_visitor::fixup_nomask_control_flow()
 
       foreach_inst_in_block_reverse_safe(fs_inst, inst, block) {
          if (!inst->predicate && inst->exec_size >= 8)
-            flag_liveout &= ~inst->flags_written();
+            flag_liveout &= ~inst->flags_written(devinfo);
 
          switch (inst->opcode) {
          case BRW_OPCODE_DO:

@@ -566,6 +566,16 @@ etna_resource_from_handle(struct pipe_screen *pscreen,
    if (!rsc->pending_ctx)
       goto fail;
 
+   if (screen->ro) {
+      struct pipe_resource *imp_prsc = prsc;
+      do {
+         etna_resource(imp_prsc)->scanout =
+               renderonly_create_gpu_import_for_resource(imp_prsc, screen->ro,
+                                                         NULL);
+         /* failure is expected for scanout incompatible buffers */
+      } while ((imp_prsc = imp_prsc->next));
+   }
+
    return prsc;
 
 fail:
@@ -629,8 +639,7 @@ etna_resource_get_param(struct pipe_screen *pscreen,
                         enum pipe_resource_param param,
                         unsigned usage, uint64_t *value)
 {
-   switch (param) {
-   case PIPE_RESOURCE_PARAM_NPLANES: {
+   if (param == PIPE_RESOURCE_PARAM_NPLANES) {
       unsigned count = 0;
 
       for (struct pipe_resource *cur = prsc; cur; cur = cur->next)
@@ -638,6 +647,25 @@ etna_resource_get_param(struct pipe_screen *pscreen,
       *value = count;
       return true;
    }
+
+   struct pipe_resource *cur = prsc;
+   for (int i = 0; i < plane; i++) {
+      cur = cur->next;
+      if (!cur)
+         return false;
+   }
+   struct etna_resource *rsc = etna_resource(cur);
+
+   switch (param) {
+   case PIPE_RESOURCE_PARAM_STRIDE:
+      *value = rsc->levels[level].stride;
+      return true;
+   case PIPE_RESOURCE_PARAM_OFFSET:
+      *value = rsc->levels[level].offset;
+      return true;
+   case PIPE_RESOURCE_PARAM_MODIFIER:
+      *value = layout_to_modifier(rsc->layout);
+      return true;
    default:
       return false;
    }
