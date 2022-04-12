@@ -18,6 +18,7 @@
 #include "vn_android.h"
 #include "vn_device.h"
 #include "vn_device_memory.h"
+#include "vn_wsi.h"
 
 static void
 vn_image_init_memory_requirements(struct vn_image *img,
@@ -190,6 +191,7 @@ vn_image_create(struct vn_device *dev,
 
    result = vn_image_init(dev, create_info, img);
    if (result != VK_SUCCESS) {
+      vn_object_base_fini(&img->base);
       vk_free(alloc, img);
       return result;
    }
@@ -204,7 +206,9 @@ vn_image_init_deferred(struct vn_device *dev,
                        const VkImageCreateInfo *create_info,
                        struct vn_image *img)
 {
-   return vn_image_init(dev, create_info, img);
+   VkResult result = vn_image_init(dev, create_info, img);
+   img->deferred_info->initialized = result == VK_SUCCESS;
+   return result;
 }
 
 VkResult
@@ -226,6 +230,7 @@ vn_image_create_deferred(struct vn_device *dev,
    result = vn_image_store_deferred_create_info(create_info, alloc,
                                                 &img->deferred_info);
    if (result != VK_SUCCESS) {
+      vn_object_base_fini(&img->base);
       vk_free(alloc, img);
       return result;
    }
@@ -295,7 +300,9 @@ vn_DestroyImage(VkDevice device,
    if (img->private_memory != VK_NULL_HANDLE)
       vn_FreeMemory(device, img->private_memory, pAllocator);
 
-   vn_async_vkDestroyImage(dev->instance, device, image, NULL);
+   /* must not ask renderer to destroy uninitialized deferred image */
+   if (!img->deferred_info || img->deferred_info->initialized)
+      vn_async_vkDestroyImage(dev->instance, device, image, NULL);
 
    if (img->deferred_info)
       vk_free(alloc, img->deferred_info);

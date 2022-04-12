@@ -26,6 +26,7 @@
 #include "util/bitscan.h"
 #include "util/macros.h"
 #include "compiler/shader_enums.h"
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef __cplusplus
@@ -271,6 +272,21 @@ mesa_to_vk_shader_stage(gl_shader_stage mesa_stage)
         (_i) < (_num_draws); \
         (_i)++, (_draw) = (const VkMultiDrawInfoEXT*)((const uint8_t*)(_draw) + (_stride)))
 
+
+struct nir_spirv_specialization;
+
+struct nir_spirv_specialization*
+vk_spec_info_to_nir_spirv(const VkSpecializationInfo *spec_info,
+                          uint32_t *out_num_spec_entries);
+
+#define STACK_ARRAY_SIZE 8
+
+#define STACK_ARRAY(type, name, size) \
+   type _stack_##name[STACK_ARRAY_SIZE], *const name = \
+      (size) <= STACK_ARRAY_SIZE ? _stack_##name : malloc((size) * sizeof(type))
+
+#define STACK_ARRAY_FINISH(name) \
+   if (name != _stack_##name) free(name)
 
 #ifdef __cplusplus
 }

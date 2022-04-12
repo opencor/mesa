@@ -221,7 +221,7 @@ vec4_gs_visitor::emit_thread_end()
    vec4_instruction *inst = emit(MOV(mrf_reg, r0));
    inst->force_writemask_all = true;
    emit(GS_OPCODE_SET_VERTEX_COUNT, mrf_reg, this->vertex_count);
-   if (INTEL_DEBUG & DEBUG_SHADER_TIME)
+   if (INTEL_DEBUG(DEBUG_SHADER_TIME))
       emit_shader_time_end();
    inst = emit(GS_OPCODE_THREAD_END);
    inst->base_mrf = base_mrf;
@@ -597,9 +597,10 @@ brw_compile_gs(const struct brw_compiler *compiler, void *log_data,
    c.key = *key;
 
    const bool is_scalar = compiler->scalar_stage[MESA_SHADER_GEOMETRY];
-   const bool debug_enabled = INTEL_DEBUG & DEBUG_GS;
+   const bool debug_enabled = INTEL_DEBUG(DEBUG_GS);
 
    prog_data->base.base.stage = MESA_SHADER_GEOMETRY;
+   prog_data->base.base.total_scratch = 0;
 
    /* The GLSL linker will have already matched up GS inputs and the outputs
     * of prior stages.  The driver does extend VS outputs in some cases, but
@@ -853,7 +854,7 @@ brw_compile_gs(const struct brw_compiler *compiler, void *log_data,
        * dual object mode.
        */
       if (prog_data->invocations <= 1 &&
-          !(INTEL_DEBUG & DEBUG_NO_DUAL_OBJECT_GS)) {
+          !INTEL_DEBUG(DEBUG_NO_DUAL_OBJECT_GS)) {
          prog_data->base.dispatch_mode = DISPATCH_MODE_4X2_DUAL_OBJECT;
 
          brw::vec4_gs_visitor v(compiler, log_data, &c, prog_data, nir,

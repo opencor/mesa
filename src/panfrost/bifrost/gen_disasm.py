@@ -238,7 +238,7 @@ def build_lut(mnemonic, desc, test):
     key_set = find_context_keys(desc, test)
     ordered = 'ordering' in key_set
     key_set.discard('ordering')
-    keys = list(key_set)
+    keys = sorted(list(key_set))
 
     # Evaluate the deriveds for every possible state, forming a (state -> deriveds) map
     testf = compile_derived(test, keys)
@@ -326,7 +326,7 @@ def disasm_op(name, op):
 
     for i, (pos, mask) in enumerate(srcs):
         body += '    fputs(", ", fp);\n'
-        body += '    dump_src(fp, _BITS(bits, {}, 3), *srcs, consts, {});\n'.format(pos, "true" if is_fma else "false")
+        body += '    dump_src(fp, _BITS(bits, {}, 3), *srcs, branch_offset, consts, {});\n'.format(pos, "true" if is_fma else "false")
 
         # Error check if needed
         if (mask != 0xFF):

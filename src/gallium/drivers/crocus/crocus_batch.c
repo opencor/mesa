@@ -216,7 +216,7 @@ crocus_init_batch(struct crocus_context *ice,
    if (devinfo->ver == 6)
       batch->valid_reloc_flags |= EXEC_OBJECT_NEEDS_GTT;
 
-   if (INTEL_DEBUG & DEBUG_BATCH) {
+   if (INTEL_DEBUG(DEBUG_BATCH)) {
       /* The shadow doesn't get relocs written so state decode fails. */
       batch->use_shadow_copy = false;
    } else
@@ -247,12 +247,12 @@ crocus_init_batch(struct crocus_context *ice,
          batch->other_batches[j++] = &ice->batches[i];
    }
 
-   if (INTEL_DEBUG & DEBUG_BATCH) {
+   if (INTEL_DEBUG(DEBUG_BATCH)) {
 
       batch->state_sizes = _mesa_hash_table_u64_create(NULL);
       const unsigned decode_flags =
          INTEL_BATCH_DECODE_FULL |
-         ((INTEL_DEBUG & DEBUG_COLOR) ? INTEL_BATCH_DECODE_IN_COLOR : 0) |
+         (INTEL_DEBUG(DEBUG_COLOR) ? INTEL_BATCH_DECODE_IN_COLOR : 0) |
          INTEL_BATCH_DECODE_OFFSETS | INTEL_BATCH_DECODE_FLOATS;
 
       intel_batch_decode_ctx_init(&batch->decoder, &screen->devinfo, stderr,
@@ -264,21 +264,30 @@ crocus_init_batch(struct crocus_context *ice,
    crocus_batch_reset(batch);
 }
 
-static struct drm_i915_gem_exec_object2 *
-find_validation_entry(struct crocus_batch *batch, struct crocus_bo *bo)
+static int
+find_exec_index(struct crocus_batch *batch, struct crocus_bo *bo)
 {
    unsigned index = READ_ONCE(bo->index);
 
    if (index < batch->exec_count && batch->exec_bos[index] == bo)
-      return &batch->validation_list[index];
+      return index;
 
    /* May have been shared between multiple active batches */
    for (index = 0; index < batch->exec_count; index++) {
       if (batch->exec_bos[index] == bo)
-         return &batch->validation_list[index];
+	 return index;
    }
+   return -1;
+}
 
-   return NULL;
+static struct drm_i915_gem_exec_object2 *
+find_validation_entry(struct crocus_batch *batch, struct crocus_bo *bo)
+{
+   int index = find_exec_index(batch, bo);
+
+   if (index == -1)
+      return NULL;
+   return &batch->validation_list[index];
 }
 
 static void
@@ -410,7 +419,7 @@ emit_reloc(struct crocus_batch *batch,
       (struct drm_i915_gem_relocation_entry) {
          .offset = offset,
          .delta = target_offset,
-         .target_handle = target->index,
+         .target_handle = find_exec_index(batch, target),
          .presumed_offset = entry->offset,
       };
 
@@ -881,7 +890,7 @@ submit_batch(struct crocus_batch *batch)
    }
 
    int ret = 0;
-   if (!batch->screen->no_hw &&
+   if (!batch->screen->devinfo.no_hw &&
        intel_ioctl(batch->screen->fd, DRM_IOCTL_I915_GEM_EXECBUFFER2, &execbuf))
       ret = -errno;
 
@@ -940,8 +949,7 @@ _crocus_batch_flush(struct crocus_batch *batch, const char *file, int line)
    finish_growing_bos(&batch->state);
    int ret = submit_batch(batch);
 
-   if (unlikely(INTEL_DEBUG &
-                (DEBUG_BATCH | DEBUG_SUBMIT | DEBUG_PIPE_CONTROL))) {
+   if (INTEL_DEBUG(DEBUG_BATCH | DEBUG_SUBMIT | DEBUG_PIPE_CONTROL)) {
       int bytes_for_commands = crocus_batch_bytes_used(batch);
       int second_bytes = 0;
       if (batch->command.bo != batch->exec_bos[0]) {
@@ -959,12 +967,12 @@ _crocus_batch_flush(struct crocus_batch *batch, const char *file, int line)
               batch->command.relocs.reloc_count,
               batch->state.relocs.reloc_count);
 
-      if (INTEL_DEBUG & (DEBUG_BATCH | DEBUG_SUBMIT)) {
+      if (INTEL_DEBUG(DEBUG_BATCH | DEBUG_SUBMIT)) {
          dump_fence_list(batch);
          dump_validation_list(batch);
       }
 
-      if (INTEL_DEBUG & DEBUG_BATCH) {
+      if (INTEL_DEBUG(DEBUG_BATCH)) {
          decode_batch(batch);
       }
    }
@@ -985,7 +993,7 @@ _crocus_batch_flush(struct crocus_batch *batch, const char *file, int line)
 
    util_dynarray_clear(&batch->exec_fences);
 
-   if (unlikely(INTEL_DEBUG & DEBUG_SYNC)) {
+   if (INTEL_DEBUG(DEBUG_SYNC)) {
       dbg_printf("waiting for idle\n");
       crocus_bo_wait_rendering(batch->command.bo); /* if execbuf failed; this is a nop */
    }
@@ -1009,7 +1017,7 @@ _crocus_batch_flush(struct crocus_batch *batch, const char *file, int line)
 
    if (ret < 0) {
 #ifdef DEBUG
-      const bool color = INTEL_DEBUG & DEBUG_COLOR;
+      const bool color = INTEL_DEBUG(DEBUG_COLOR);
       fprintf(stderr, "%scrocus: Failed to submit batchbuffer: %-80s%s\n",
               color ? "\e[1;41m" : "", strerror(-ret), color ? "\e[0m" : "");
 #endif

@@ -123,7 +123,14 @@ static unsigned si_texture_get_offset(struct si_screen *sscreen, struct si_textu
                                       unsigned *layer_stride)
 {
    if (sscreen->info.chip_class >= GFX9) {
-      *stride = tex->surface.u.gfx9.surf_pitch * tex->surface.bpe;
+      unsigned pitch;
+      if (tex->surface.is_linear) {
+         pitch = tex->surface.u.gfx9.pitch[level];
+      } else {
+         pitch = tex->surface.u.gfx9.surf_pitch;
+      }
+
+      *stride = pitch * tex->surface.bpe;
       *layer_stride = tex->surface.u.gfx9.surf_slice_size;
 
       if (!box)
@@ -133,9 +140,8 @@ static unsigned si_texture_get_offset(struct si_screen *sscreen, struct si_textu
        * of mipmap levels. */
       return tex->surface.u.gfx9.surf_offset + box->z * tex->surface.u.gfx9.surf_slice_size +
              tex->surface.u.gfx9.offset[level] +
-             (box->y / tex->surface.blk_h * tex->surface.u.gfx9.surf_pitch +
-              box->x / tex->surface.blk_w) *
-                tex->surface.bpe;
+             (box->y / tex->surface.blk_h * pitch + box->x / tex->surface.blk_w) *
+             tex->surface.bpe;
    } else {
       *stride = tex->surface.u.legacy.level[level].nblk_x * tex->surface.bpe;
       assert((uint64_t)tex->surface.u.legacy.level[level].slice_size_dw * 4 <= UINT_MAX);
@@ -232,6 +238,13 @@ static int si_init_surface(struct si_screen *sscreen, struct radeon_surf *surfac
          break;
 
       case GFX9:
+         /* DCC MSAA fails this on Raven:
+          *    https://www.khronos.org/registry/webgl/sdk/tests/deqp/functional/gles3/fbomultisample.2_samples.html
+          * and this on Picasso:
+          *    https://www.khronos.org/registry/webgl/sdk/tests/deqp/functional/gles3/fbomultisample.4_samples.html
+          */
+         if (sscreen->info.family == CHIP_RAVEN && ptex->nr_storage_samples >= 2 && bpe < 4)
+            flags |= RADEON_SURF_DISABLE_DCC;
          break;
 
       case GFX10:
@@ -447,8 +460,7 @@ static void si_reallocate_texture_inplace(struct si_context *sctx, struct si_tex
    tex->buffer.b.b.bind = templ.bind;
    radeon_bo_reference(sctx->screen->ws, &tex->buffer.buf, new_tex->buffer.buf);
    tex->buffer.gpu_address = new_tex->buffer.gpu_address;
-   tex->buffer.vram_usage_kb = new_tex->buffer.vram_usage_kb;
-   tex->buffer.gart_usage_kb = new_tex->buffer.gart_usage_kb;
+   tex->buffer.memory_usage_kb = new_tex->buffer.memory_usage_kb;
    tex->buffer.bo_size = new_tex->buffer.bo_size;
    tex->buffer.bo_alignment_log2 = new_tex->buffer.bo_alignment_log2;
    tex->buffer.domains = new_tex->buffer.domains;
@@ -890,7 +902,7 @@ static struct si_texture *si_texture_create_object(struct pipe_screen *screen,
       return NULL;
    }
 
-   tex = CALLOC_STRUCT(si_texture);
+   tex = CALLOC_STRUCT_CL(si_texture);
    if (!tex)
       goto error;
 
@@ -984,8 +996,7 @@ static struct si_texture *si_texture_create_object(struct pipe_screen *screen,
       resource->bo_alignment_log2 = plane0->buffer.bo_alignment_log2;
       resource->flags = plane0->buffer.flags;
       resource->domains = plane0->buffer.domains;
-      resource->vram_usage_kb = plane0->buffer.vram_usage_kb;
-      resource->gart_usage_kb = plane0->buffer.gart_usage_kb;
+      resource->memory_usage_kb = plane0->buffer.memory_usage_kb;
 
       radeon_bo_reference(sscreen->ws, &resource->buf, plane0->buffer.buf);
       resource->gpu_address = plane0->buffer.gpu_address;
@@ -1001,10 +1012,7 @@ static struct si_texture *si_texture_create_object(struct pipe_screen *screen,
       resource->bo_size = imported_buf->size;
       resource->bo_alignment_log2 = imported_buf->alignment_log2;
       resource->domains = sscreen->ws->buffer_get_initial_domain(resource->buf);
-      if (resource->domains & RADEON_DOMAIN_VRAM)
-         resource->vram_usage_kb = MAX2(1, resource->bo_size / 1024);
-      else if (resource->domains & RADEON_DOMAIN_GTT)
-         resource->gart_usage_kb = MAX2(1, resource->bo_size / 1024);
+      resource->memory_usage_kb = MAX2(1, resource->bo_size / 1024);
       if (sscreen->ws->buffer_get_flags)
          resource->flags = sscreen->ws->buffer_get_flags(resource->buf);
    }
@@ -1127,7 +1135,7 @@ static struct si_texture *si_texture_create_object(struct pipe_screen *screen,
    return tex;
 
 error:
-   FREE(tex);
+   FREE_CL(tex);
    return NULL;
 }
 
@@ -1382,6 +1390,18 @@ si_get_dmabuf_modifier_planes(struct pipe_screen *pscreen, uint64_t modifier,
    return planes;
 }
 
+static bool
+si_modifier_supports_resource(struct pipe_screen *screen,
+                              uint64_t modifier,
+                              const struct pipe_resource *templ)
+{
+   struct si_screen *sscreen = (struct si_screen *)screen;
+   uint32_t max_width, max_height;
+
+   ac_modifier_max_extent(&sscreen->info, modifier, &max_width, &max_height);
+   return templ->width0 <= max_width && templ->height0 <= max_height;
+}
+
 static struct pipe_resource *
 si_texture_create_with_modifiers(struct pipe_screen *screen,
                                  const struct pipe_resource *templ,
@@ -1411,7 +1431,7 @@ si_texture_create_with_modifiers(struct pipe_screen *screen,
    for (int i = 0; i < allowed_mod_count; ++i) {
       bool found = false;
       for (int j = 0; j < modifier_count && !found; ++j)
-         if (modifiers[j] == allowed_modifiers[i])
+         if (modifiers[j] == allowed_modifiers[i] && si_modifier_supports_resource(screen, modifiers[j], templ))
             found = true;
 
       if (found) {
@@ -1570,7 +1590,7 @@ static struct pipe_resource *si_texture_from_handle(struct pipe_screen *screen,
       return NULL;
 
    if (whandle->plane >= util_format_get_num_planes(whandle->format)) {
-      struct si_auxiliary_texture *tex = CALLOC_STRUCT(si_auxiliary_texture);
+      struct si_auxiliary_texture *tex = CALLOC_STRUCT_CL(si_auxiliary_texture);
       if (!tex)
          return NULL;
       tex->b.b = *templ;
@@ -1633,6 +1653,7 @@ bool si_init_flushed_depth_texture(struct pipe_context *ctx, struct pipe_resourc
    resource.array_size = texture->array_size;
    resource.last_level = texture->last_level;
    resource.nr_samples = texture->nr_samples;
+   resource.nr_storage_samples = texture->nr_storage_samples;
    resource.usage = PIPE_USAGE_DEFAULT;
    resource.bind = texture->bind & ~PIPE_BIND_DEPTH_STENCIL;
    resource.flags = texture->flags | SI_RESOURCE_FLAG_FLUSHED_DEPTH;
@@ -1757,7 +1778,7 @@ static void *si_texture_transfer_map(struct pipe_context *ctx, struct pipe_resou
       /* Tiled textures need to be converted into a linear texture for CPU
        * access. The staging texture is always linear and is placed in GART.
        *
-       * Always use a staging texture for VRAM, so that we don't map it and
+       * dGPU use a staging texture for VRAM, so that we don't map it and
        * don't relocate it to GTT.
        *
        * Reading from VRAM or GTT WC is slow, always use the staging
@@ -1767,7 +1788,7 @@ static void *si_texture_transfer_map(struct pipe_context *ctx, struct pipe_resou
        * is busy.
        */
       if (!tex->surface.is_linear || (tex->buffer.flags & RADEON_FLAG_ENCRYPTED) ||
-          (tex->buffer.domains & RADEON_DOMAIN_VRAM &&
+          (tex->buffer.domains & RADEON_DOMAIN_VRAM && sctx->screen->info.has_dedicated_vram &&
            !sctx->screen->info.smart_access_memory))
          use_staging_texture = true;
       else if (usage & PIPE_MAP_READ)

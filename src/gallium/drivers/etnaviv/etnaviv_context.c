@@ -142,9 +142,6 @@ etna_context_destroy(struct pipe_context *pctx)
 
    util_copy_framebuffer_state(&ctx->framebuffer_s, NULL);
 
-   if (ctx->primconvert)
-      util_primconvert_destroy(ctx->primconvert);
-
    if (ctx->blitter)
       util_blitter_destroy(ctx->blitter);
 
@@ -254,13 +251,6 @@ etna_draw_vbo(struct pipe_context *pctx, const struct pipe_draw_info *info,
 
    if (ctx->vertex_elements == NULL || ctx->vertex_elements->num_elements == 0)
       return; /* Nothing to do */
-
-   if (!(ctx->prim_hwsupport & (1 << info->mode))) {
-      struct primconvert_context *primconvert = ctx->primconvert;
-      util_primconvert_save_rasterizer_state(primconvert, ctx->rasterizer);
-      util_primconvert_draw_vbo(primconvert, info, drawid_offset, indirect, draws, num_draws);
-      return;
-   }
 
    int prims = u_decomposed_prims_for_vertices(info->mode, draws[0].count);
    if (unlikely(prims <= 0)) {
@@ -417,6 +407,7 @@ etna_reset_gpu_state(struct etna_context *ctx)
 {
    struct etna_cmd_stream *stream = ctx->stream;
    struct etna_screen *screen = ctx->screen;
+   uint32_t dummy_attribs[VIVS_NFE_GENERIC_ATTRIB__LEN] = { 0 };
 
    etna_set_state(stream, VIVS_GL_API_MODE, VIVS_GL_API_MODE_OPENGL);
    etna_set_state(stream, VIVS_GL_VERTEX_ELEMENT_CONFIG, 0x00000001);
@@ -475,6 +466,20 @@ etna_reset_gpu_state(struct etna_context *ctx)
             VIVS_VS_ICACHE_INVALIDATE_UNK0 | VIVS_VS_ICACHE_INVALIDATE_UNK1 |
             VIVS_VS_ICACHE_INVALIDATE_UNK2 | VIVS_VS_ICACHE_INVALIDATE_UNK3 |
             VIVS_VS_ICACHE_INVALIDATE_UNK4);
+   }
+
+   /* It seems that some GPUs (at least some GC400 have shown this behavior)
+    * come out of reset with random vertex attributes enabled and also don't
+    * disable them on the write to the first config register as normal. Enabling
+    * all attributes seems to provide the GPU with the required edge to actually
+    * disable the unused attributes on the next draw.
+    */
+   if (screen->specs.halti >= 5) {
+      etna_set_state_multi(stream, VIVS_NFE_GENERIC_ATTRIB_CONFIG0(0),
+                           VIVS_NFE_GENERIC_ATTRIB__LEN, dummy_attribs);
+   } else {
+      etna_set_state_multi(stream, VIVS_FE_VERTEX_ELEMENT_CONFIG(0),
+                           screen->specs.halti >= 0 ? 16 : 12, dummy_attribs);
    }
 
    ctx->dirty = ~0L;
@@ -647,27 +652,6 @@ etna_context_create(struct pipe_screen *pscreen, void *priv, unsigned flags)
 
    ctx->blitter = util_blitter_create(pctx);
    if (!ctx->blitter)
-      goto fail;
-
-   /* Generate the bitmask of supported draw primitives. */
-   ctx->prim_hwsupport = 1 << PIPE_PRIM_POINTS |
-                         1 << PIPE_PRIM_LINES |
-                         1 << PIPE_PRIM_LINE_STRIP |
-                         1 << PIPE_PRIM_TRIANGLES |
-                         1 << PIPE_PRIM_TRIANGLE_FAN;
-
-   /* TODO: The bug relates only to indexed draws, but here we signal
-    * that there is no support for triangle strips at all. This should
-    * be refined.
-    */
-   if (VIV_FEATURE(ctx->screen, chipMinorFeatures2, BUG_FIXES8))
-      ctx->prim_hwsupport |= 1 << PIPE_PRIM_TRIANGLE_STRIP;
-
-   if (VIV_FEATURE(ctx->screen, chipMinorFeatures2, LINE_LOOP))
-      ctx->prim_hwsupport |= 1 << PIPE_PRIM_LINE_LOOP;
-
-   ctx->primconvert = util_primconvert_create(pctx, ctx->prim_hwsupport);
-   if (!ctx->primconvert)
       goto fail;
 
    slab_create_child(&ctx->transfer_pool, &screen->transfer_pool);

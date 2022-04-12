@@ -377,15 +377,6 @@ brw_int_type(unsigned sz, bool is_signed)
    }
 }
 
-static inline bool
-type_is_unsigned_int(enum brw_reg_type tp)
-{
-   return tp == BRW_REGISTER_TYPE_UB ||
-          tp == BRW_REGISTER_TYPE_UW ||
-          tp == BRW_REGISTER_TYPE_UD ||
-          tp == BRW_REGISTER_TYPE_UQ;
-}
-
 /**
  * Construct a brw_reg.
  * \param file      one of the BRW_x_REGISTER_FILE values
@@ -1246,6 +1237,28 @@ region_matches(struct brw_reg reg, enum brw_vertical_stride v,
 #define has_scalar_region(reg) \
    region_matches(reg, BRW_VERTICAL_STRIDE_0, BRW_WIDTH_1, \
                   BRW_HORIZONTAL_STRIDE_0)
+
+/**
+ * Return the size in bytes per data element of register \p reg on the
+ * corresponding register file.
+ */
+static inline unsigned
+element_sz(struct brw_reg reg)
+{
+   if (reg.file == BRW_IMMEDIATE_VALUE || has_scalar_region(reg)) {
+      return type_sz(reg.type);
+
+   } else if (reg.width == BRW_WIDTH_1 &&
+              reg.hstride == BRW_HORIZONTAL_STRIDE_0) {
+      assert(reg.vstride != BRW_VERTICAL_STRIDE_0);
+      return type_sz(reg.type) << (reg.vstride - 1);
+
+   } else {
+      assert(reg.hstride != BRW_HORIZONTAL_STRIDE_0);
+      assert(reg.vstride == reg.hstride + reg.width);
+      return type_sz(reg.type) << (reg.hstride - 1);
+   }
+}
 
 /* brw_packed_float.c */
 int brw_float_to_vf(float f);

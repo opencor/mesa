@@ -129,11 +129,17 @@ supported:
 OpenGL 4.1
 ^^^^^^^^^^
 
-For OpenGL 4.1 support, the following additional ``VkPhysicalDeviceLimits``
-are required:
+For OpenGL 4.1 support, the following additional requirements needs to be
+supported:
 
-* ``maxImageDimension2D`` ≥ 16384
-* ``maxViewports`` ≥ 16
+* ``VkPhysicalDeviceFeatures``:
+
+  * ``multiViewport``
+
+* ``VkPhysicalDeviceLimits``
+
+  * ``maxImageDimension2D`` ≥ 16384
+  * ``maxViewports`` ≥ 16
 
 OpenGL 4.2
 ^^^^^^^^^^
@@ -177,7 +183,6 @@ supported:
 * ``VkPhysicalDeviceFeatures``:
 
   * ``robustBufferAccess``
-  * ``multiViewport``
 
 * Formats requiring ``VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT``:
 
@@ -226,6 +231,23 @@ are required to be supported
 * Device extensions:
 
   * `VK_KHR_draw_indirect_count`_
+
+Performance
+-----------
+
+If you notice poor performance and high CPU usage while running an application,
+changing the descriptor manager may improve performance:
+
+.. envvar:: ZINK_DESCRIPTORS <mode> ("auto")
+
+``auto``
+   Automatically detect best mode. This is the default.
+``lazy``
+   Disable caching and attempt to use the least amount of CPU.
+``nofallback``
+   Always use caching to try reducing GPU churn.
+``notemplates``
+   The same as `auto`, but disables the use of `VK_KHR_descriptor_templates`.
 
 Debugging
 ---------

@@ -106,21 +106,29 @@ extern bool fd_binning_enabled;
 
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/syscall.h>
 
 #define DBG(fmt, ...)                                                          \
    do {                                                                        \
       if (FD_DBG(MSGS))                                                        \
-         mesa_logi("%5d: %s:%d: " fmt, gettid(), __FUNCTION__, __LINE__,       \
-                   ##__VA_ARGS__);                                             \
+         mesa_logi("%5d: %s:%d: " fmt, ((pid_t)syscall(SYS_gettid)),           \
+                                        __FUNCTION__, __LINE__,                \
+                                        ##__VA_ARGS__);                        \
+   } while (0)
+
+#define perf_debug_message(debug, type, ...)                                   \
+   do {                                                                        \
+      if (FD_DBG(PERF))                                                        \
+         mesa_logw(__VA_ARGS__);                                               \
+      struct pipe_debug_callback *__d = (debug);                               \
+      if (__d)                                                                 \
+         pipe_debug_message(__d, type, __VA_ARGS__);                           \
    } while (0)
 
 #define perf_debug_ctx(ctx, ...)                                               \
    do {                                                                        \
-      if (FD_DBG(PERF))                                                        \
-         mesa_logw(__VA_ARGS__);                                               \
       struct fd_context *__c = (ctx);                                          \
-      if (__c)                                                                 \
-         pipe_debug_message(&__c->debug, PERF_INFO, __VA_ARGS__);              \
+      perf_debug_message(__c ? &__c->debug : NULL, PERF_INFO, __VA_ARGS__);    \
    } while (0)
 
 #define perf_debug(...) perf_debug_ctx(NULL, __VA_ARGS__)

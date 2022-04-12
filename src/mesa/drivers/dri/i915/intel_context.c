@@ -111,7 +111,8 @@ intel_flush_front(struct gl_context *ctx)
     __DRIdrawable *driDrawable = driContext->driDrawablePriv;
     __DRIscreen *const screen = intel->intelScreen->driScrnPriv;
 
-    if (intel->front_buffer_dirty && _mesa_is_winsys_fbo(ctx->DrawBuffer)) {
+    if (intel->front_buffer_dirty && ctx->DrawBuffer &&
+        _mesa_is_winsys_fbo(ctx->DrawBuffer)) {
       if (flushFront(screen) &&
           driDrawable &&
           driDrawable->loaderPrivate) {
@@ -447,7 +448,7 @@ intelInitContext(struct intel_context *intel,
 	  0, sizeof(ctx->TextureFormatSupported));
 
    driParseConfigFiles(&intel->optionCache, &intelScreen->optionCache,
-                       sPriv->myNum, "i915", NULL, NULL, 0, NULL, 0);
+                       sPriv->myNum, "i915", NULL, NULL, NULL, 0, NULL, 0);
    intel->maxBatchSize = 4096;
 
    /* Estimate the size of the mappable aperture into the GTT.  There's an

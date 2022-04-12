@@ -27,7 +27,7 @@ ir3_nir_trig_c = custom_target(
     '-p', join_paths(meson.source_root(), 'src/compiler/nir/'),
   ],
   capture : true,
-  depend_files : nir_algebraic_py,
+  depend_files : nir_algebraic_depends,
 )
 
 ir3_nir_imul_c = custom_target(
@@ -39,7 +39,7 @@ ir3_nir_imul_c = custom_target(
     '-p', join_paths(meson.source_root(), 'src/compiler/nir/'),
   ],
   capture : true,
-  depend_files : nir_algebraic_py,
+  depend_files : nir_algebraic_depends,
 )
 
 ir3_parser = custom_target(
@@ -88,6 +88,7 @@ libfreedreno_ir3_files = files(
   'ir3_legalize.c',
   'ir3_liveness.c',
   'ir3_lower_parallelcopy.c',
+  'ir3_lower_spill.c',
   'ir3_lower_subgroups.c',
   'ir3_merge_regs.c',
   'ir3_nir.c',
@@ -105,12 +106,12 @@ libfreedreno_ir3_files = files(
   'ir3_ra.c',
   'ir3_ra.h',
   'ir3_ra_validate.c',
+  'ir3_remove_unreachable.c',
   'ir3_sched.c',
   'ir3_shader.c',
   'ir3_shader.h',
   'ir3_spill.c',
   'ir3_validate.c',
-  'regmask.h',
 )
 
 libfreedreno_ir3 = static_library(

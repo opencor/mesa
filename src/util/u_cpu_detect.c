@@ -136,7 +136,7 @@ check_os_altivec_support(void)
    int sels[2] = {CTL_MACHDEP, CPU_ALTIVEC};
 #endif
    int has_vu = 0;
-   int len = sizeof (has_vu);
+   size_t len = sizeof (has_vu);
    int err;
 
    err = sysctl(sels, 2, &has_vu, &len, NULL, 0);
@@ -434,6 +434,31 @@ check_os_arm_support(void)
 }
 #endif /* PIPE_ARCH_ARM || PIPE_ARCH_AARCH64 */
 
+#if defined(PIPE_ARCH_MIPS64)
+static void
+check_os_mips64_support(void)
+{
+#if defined(PIPE_OS_LINUX)
+    Elf64_auxv_t aux;
+    int fd;
+
+    fd = open("/proc/self/auxv", O_RDONLY | O_CLOEXEC);
+    if (fd >= 0) {
+       while (read(fd, &aux, sizeof(Elf64_auxv_t)) == sizeof(Elf64_auxv_t)) {
+          if (aux.a_type == AT_HWCAP) {
+             uint64_t hwcap = aux.a_un.a_val;
+
+             util_cpu_caps.has_msa = (hwcap >> 1) & 1;
+             break;
+          }
+       }
+       close (fd);
+    }
+#endif /* PIPE_OS_LINUX */
+}
+#endif /* PIPE_ARCH_MIPS64 */
+
+
 static void
 get_cpu_topology(void)
 {
@@ -474,8 +499,7 @@ get_cpu_topology(void)
        *
        * Loop over all possible CPUs even though some may be offline.
        */
-      for (unsigned i = 0; i < util_cpu_caps.max_cpus && i < UTIL_MAX_CPUS;
-           i++) {
+      for (int16_t i = 0; i < util_cpu_caps.max_cpus && i < UTIL_MAX_CPUS; i++) {
          uint32_t cpu_bit = 1u << (i % 32);
 
          mask[i / 32] = cpu_bit;
@@ -601,7 +625,7 @@ util_cpu_detect_once(void)
    if (available_cpus == 0) {
       const int mib[] = { CTL_HW, HW_NCPUONLINE };
       int ncpu;
-      int len = sizeof(ncpu);
+      size_t len = sizeof(ncpu);
 
       sysctl(mib, 2, &ncpu, &len, NULL, 0);
       available_cpus = ncpu;
@@ -686,6 +710,9 @@ util_cpu_detect_once(void)
          case 0x19:
             util_cpu_caps.family = CPU_AMD_ZEN3;
             break;
+         default:
+            if (util_cpu_caps.x86_cpu_type > 0x19)
+               util_cpu_caps.family = CPU_AMD_ZEN_NEXT;
          }
 
          /* general feature flags */
@@ -784,6 +811,10 @@ util_cpu_detect_once(void)
    check_os_altivec_support();
 #endif /* PIPE_ARCH_PPC */
 
+#if defined(PIPE_ARCH_MIPS64)
+   check_os_mips64_support();
+#endif /* PIPE_ARCH_MIPS64 */
+
    get_cpu_topology();
 
    if (debug_get_option_dump_cpu()) {
@@ -811,6 +842,7 @@ util_cpu_detect_once(void)
       printf("util_cpu_caps.has_altivec = %u\n", util_cpu_caps.has_altivec);
       printf("util_cpu_caps.has_vsx = %u\n", util_cpu_caps.has_vsx);
       printf("util_cpu_caps.has_neon = %u\n", util_cpu_caps.has_neon);
+      printf("util_cpu_caps.has_msa = %u\n", util_cpu_caps.has_msa);
       printf("util_cpu_caps.has_daz = %u\n", util_cpu_caps.has_daz);
       printf("util_cpu_caps.has_avx512f = %u\n", util_cpu_caps.has_avx512f);
       printf("util_cpu_caps.has_avx512dq = %u\n", util_cpu_caps.has_avx512dq);
@@ -821,6 +853,8 @@ util_cpu_detect_once(void)
       printf("util_cpu_caps.has_avx512bw = %u\n", util_cpu_caps.has_avx512bw);
       printf("util_cpu_caps.has_avx512vl = %u\n", util_cpu_caps.has_avx512vl);
       printf("util_cpu_caps.has_avx512vbmi = %u\n", util_cpu_caps.has_avx512vbmi);
+      printf("util_cpu_caps.num_L3_caches = %u\n", util_cpu_caps.num_L3_caches);
+      printf("util_cpu_caps.num_cpu_mask_bits = %u\n", util_cpu_caps.num_cpu_mask_bits);
    }
 }
 

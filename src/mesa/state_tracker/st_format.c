@@ -110,23 +110,12 @@ st_mesa_format_to_pipe_format(const struct st_context *st,
    }
 
    if (st_astc_format_fallback(st, mesaFormat)) {
-      const struct util_format_description *desc =
-         util_format_description(mesaFormat);
-
       if (_mesa_is_format_srgb(mesaFormat)) {
-         if (!st->transcode_astc)
-            return PIPE_FORMAT_R8G8B8A8_SRGB;
-         else if (desc->block.width * desc->block.height < 32)
-            return PIPE_FORMAT_DXT5_SRGBA;
-         else
-            return PIPE_FORMAT_DXT1_SRGBA;
+         return st->transcode_astc ? PIPE_FORMAT_DXT5_SRGBA :
+                                     PIPE_FORMAT_R8G8B8A8_SRGB;
       } else {
-         if (!st->transcode_astc)
-            return PIPE_FORMAT_R8G8B8A8_UNORM;
-         else if (desc->block.width * desc->block.height < 32)
-            return PIPE_FORMAT_DXT5_RGBA;
-         else
-            return PIPE_FORMAT_DXT1_RGBA;
+         return st->transcode_astc ? PIPE_FORMAT_DXT5_RGBA :
+                                     PIPE_FORMAT_R8G8B8A8_UNORM;
       }
    }
 
@@ -1084,7 +1073,7 @@ find_supported_format(struct pipe_screen *screen,
 {
    uint i;
    for (i = 0; formats[i]; i++) {
-      if (screen->is_format_supported(screen, formats[i], target,
+      if (!bindings || screen->is_format_supported(screen, formats[i], target,
                                       sample_count, storage_sample_count,
                                       bindings)) {
          if (!allow_dxt && util_format_is_s3tc(formats[i])) {
@@ -1106,6 +1095,7 @@ find_supported_format(struct pipe_screen *screen,
  * The bindings parameter typically has PIPE_BIND_SAMPLER_VIEW set, plus
  * either PIPE_BINDING_RENDER_TARGET or PIPE_BINDING_DEPTH_STENCIL if
  * we want render-to-texture ability.
+ * If bindings is zero, the driver doesn't need to support the returned format.
  *
  * \param internalFormat  the user value passed to glTexImage2D
  * \param target  one of PIPE_TEXTURE_x
@@ -1144,8 +1134,8 @@ st_choose_format(struct st_context *st, GLenum internalFormat,
                                      swap_bytes);
 
       if (pf != PIPE_FORMAT_NONE &&
-          screen->is_format_supported(screen, pf, target, sample_count,
-                                      storage_sample_count, bindings) &&
+          (!bindings || screen->is_format_supported(screen, pf, target, sample_count,
+                                                    storage_sample_count, bindings)) &&
           _mesa_get_format_base_format(st_pipe_format_to_mesa_format(pf)) ==
           internalFormat) {
          goto success;
@@ -1230,6 +1220,30 @@ st_choose_renderbuffer_format(struct st_context *st,
  * return the format which exactly matches those parameters, so that
  * a memcpy-based transfer can be done.
  *
+ * If no match format exists, return PIPE_FORMAT_NONE.
+ */
+enum pipe_format
+st_choose_matching_format_noverify(struct st_context *st,
+                                   GLenum format, GLenum type, GLboolean swapBytes)
+{
+   if (swapBytes && !_mesa_swap_bytes_in_type_enum(&type))
+      return PIPE_FORMAT_NONE;
+
+   mesa_format mesa_format = _mesa_format_from_format_and_type(format, type);
+   if (_mesa_format_is_mesa_array_format(mesa_format))
+      mesa_format = _mesa_format_from_array_format(mesa_format);
+   if (mesa_format != MESA_FORMAT_NONE)
+      return st_mesa_format_to_pipe_format(st, mesa_format);
+
+   return PIPE_FORMAT_NONE;
+}
+
+
+/**
+ * Given an OpenGL user-requested format and type, and swapBytes state,
+ * return the format which exactly matches those parameters, so that
+ * a memcpy-based transfer can be done.
+ *
  * If no format is supported, return PIPE_FORMAT_NONE.
  */
 enum pipe_format
@@ -1237,19 +1251,10 @@ st_choose_matching_format(struct st_context *st, unsigned bind,
                           GLenum format, GLenum type, GLboolean swapBytes)
 {
    struct pipe_screen *screen = st->screen;
-
-   if (swapBytes && !_mesa_swap_bytes_in_type_enum(&type))
-      return PIPE_FORMAT_NONE;
-
-   mesa_format mesa_format = _mesa_format_from_format_and_type(format, type);
-   if (_mesa_format_is_mesa_array_format(mesa_format))
-      mesa_format = _mesa_format_from_array_format(mesa_format);
-   if (mesa_format != MESA_FORMAT_NONE) {
-      enum pipe_format format = st_mesa_format_to_pipe_format(st, mesa_format);
-      if (format != PIPE_FORMAT_NONE &&
-          screen->is_format_supported(screen, format, PIPE_TEXTURE_2D, 0, 0, bind))
-         return format;
-   }
+   enum pipe_format pformat = st_choose_matching_format_noverify(st, format, type, swapBytes);
+   if (pformat != PIPE_FORMAT_NONE &&
+       (!bind || screen->is_format_supported(screen, pformat, PIPE_TEXTURE_2D, 0, 0, bind)))
+      return pformat;
 
    return PIPE_FORMAT_NONE;
 }

@@ -20,6 +20,8 @@
 
 nir_depends = files('nir_opcodes.py', 'nir_intrinsics.py')
 
+nir_algebraic_depends = files('nir_opcodes.py', 'nir_algebraic.py')
+
 nir_builder_opcodes_h = custom_target(
   'nir_builder_opcodes.h',
   input : 'nir_builder_opcodes_h.py',
@@ -62,7 +64,7 @@ nir_opt_algebraic_c = custom_target(
   output : 'nir_opt_algebraic.c',
   command : [prog_python, '@INPUT@'],
   capture : true,
-  depend_files : files('nir_algebraic.py'),
+  depend_files : nir_algebraic_depends,
 )
 
 nir_intrinsics_h = custom_target(
@@ -157,6 +159,7 @@ files_libnir = files(
   'nir_lower_load_const_to_scalar.c',
   'nir_lower_locals_to_regs.c',
   'nir_lower_idiv.c',
+  'nir_lower_image.c',
   'nir_lower_indirect_derefs.c',
   'nir_lower_input_attachments.c',
   'nir_lower_int64.c',
@@ -206,6 +209,7 @@ files_libnir = files(
   'nir_lower_bit_size.c',
   'nir_lower_ubo_vec4.c',
   'nir_lower_uniforms_to_ubo.c',
+  'nir_lower_sysvals_to_varyings.c',
   'nir_metadata.c',
   'nir_move_vec_src_uses_to_dest.c',
   'nir_normalize_cubemap_coords.c',
@@ -222,6 +226,7 @@ files_libnir = files(
   'nir_opt_dead_cf.c',
   'nir_opt_dead_write_vars.c',
   'nir_opt_find_array_copies.c',
+  'nir_opt_fragdepth.c',
   'nir_opt_gcm.c',
   'nir_opt_idiv_const.c',
   'nir_opt_if.c',
@@ -362,8 +367,6 @@ idep_nir = declare_dependency(
   dependencies : [idep_nir_headers, idep_mesautil],
   link_with : _libnir,
 )
-
-nir_algebraic_py = files('nir_algebraic.py')
 
 if with_tests
   test(
@@ -511,6 +514,19 @@ if with_tests
     executable(
       'ssa_def_bits_used',
       files('tests/ssa_def_bits_used_tests.cpp'),
+      c_args : [c_msvc_compat_args, no_override_init_args],
+      gnu_symbol_visibility : 'hidden',
+      include_directories : [inc_include, inc_src, inc_mapi, inc_mesa, inc_gallium, inc_gallium_aux],
+      dependencies : [dep_thread, idep_gtest, idep_nir, idep_mesautil],
+    ),
+    suite : ['compiler', 'nir'],
+  )
+
+  test(
+    'algebraic',
+    executable(
+      'algebraic',
+      files('tests/algebraic_tests.cpp'),
       c_args : [c_msvc_compat_args, no_override_init_args],
       gnu_symbol_visibility : 'hidden',
       include_directories : [inc_include, inc_src, inc_mapi, inc_mesa, inc_gallium, inc_gallium_aux],

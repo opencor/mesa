@@ -22,6 +22,9 @@ struct vn_image_create_deferred_info {
    VkImageCreateInfo create;
    VkImageFormatListCreateInfo list;
    VkImageStencilUsageCreateInfo stencil;
+
+   /* track whether vn_image_init_deferred succeeds */
+   bool initialized;
 };
 
 struct vn_image {
@@ -33,7 +36,7 @@ struct vn_image {
    VkMemoryDedicatedRequirements dedicated_requirements[4];
 
    bool is_wsi;
-   VkBuffer prime_blit_buffer;
+   bool is_prime_blit_src;
 
    /* For VK_ANDROID_native_buffer, the WSI image owns the memory, */
    VkDeviceMemory private_memory;

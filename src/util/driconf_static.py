@@ -46,6 +46,7 @@ class Application(object):
         self.cname = cname('application')
         self.name = xml.attrib['name']
         self.executable = xml.attrib.get('executable', None)
+        self.executable_regexp = xml.attrib.get('executable_regexp', None)
         self.sha1 = xml.attrib.get('sha1', None)
         self.application_name_match = xml.attrib.get('application_name_match', None)
         self.application_versions = xml.attrib.get('application_versions', None)
@@ -68,6 +69,7 @@ class Device(object):
     def __init__(self, xml):
         self.cname = cname('device')
         self.driver = xml.attrib.get('driver', None)
+        self.device = xml.attrib.get('device', None)
         self.applications = []
         self.engines = []
 
@@ -117,6 +119,7 @@ struct driconf_option {
 struct driconf_application {
     const char *name;
     const char *executable;
+    const char *executable_regexp;
     const char *sha1;
     const char *application_name_match;
     const char *application_versions;
@@ -133,6 +136,7 @@ struct driconf_engine {
 
 struct driconf_device {
     const char *driver;
+    const char *device;
     unsigned num_engines;
     const struct driconf_engine *engines;
     unsigned num_applications;
@@ -177,6 +181,9 @@ static const struct driconf_application ${device.cname}_applications[] = {
 %        if application.executable:
       .executable = "${application.executable}",
 %        endif
+%        if application.executable_regexp:
+      .executable_regexp = "${application.executable_regexp}",
+%        endif
 %        if application.sha1:
       .sha1 = "${application.sha1}",
 %        endif
@@ -196,6 +203,9 @@ static const struct driconf_application ${device.cname}_applications[] = {
 static const struct driconf_device ${device.cname} = {
 %    if device.driver:
     .driver = "${device.driver}",
+%    endif
+%    if device.device:
+    .device = "${device.device}",
 %    endif
     .num_engines = ${len(device.engines)},
 %    if len(device.engines) > 0:
