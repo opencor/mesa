@@ -31,7 +31,6 @@
 #include "pan_bo.h"
 #include "pan_context.h"
 #include "pan_minmax_cache.h"
-#include "panfrost-quirks.h"
 
 #include "util/macros.h"
 #include "util/format/u_format.h"
@@ -72,7 +71,7 @@ panfrost_clear(
          * color/depth/stencil value, thus avoiding the generation of extra
          * fragment jobs.
          */
-        struct panfrost_batch *batch = panfrost_get_fresh_batch_for_fbo(ctx, "Clear");
+        struct panfrost_batch *batch = panfrost_get_fresh_batch_for_fbo(ctx, "Slow clear");
         panfrost_batch_clear(batch, buffers, color, depth, stencil);
 }
 
@@ -193,7 +192,7 @@ panfrost_get_blend(struct panfrost_batch *batch, unsigned rti, struct panfrost_b
         nir_alu_type col1_type = nir_type_float32;
 
         /* Bifrost has per-output types, respect them */
-        if (pan_is_bifrost(dev)) {
+        if (dev->arch >= 6) {
                 col0_type = ss->info.bifrost.blend[rti].type;
                 col1_type = ss->info.bifrost.blend_src1_type;
         }
@@ -628,11 +627,15 @@ panfrost_set_sampler_views(
         struct panfrost_context *ctx = pan_context(pctx);
         ctx->dirty_shader[shader] |= PAN_DIRTY_STAGE_TEXTURE;
 
+        unsigned new_nr = 0;
         unsigned i;
 
         for (i = 0; i < num_views; ++i) {
                 struct pipe_sampler_view *view = views ? views[i] : NULL;
                 unsigned p = i + start_slot;
+
+                if (view)
+                        new_nr = p + 1;
 
                 if (take_ownership) {
                         pipe_sampler_view_reference((struct pipe_sampler_view **)&ctx->sampler_views[shader][p],
@@ -650,13 +653,21 @@ panfrost_set_sampler_views(
 		                            NULL);
         }
 
-        /* Recalculate sampler view count */
-        ctx->sampler_view_count[shader] = 0;
+        /* If the sampler view count is higher than the greatest sampler view
+         * we touch, it can't change */
+        if (ctx->sampler_view_count[shader] > start_slot + num_views + unbind_num_trailing_slots)
+                return;
 
-        for (i = 0; i < ARRAY_SIZE(ctx->sampler_views[shader]); ++i) {
-                if (ctx->sampler_views[shader][i])
-                        ctx->sampler_view_count[shader] = i + 1;
+        /* If we haven't set any sampler views here, search lower numbers for
+         * set sampler views */
+        if (new_nr == 0) {
+                for (i = 0; i < start_slot; ++i) {
+                        if (ctx->sampler_views[shader][i])
+                                new_nr = i + 1;
+                }
         }
+
+        ctx->sampler_view_count[shader] = new_nr;
 }
 
 static void
@@ -934,7 +945,7 @@ panfrost_get_query_result(struct pipe_context *pipe,
                         for (int i = 0; i < dev->core_count; ++i)
                                 passed += result[i];
 
-                        if (!pan_is_bifrost(dev) && !query->msaa)
+                        if (dev->arch <= 5 && !query->msaa)
                                 passed /= 4;
 
                         vresult->u64 = passed;

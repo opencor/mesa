@@ -3200,9 +3200,16 @@ lp_build_fetch_texel(struct lp_build_sample_context *bld,
        * Could use min/max above instead of out-of-bounds comparisons
        * if we don't care about the result returned for out-of-bounds.
        */
+      LLVMValueRef oob[4] = {
+         bld->texel_bld.zero,
+         bld->texel_bld.zero,
+         bld->texel_bld.zero,
+         bld->texel_bld.zero,
+      };
+      lp_build_format_swizzle_soa(bld->format_desc, &bld->texel_bld, oob, oob);
       for (chan = 0; chan < 4; chan++) {
          colors_out[chan] = lp_build_select(&bld->texel_bld, out_of_bounds,
-                                            bld->texel_bld.zero, colors_out[chan]);
+                                            oob[chan], colors_out[chan]);
       }
    }
 }
@@ -4660,7 +4667,7 @@ lp_build_img_op_soa(const struct lp_static_texture_state *static_texture_state,
       out1 = lp_build_cmp(&int_coord_bld, PIPE_FUNC_GEQUAL, y, height);
       out_of_bounds = lp_build_or(&int_coord_bld, out_of_bounds, out1);
    }
-   if (dims >= 3) {
+   if (dims >= 3 || layer_coord) {
       out1 = lp_build_cmp(&int_coord_bld, PIPE_FUNC_GEQUAL, z, depth);
       out_of_bounds = lp_build_or(&int_coord_bld, out_of_bounds, out1);
    }

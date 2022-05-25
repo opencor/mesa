@@ -38,7 +38,6 @@
 #include "util/u_framebuffer.h"
 #include "pan_util.h"
 #include "decode.h"
-#include "panfrost-quirks.h"
 
 #define foreach_batch(ctx, idx) \
         BITSET_FOREACH_SET(idx, ctx->batches.active, PAN_MAX_BATCHES)
@@ -645,6 +644,9 @@ panfrost_batch_submit_ioctl(struct panfrost_batch *batch,
                 if (dev->debug & PAN_DBG_TRACE)
                         pandecode_jc(submit.jc, dev->gpu_id);
 
+                if (dev->debug & PAN_DBG_DUMP)
+                        pandecode_dump_mappings();
+
                 /* Jobs won't be complete if blackhole rendering, that's ok */
                 if (!ctx->is_noop && dev->debug & PAN_DBG_SYNC)
                         pandecode_abort_on_fault(submit.jc, dev->gpu_id);
@@ -686,13 +688,6 @@ panfrost_batch_submit_jobs(struct panfrost_batch *batch,
         }
 
         if (has_frag) {
-                /* Whether we program the fragment job for draws or not depends
-                 * on whether there is any *tiler* activity (so fragment
-                 * shaders). If there are draws but entirely RASTERIZER_DISCARD
-                 * (say, for transform feedback), we want a fragment job that
-                 * *only* clears, since otherwise the tiler structures will be
-                 * uninitialized leading to faults (or state leaks) */
-
                 mali_ptr fragjob = screen->vtbl.emit_fragment_job(batch, fb);
                 ret = panfrost_batch_submit_ioctl(batch, fragjob,
                                                   PANFROST_JD_REQ_FS, 0,
@@ -900,4 +895,18 @@ panfrost_batch_union_scissor(struct panfrost_batch *batch,
         batch->miny = MIN2(batch->miny, miny);
         batch->maxx = MAX2(batch->maxx, maxx);
         batch->maxy = MAX2(batch->maxy, maxy);
+}
+
+/**
+ * Checks if rasterization should be skipped. If not, a TILER job must be
+ * created for each draw, or the IDVS flow must be used.
+ */
+bool
+panfrost_batch_skip_rasterization(struct panfrost_batch *batch)
+{
+        struct panfrost_context *ctx = batch->ctx;
+        struct pipe_rasterizer_state *rast = (void *) ctx->rasterizer;
+
+        return (rast->rasterizer_discard ||
+                batch->scissor_culls_everything);
 }
