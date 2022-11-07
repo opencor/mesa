@@ -695,7 +695,7 @@ GENX(pan_blend_create_shader)(const struct panfrost_device *dev,
 
         options.src1 = s_src[1];
 
-        NIR_PASS_V(b.shader, nir_lower_blend, options);
+        NIR_PASS_V(b.shader, nir_lower_blend, &options);
         nir_shader_instructions_pass(b.shader, pan_inline_blend_constants,
                         nir_metadata_block_index | nir_metadata_dominance,
                         (void *) state->constants);
@@ -802,7 +802,6 @@ GENX(pan_blend_get_shader_locked)(const struct panfrost_device *dev,
 
         if (shader->nvariants < PAN_BLEND_SHADER_MAX_VARIANTS) {
                 variant = rzalloc(shader, struct pan_blend_shader_variant);
-                memcpy(variant->constants, state->constants, sizeof(variant->constants));
                 util_dynarray_init(&variant->binary, variant);
                 list_add(&variant->node, &shader->variants);
                 shader->nvariants++;
@@ -813,6 +812,8 @@ GENX(pan_blend_get_shader_locked)(const struct panfrost_device *dev,
                 util_dynarray_clear(&variant->binary);
         }
 
+        memcpy(variant->constants, state->constants, sizeof(variant->constants));
+
         nir_shader *nir =
                 GENX(pan_blend_create_shader)(dev, state, src0_type, src1_type, rt);
 
@@ -822,6 +823,7 @@ GENX(pan_blend_get_shader_locked)(const struct panfrost_device *dev,
                 .is_blend = true,
                 .blend.rt = shader->key.rt,
                 .blend.nr_samples = key.nr_samples,
+                .fixed_sysval_ubo = -1,
                 .rt_formats = { key.format },
         };
 
@@ -833,6 +835,9 @@ GENX(pan_blend_get_shader_locked)(const struct panfrost_device *dev,
         struct pan_shader_info info;
 
         GENX(pan_shader_compile)(nir, &inputs, &variant->binary, &info);
+
+        /* Blend shaders can't have sysvals */
+        assert(info.sysvals.sysval_count == 0);
 
         variant->work_reg_count = info.work_reg_count;
 

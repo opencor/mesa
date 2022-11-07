@@ -452,6 +452,9 @@ _mesa_glthread_Enable(struct gl_context *ctx, GLenum cap)
    case GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB:
       _mesa_glthread_destroy(ctx, "Enable(DEBUG_OUTPUT_SYNCHRONOUS)");
       break;
+   case GL_DEPTH_TEST:
+      ctx->GLThread.DepthTest = true;
+      break;
    case GL_CULL_FACE:
       ctx->GLThread.CullFace = true;
       break;
@@ -472,6 +475,9 @@ _mesa_glthread_Disable(struct gl_context *ctx, GLenum cap)
    case GL_CULL_FACE:
       ctx->GLThread.CullFace = false;
       break;
+   case GL_DEPTH_TEST:
+      ctx->GLThread.DepthTest = false;
+      break;
    }
 }
 
@@ -481,6 +487,8 @@ _mesa_glthread_IsEnabled(struct gl_context *ctx, GLenum cap)
    switch (cap) {
    case GL_CULL_FACE:
       return ctx->GLThread.CullFace;
+   case GL_DEPTH_TEST:
+      return ctx->GLThread.DepthTest;
    case GL_VERTEX_ARRAY:
       return !!(ctx->GLThread.CurrentVAO->UserEnabled & VERT_BIT_POS);
    case GL_NORMAL_ARRAY:
@@ -501,10 +509,19 @@ _mesa_glthread_PushAttrib(struct gl_context *ctx, GLbitfield mask)
    if (ctx->GLThread.ListMode == GL_COMPILE)
       return;
 
+   if (ctx->GLThread.AttribStackDepth >= MAX_ATTRIB_STACK_DEPTH)
+      return;
+
    struct glthread_attrib_node *attr =
       &ctx->GLThread.AttribStack[ctx->GLThread.AttribStackDepth++];
 
    attr->Mask = mask;
+
+   if (mask & (GL_POLYGON_BIT | GL_ENABLE_BIT))
+      attr->CullFace = ctx->GLThread.CullFace;
+
+   if (mask & (GL_DEPTH_BUFFER_BIT | GL_ENABLE_BIT))
+      attr->DepthTest = ctx->GLThread.DepthTest;
 
    if (mask & GL_TEXTURE_BIT)
       attr->ActiveTexture = ctx->GLThread.ActiveTexture;
@@ -519,9 +536,18 @@ _mesa_glthread_PopAttrib(struct gl_context *ctx)
    if (ctx->GLThread.ListMode == GL_COMPILE)
       return;
 
+   if (ctx->GLThread.AttribStackDepth == 0)
+      return;
+
    struct glthread_attrib_node *attr =
       &ctx->GLThread.AttribStack[--ctx->GLThread.AttribStackDepth];
    unsigned mask = attr->Mask;
+
+   if (mask & (GL_POLYGON_BIT | GL_ENABLE_BIT))
+      ctx->GLThread.CullFace = attr->CullFace;
+
+   if (mask & (GL_DEPTH_BUFFER_BIT | GL_ENABLE_BIT))
+      ctx->GLThread.DepthTest = attr->DepthTest;
 
    if (mask & GL_TEXTURE_BIT)
       ctx->GLThread.ActiveTexture = attr->ActiveTexture;
@@ -532,10 +558,34 @@ _mesa_glthread_PopAttrib(struct gl_context *ctx)
    }
 }
 
+static bool
+is_matrix_stack_full(struct gl_context *ctx, gl_matrix_index idx)
+{
+   int max_stack_depth = 0;
+   if (M_MODELVIEW == ctx->GLThread.MatrixIndex) {
+      max_stack_depth = MAX_MODELVIEW_STACK_DEPTH;
+   } else if (M_PROJECTION == ctx->GLThread.MatrixIndex) {
+      max_stack_depth = MAX_PROJECTION_STACK_DEPTH;
+   } else if (M_PROGRAM_LAST >= ctx->GLThread.MatrixIndex) {
+      max_stack_depth = MAX_PROGRAM_MATRIX_STACK_DEPTH;
+   } else if (M_TEXTURE_LAST >= ctx->GLThread.MatrixIndex) {
+      max_stack_depth = MAX_TEXTURE_STACK_DEPTH;
+   }
+   assert(max_stack_depth);
+
+   if (ctx->GLThread.MatrixStackDepth[idx] + 1 >= max_stack_depth)
+      return true;
+
+   return false;
+}
+
 static inline void
 _mesa_glthread_MatrixPushEXT(struct gl_context *ctx, GLenum matrixMode)
 {
    if (ctx->GLThread.ListMode == GL_COMPILE)
+      return;
+
+   if (is_matrix_stack_full(ctx, _mesa_get_matrix_index(ctx, matrixMode)))
       return;
 
    ctx->GLThread.MatrixStackDepth[_mesa_get_matrix_index(ctx, matrixMode)]++;
@@ -545,6 +595,9 @@ static inline void
 _mesa_glthread_MatrixPopEXT(struct gl_context *ctx, GLenum matrixMode)
 {
    if (ctx->GLThread.ListMode == GL_COMPILE)
+      return;
+
+   if (ctx->GLThread.MatrixStackDepth[_mesa_get_matrix_index(ctx, matrixMode)] == 0)
       return;
 
    ctx->GLThread.MatrixStackDepth[_mesa_get_matrix_index(ctx, matrixMode)]--;
@@ -567,6 +620,9 @@ _mesa_glthread_PushMatrix(struct gl_context *ctx)
    if (ctx->GLThread.ListMode == GL_COMPILE)
       return;
 
+   if (is_matrix_stack_full(ctx, ctx->GLThread.MatrixIndex))
+      return;
+
    ctx->GLThread.MatrixStackDepth[ctx->GLThread.MatrixIndex]++;
 }
 
@@ -574,6 +630,9 @@ static inline void
 _mesa_glthread_PopMatrix(struct gl_context *ctx)
 {
    if (ctx->GLThread.ListMode == GL_COMPILE)
+      return;
+
+   if (ctx->GLThread.MatrixStackDepth[ctx->GLThread.MatrixIndex] == 0)
       return;
 
    ctx->GLThread.MatrixStackDepth[ctx->GLThread.MatrixIndex]--;
@@ -757,6 +816,20 @@ _mesa_glthread_DeleteLists(struct gl_context *ctx, GLsizei range)
    /* Track the last display list change. */
    p_atomic_set(&ctx->GLThread.LastDListChangeBatchIndex, ctx->GLThread.next);
    _mesa_glthread_flush_batch(ctx);
+}
+
+static inline void
+_mesa_glthread_DeleteFramebuffers(struct gl_context *ctx, GLsizei n,
+                                  const GLuint *ids)
+{
+   if (ctx->GLThread.CurrentDrawFramebuffer) {
+      for (int i = 0; i < n; i++) {
+         if (ctx->GLThread.CurrentDrawFramebuffer == ids[i]) {
+            ctx->GLThread.CurrentDrawFramebuffer = 0;
+            break;
+         }
+      }
+   }
 }
 
 struct marshal_cmd_CallList

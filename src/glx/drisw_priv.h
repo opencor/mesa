@@ -51,6 +51,8 @@ struct drisw_screen
    const __DRIcoreExtension *core;
    const __DRIswrastExtension *swrast;
    const __DRIkopperExtension *kopper;
+   const __DRI2flushExtension *f;
+   const __DRI2configQueryExtension *config;
    const __DRItexBufferExtension *texBuffer;
    const __DRIcopySubBufferExtension *copySubBuffer;
    const __DRI2rendererQueryExtension *rendererQuery;

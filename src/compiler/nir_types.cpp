@@ -204,6 +204,12 @@ glsl_get_component_slots(const struct glsl_type *type)
 }
 
 unsigned
+glsl_get_component_slots_aligned(const struct glsl_type *type, unsigned offset)
+{
+   return type->component_slots_aligned(offset);
+}
+
+unsigned
 glsl_varying_count(const struct glsl_type *type)
 {
    return type->varying_count();
@@ -313,7 +319,7 @@ glsl_type_is_matrix(const struct glsl_type *type)
 bool
 glsl_matrix_type_is_row_major(const struct glsl_type *type)
 {
-   assert(type->is_matrix() && type->explicit_stride);
+   assert((type->is_matrix() && type->explicit_stride) || type->is_interface());
    return type->interface_row_major;
 }
 
@@ -439,6 +445,25 @@ bool
 glsl_type_contains_image(const struct glsl_type *type)
 {
    return type->contains_image();
+}
+
+bool
+glsl_contains_double(const struct glsl_type *type)
+{
+   return type->contains_double();
+}
+
+bool
+glsl_contains_integer(const struct glsl_type *type)
+{
+   return type->contains_integer();
+}
+
+bool
+glsl_record_compare(const struct glsl_type *a, const struct glsl_type *b,
+                    bool match_name, bool match_locations, bool match_precision)
+{
+   return a->record_compare(b, match_name, match_locations, match_precision);
 }
 
 const glsl_type *
@@ -971,6 +996,12 @@ unsigned
 glsl_type_get_image_count(const struct glsl_type *type)
 {
    return glsl_type_count(type, GLSL_TYPE_IMAGE);
+}
+
+int
+glsl_get_field_index(const struct glsl_type *type, const char *name)
+{
+   return type->field_index(name);
 }
 
 enum glsl_interface_packing

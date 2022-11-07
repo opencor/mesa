@@ -1323,7 +1323,7 @@ blorp_emit_pipeline(struct blorp_batch *batch,
     * one CC_STATE_POINTERS packet so we have to emit that here.
     */
    blorp_emit(batch, GENX(3DSTATE_CC_STATE_POINTERS), cc) {
-      cc.BLEND_STATEChange = true;
+      cc.BLEND_STATEChange = params->wm_prog_data ? true : false;
       cc.ColorCalcStatePointerValid = true;
       cc.DEPTH_STENCIL_STATEChange = true;
       cc.PointertoBLEND_STATE = blend_state_offset;
@@ -2157,7 +2157,7 @@ blorp_exec_compute(struct blorp_batch *batch, const struct blorp_params *params)
 
    blorp_emit(batch, GENX(CFE_STATE), cfe) {
       cfe.MaximumNumberofThreads =
-         devinfo->max_cs_threads * devinfo->subslice_total - 1;
+         devinfo->max_cs_threads * devinfo->subslice_total;
    }
 
    assert(cs_prog_data->push.per_thread.regs == 0);

@@ -35,7 +35,6 @@
 #include "driver_trace/tr_screen.h"
 
 #include "dri_screen.h"
-#include "utils.h"
 #include "dri_context.h"
 #include "dri_drawable.h"
 #include "dri_helpers.h"
@@ -43,7 +42,7 @@
 
 #include <vulkan/vulkan.h>
 
-
+#ifdef VK_USE_PLATFORM_XCB_KHR
 #include <xcb/xcb.h>
 #include <xcb/dri3.h>
 #include <xcb/present.h>
@@ -51,6 +50,7 @@
 #include "util/libsync.h"
 #include <X11/Xlib-xcb.h>
 #include "drm-uapi/drm_fourcc.h"
+#endif
 
 struct kopper_drawable {
    struct dri_drawable base;
@@ -680,7 +680,8 @@ kopper_update_drawable_info(struct dri_drawable *drawable)
                                 drawable->textures[ST_ATTACHMENT_BACK_LEFT] :
                                 drawable->textures[ST_ATTACHMENT_FRONT_LEFT];
 
-   if (is_window && ptex && kscreen->base.fd == -1)
+   bool do_kopper_update = is_window && ptex && kscreen->base.fd == -1;
+   if (cdraw->info.bos.sType == VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR && do_kopper_update)
       zink_kopper_update(screen, ptex, &dPriv->w, &dPriv->h);
    else
       get_drawable_info(dPriv, &x, &y, &dPriv->w, &dPriv->h);
@@ -974,6 +975,7 @@ static void
 kopperSetSwapInterval(__DRIdrawable *dPriv, int interval)
 {
    struct dri_drawable *drawable = dri_drawable(dPriv);
+   struct kopper_drawable *cdraw = (struct kopper_drawable *)drawable;
    struct dri_screen *screen = dri_screen(drawable->sPriv);
    struct kopper_screen *kscreen = (struct kopper_screen *)screen;
    struct pipe_screen *pscreen = kscreen->screen;
@@ -981,10 +983,25 @@ kopperSetSwapInterval(__DRIdrawable *dPriv, int interval)
                                 drawable->textures[ST_ATTACHMENT_BACK_LEFT] :
                                 drawable->textures[ST_ATTACHMENT_FRONT_LEFT];
 
-   // the conditional is because we can be called before buffer allocation, though
-   // this is almost certainly not the right fix.
+   /* the conditional is because we can be called before buffer allocation.  If
+    * we're before allocation, then the initial_swap_interval will be used when
+    * the swapchain is eventually created.
+    */
    if (ptex)
       zink_kopper_set_swap_interval(pscreen, ptex, interval);
+   cdraw->info.initial_swap_interval = interval;
+}
+
+static int
+kopperQueryBufferAge(__DRIdrawable *dPriv)
+{
+   struct dri_context *ctx = dri_get_current(dPriv->driScreenPriv);
+   struct dri_drawable *drawable = dri_drawable(dPriv);
+   struct pipe_resource *ptex = drawable->textures[ST_ATTACHMENT_BACK_LEFT] ?
+                                drawable->textures[ST_ATTACHMENT_BACK_LEFT] :
+                                drawable->textures[ST_ATTACHMENT_FRONT_LEFT];
+
+   return zink_kopper_query_buffer_age(ctx->st->pipe, ptex);
 }
 
 const __DRIkopperExtension driKopperExtension = {
@@ -992,6 +1009,7 @@ const __DRIkopperExtension driKopperExtension = {
    .createNewDrawable          = kopperCreateNewDrawable,
    .swapBuffers                = kopperSwapBuffers,
    .setSwapInterval            = kopperSetSwapInterval,
+   .queryBufferAge             = kopperQueryBufferAge,
 };
 
 const struct __DriverAPIRec galliumvk_driver_api = {

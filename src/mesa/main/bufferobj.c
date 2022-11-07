@@ -145,6 +145,14 @@ bufferobj_get_subdata(struct gl_context *ctx,
                     offset, size, data);
 }
 
+void
+_mesa_bufferobj_get_subdata(struct gl_context *ctx,
+                            GLintptrARB offset,
+                            GLsizeiptrARB size,
+                            void *data, struct gl_buffer_object *obj)
+{
+   bufferobj_get_subdata(ctx, offset, size, data, obj);
+}
 
 /**
  * Return bitmask of PIPE_BIND_x flags corresponding a GL buffer target.
@@ -484,6 +492,9 @@ _mesa_bufferobj_map_range(struct gl_context *ctx,
       if (transfer_flags & (PIPE_MAP_DISCARD_RANGE | PIPE_MAP_DISCARD_WHOLE_RESOURCE))
          transfer_flags &= ~PIPE_MAP_UNSYNCHRONIZED;
    }
+
+   if (ctx->Const.ForceMapBufferSynchronized)
+      transfer_flags &= ~PIPE_MAP_UNSYNCHRONIZED;
 
    obj->Mappings[index].Pointer = pipe_buffer_map_range(pipe,
                                                         obj->buffer,

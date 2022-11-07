@@ -304,7 +304,8 @@ create_new_io_vars(nir_shader *shader, nir_variable_mode mode,
             var->type = flat_type;
 
          nir_shader_add_variable(shader, var);
-         for (unsigned i = 0; i < glsl_get_length(flat_type); i++) {
+         unsigned num_slots = MAX2(glsl_get_length(flat_type), 1);
+         for (unsigned i = 0; i < num_slots; i++) {
             for (unsigned j = 0; j < 4; j++)
                new_vars[loc + i][j] = var;
             flat_vars[loc + i] = true;
@@ -676,6 +677,11 @@ nir_vectorize_tess_levels_impl(nir_function_impl *impl)
          progress = true;
       }
    }
+
+   if (progress)
+      nir_metadata_preserve(impl, nir_metadata_block_index | nir_metadata_dominance);
+   else
+      nir_metadata_preserve(impl, nir_metadata_all);
 
    return progress;
 }

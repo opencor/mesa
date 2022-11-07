@@ -414,6 +414,11 @@ spirv_builder_type_function(struct spirv_builder *b, SpvId return_type,
                             size_t num_parameter_types);
 
 SpvId
+spirv_builder_function_call(struct spirv_builder *b, SpvId result_type,
+                            SpvId function, const SpvId arguments[],
+                            size_t num_arguments);
+
+SpvId
 spirv_builder_const_bool(struct spirv_builder *b, bool val);
 
 SpvId
@@ -460,7 +465,7 @@ spirv_builder_get_words(struct spirv_builder *b, uint32_t *words,
                         uint32_t *tcs_vertices_out_word);
 
 void
-spirv_builder_emit_vertex(struct spirv_builder *b, uint32_t stream);
+spirv_builder_emit_vertex(struct spirv_builder *b, uint32_t stream, bool multistream);
 void
-spirv_builder_end_primitive(struct spirv_builder *b, uint32_t stream);
+spirv_builder_end_primitive(struct spirv_builder *b, uint32_t stream, bool multistream);
 #endif

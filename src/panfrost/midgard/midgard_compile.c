@@ -287,6 +287,9 @@ mdg_should_scalarize(const nir_instr *instr, const void *_unused)
 {
         const nir_alu_instr *alu = nir_instr_as_alu(instr);
 
+        if (nir_src_bit_size(alu->src[0].src) == 64)
+                return true;
+
         if (nir_dest_bit_size(alu->dest.dest) == 64)
                 return true;
 
@@ -294,6 +297,8 @@ mdg_should_scalarize(const nir_instr *instr, const void *_unused)
         case nir_op_fdot2:
         case nir_op_umul_high:
         case nir_op_imul_high:
+        case nir_op_pack_half_2x16:
+        case nir_op_unpack_half_2x16:
                 return true;
         default:
                 return false;
@@ -301,25 +306,20 @@ mdg_should_scalarize(const nir_instr *instr, const void *_unused)
 }
 
 /* Only vectorize int64 up to vec2 */
-static bool
-midgard_vectorize_filter(const nir_instr *instr, void *data)
+static uint8_t
+midgard_vectorize_filter(const nir_instr *instr, const void *data)
 {
         if (instr->type != nir_instr_type_alu)
-                return true;
+                return 0;
 
         const nir_alu_instr *alu = nir_instr_as_alu(instr);
-
-        unsigned num_components = alu->dest.dest.ssa.num_components;
-
         int src_bit_size = nir_src_bit_size(alu->src[0].src);
         int dst_bit_size = nir_dest_bit_size(alu->dest.dest);
 
-        if (src_bit_size == 64 || dst_bit_size == 64) {
-                if (num_components > 1)
-                        return false;
-        }
+        if (src_bit_size == 64 || dst_bit_size == 64)
+                return 2;
 
-        return true;
+        return 4;
 }
 
 static void
@@ -344,6 +344,7 @@ optimise_nir(nir_shader *nir, unsigned quirks, bool is_blend, bool is_blit)
                 .lower_tg4_broadcom_swizzle = true,
                 /* TODO: we have native gradient.. */
                 .lower_txd = true,
+                .lower_invalid_implicit_lod = true,
         };
 
         NIR_PASS(progress, nir, nir_lower_tex, &lower_tex_options);
@@ -943,7 +944,7 @@ emit_alu(compiler_context *ctx, nir_alu_instr *instr)
         }
 
         default:
-                DBG("Unhandled ALU op %s\n", nir_op_infos[instr->op].name);
+                mesa_loge("Unhandled ALU op %s\n", nir_op_infos[instr->op].name);
                 assert(0);
                 return;
         }
@@ -1572,8 +1573,9 @@ emit_sysval_read(compiler_context *ctx, nir_instr *instr,
         nir_dest nir_dest;
 
         /* Figure out which uniform this is */
-        unsigned sysval_ubo =
-                MAX2(ctx->inputs->sysval_ubo, ctx->nir->info.num_ubos);
+        unsigned sysval_ubo = ctx->inputs->fixed_sysval_ubo >= 0 ?
+                              ctx->inputs->fixed_sysval_ubo :
+                              ctx->nir->info.num_ubos;
         int sysval = panfrost_sysval_for_instr(instr, &nir_dest);
         unsigned dest = nir_dest_index(&nir_dest);
         unsigned uniform =
@@ -1955,20 +1957,18 @@ emit_intrinsic(compiler_context *ctx, nir_intrinsic_instr *instr)
                         enum midgard_rt_id rt;
 
                         unsigned reg_z = ~0, reg_s = ~0, reg_2 = ~0;
+                        unsigned writeout = PAN_WRITEOUT_C;
                         if (combined) {
-                                unsigned writeout = nir_intrinsic_component(instr);
+                                writeout = nir_intrinsic_component(instr);
                                 if (writeout & PAN_WRITEOUT_Z)
                                         reg_z = nir_src_index(ctx, &instr->src[2]);
                                 if (writeout & PAN_WRITEOUT_S)
                                         reg_s = nir_src_index(ctx, &instr->src[3]);
                                 if (writeout & PAN_WRITEOUT_2)
                                         reg_2 = nir_src_index(ctx, &instr->src[4]);
+                        }
 
-                                if (writeout & PAN_WRITEOUT_C)
-                                        rt = MIDGARD_COLOR_RT0;
-                                else
-                                        rt = MIDGARD_ZS_RT;
-                        } else {
+                        if (writeout & PAN_WRITEOUT_C) {
                                 const nir_variable *var =
                                         nir_find_variable_with_driver_location(ctx->nir, nir_var_shader_out,
                                                  nir_intrinsic_base(instr));
@@ -1978,6 +1978,8 @@ emit_intrinsic(compiler_context *ctx, nir_intrinsic_instr *instr)
 
                                 rt = MIDGARD_COLOR_RT0 + var->data.location -
                                      FRAG_RESULT_DATA0;
+                        } else {
+                                rt = MIDGARD_ZS_RT;
                         }
 
                         /* Dual-source blend writeout is done by leaving the
@@ -3123,7 +3125,9 @@ midgard_compile_shader_nir(nir_shader *nir,
 
         /* TODO: Bound against what? */
         compiler_context *ctx = rzalloc(NULL, compiler_context);
-        ctx->sysval_to_id = panfrost_init_sysvals(&info->sysvals, ctx);
+        ctx->sysval_to_id = panfrost_init_sysvals(&info->sysvals,
+                                                  inputs->fixed_sysval_layout,
+                                                  ctx);
 
         ctx->inputs = inputs;
         ctx->nir = nir;
